@@ -1,7 +1,7 @@
 ## 20261111_main_painel-unico-explorer.md
-Criação: 2026-11-11 15:05:04 -0300   Finalização: —
+Criação: 2026-11-11 15:05:04 -0300   Finalização: 2026-11-11 15:36:03 -0300
 Problema: a lateral usa um rail de ícones para alternar entre os painéis Data e Notebooks — feio e desperdiça tela.
-Resolução: — em andamento
+Resolução: rail removido; painel único Explorer (⌘B, começa fechado) com cartões Notebooks/Files/Catalog recolhíveis e redimensionáveis, scroll próprio e corpo desmontado quando recolhido — commit b7c701c.
 
 ## 20261111_main_script-de-release.md
 Criação: 2026-11-11 13:17:25 -0300   Finalização: 2026-11-11 14:42:26 -0300
