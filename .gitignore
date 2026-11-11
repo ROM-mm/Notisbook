@@ -1,3 +1,6 @@
 backend/dist/
 backend/src/notisbook/_frontend/
 brew.md
+.claude/
+.idea/
+.venv/
