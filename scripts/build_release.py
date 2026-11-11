@@ -7,6 +7,7 @@ do `index.html` nos dois artefatos e sha256 do sdist.
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import shutil
 import subprocess
@@ -43,11 +44,11 @@ def read_version() -> str:
         return tomllib.load(fh)["project"]["version"]
 
 
-def build_frontend() -> None:
+def build_frontend(*, skip_npm_ci: bool = False) -> None:
     for tool in ("node", "npm"):
         if shutil.which(tool) is None:
             raise ReleaseError(f"{tool} não encontrado no PATH; instale Node.js para compilar o frontend")
-    if not (FRONTEND / "node_modules").is_dir():
+    if not skip_npm_ci:
         run(["npm", "ci"], FRONTEND)
     run(["npm", "run", "build"], FRONTEND)
     if not (FRONTEND / "dist" / "index.html").is_file():
@@ -91,10 +92,17 @@ def sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Gera sdist e wheel do Notisbook.")
+    parser.add_argument(
+        "--skip-npm-ci",
+        action="store_true",
+        help="pula `npm ci` e reaproveita node_modules (só para desenvolvimento; a release usa npm ci)",
+    )
+    args = parser.parse_args(argv)
     try:
         version = read_version()
-        build_frontend()
+        build_frontend(skip_npm_ci=args.skip_npm_ci)
         embed_frontend()
         sdist, wheel = build_packages(version)
         check_contains_index(sdist, wheel, version)
