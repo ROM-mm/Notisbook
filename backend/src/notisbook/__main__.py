@@ -10,6 +10,7 @@ from pathlib import Path
 
 import uvicorn
 
+from . import __version__
 from .app import create_app
 from .catalog.store import ensure_catalog_db
 from .config import DEFAULT_PORT, HOST, Settings, default_root, ensure_home
@@ -18,6 +19,7 @@ from .preferences import RootRejected, read_notebooks_root, validate_notebooks_r
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="notisbook")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--no-browser", action="store_true")
