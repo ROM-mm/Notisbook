@@ -3,7 +3,7 @@
 Branch: main   Fluxo: CODE-CHANGE   Peso: completo
 
 Criação:     2026-11-11 01:00:47 -0300
-Modificação: 2026-11-11 01:00:47 -0300
+Modificação: 2026-11-11 01:14:40 -0300
 Finalização: —
 
 ## Objetivo
@@ -15,7 +15,7 @@ Depois de `brew install <usuario>/tap/notisbook`, digitar `notisbook` no termina
 |----|----------|--------------|-----------|------|------|
 | T1 | Frontend compilado dentro do pacote e localizado em runtime | python-engineer | — | 1 | escrita |
 | T2 | Achar o JDK pelo `JAVA_HOME` e pelo keg do Homebrew | python-engineer | — | 1 | escrita |
-| T3 | Licença, `--version` e sdist só com o necessário | python-engineer | — | 1 | escrita |
+| T3 | Licença no pacote (o `LICENSE` da raiz já existe desde `ba24cbc`), `--version` e sdist só com o necessário | python-engineer | — | 1 | escrita |
 | T4 | Script de release: build do frontend, sdist + wheel e sha256 | python-engineer | T1,T3 | 2 | escrita |
 
 ## Ordem de execução (waves)
@@ -26,10 +26,10 @@ Depois de `brew install <usuario>/tap/notisbook`, digitar `notisbook` no termina
 | # | decisão | racional | evidência | alternativas consideradas |
 |---|---------|----------|-----------|---------------------------|
 | D1 | Repositório público, licença Apache-2.0 | instalação sem token | sem evidência — escolha do operador | privado com token e estratégia de download própria no tap |
-| D2 | A fórmula baixa o sdist anexado à release | o tarball automático do GitHub levaria `.claude/`, `.idea/` e as notas | `git ls-files` (114 arquivos em `.claude/`) | `.gitattributes` com `export-ignore` |
+| D2 | A fórmula baixa o sdist anexado à release | o tarball automático do GitHub levaria `.claude/`, `.idea/` e as notas | `git ls-files .claude` (115 arquivos após `9a7e6fd`) | `.gitattributes` com `export-ignore` |
 | D3 | Frontend em `notisbook/_frontend` no pacote; ordem de busca: `NOTISBOOK_FRONTEND_DIST`, depois `frontend/dist` do repositório (se existir), depois o pacote | o desenvolvimento continua usando o build vivo; o pacote instalado usa o embutido | `backend/src/notisbook/config.py:36-41`, `backend/src/notisbook/static.py:20-28` | Node na fórmula, com wrapper exportando a variável |
 | D4 | Ordem de busca do JDK: `JAVA_HOME` com a versão certa, depois `/usr/libexec/java_home -v`, depois `$(brew --prefix)/opt/openjdk@<major>` | o `openjdk@17` do Homebrew é keg-only e o `java_home` não o enxerga | `backend/src/notisbook/spark/prereqs.py:115-143`, `backend/src/notisbook/spark/installer.py:407` | só aviso nos `caveats` |
-| D5 | `.idea/`, `Notisbook.iml` e `notisbook-sqlite-catalog.md` continuam no git, fora do pacote | decisão do operador | sem evidência — preferência do operador | tirar do rastreamento |
+| D5 | `.idea/` e `Notisbook.iml` ficam no git, fora do pacote; `notisbook-sqlite-catalog.md` não existe neste repositório | decisão do operador | `git ls-files` após `9a7e6fd` | tirar do rastreamento |
 
 ## Critérios de aceite
 | id | critério | verificação | tipo |
@@ -46,6 +46,9 @@ Depois de `brew install <usuario>/tap/notisbook`, digitar `notisbook` no termina
 | T4 | Um comando gera sdist e wheel, ambos com o frontend | `uv run --project backend python scripts/build_release.py`; depois `tar -tzf` e `unzip -l` → contêm `notisbook/_frontend/index.html` | feature |
 | T4 | O script imprime o sha256 do sdist | valor impresso = `shasum -a 256 backend/dist/notisbook-0.1.0.tar.gz` | feature |
 | T4 | O wheel gerado instala e o comando roda | venv limpo + `uv pip install backend/dist/*.whl` + `notisbook --help` → exit 0 | feature |
+| T2 | Prefixo do Homebrew resolvido uma vez por processo (review: `prereqs.py:182`) | `grep -n 'HOMEBREW_PREFIX' backend/src/notisbook/spark/prereqs.py` → ≥ 1 linha; com `java_home` indisponível, duas chamadas a `jdk_for_spark` disparam no máximo 1 `brew --prefix` | constraint |
+| T3 | Build exige hatchling com suporte a PEP 639 (review: `pyproject.toml:5`) | `grep -n 'hatchling>=1.27' backend/pyproject.toml` → 1 linha | constraint |
+| T4 | Release sempre roda `npm ci` (review: `build_release.py:50`) | `grep -n 'npm.*ci' scripts/build_release.py` sem condição sobre `node_modules`; script continua com exit 0 e sha = `shasum` | constraint |
 
 ## Arquivos previstos
 - `backend/src/notisbook/config.py` — T1
@@ -75,9 +78,17 @@ Depois de `brew install <usuario>/tap/notisbook`, digitar `notisbook` no termina
 - `frontend/src/**`
 
 ## Status
-- [ ] T1  - [ ] T2  - [ ] T3  - [ ] T4
+- [x] T1  - [x] T2  - [x] T3  - [x] T4
 
 <!-- effort-ledger:start -->
 | wave | agente | status | duration_ms | tokens |
 |------|--------|--------|-------------|--------|
+| 1 | python-engineer | OK | 73745 | 48061 |
+| 2 | python-engineer | OK | 33301 | 31885 |
+| - | code-review | ajustes necessários | 66644 | 65372 |
+| - | plan-auditor | CONFORME | 29082 | 24605 |
+| 3 | python-engineer | OK | 38389 | 34599 |
+| - | code-review | aprovar | 49187 | 64609 |
+| - | plan-auditor | PARCIALMENTE AUDITÁVEL | 40924 | 28964 |
+| - | plan-auditor | CONFORME | 23544 | 23048 |
 <!-- effort-ledger:end -->
