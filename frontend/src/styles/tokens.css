@@ -17,6 +17,7 @@
   --font-display: "Archivo Black", "Space Grotesk", "Public Sans", sans-serif;
   --font-script: "Pacifico", "Brush Script MT", cursive;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-code: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-size-xs: 11px;
   --font-size-sm: 12.5px;
   --font-size-md: 14px;
@@ -106,14 +107,15 @@
   --creamy: #fff4c7;
 
   /* Paleta de sintaxe */
-  --sx-kw: #7c3aed;
-  --sx-str: #15803d;
-  --sx-num: #c2410c;
-  --sx-com: #6b7280;
-  --sx-fn: #1d4ed8;
-  --sx-type: #b45309;
+  --sx-kw: #1f5fa8;
+  --sx-str: #a31515;
+  --sx-num: #13875a;
+  --sx-com: #6a737d;
+  --sx-fn: #a8761a;
+  --sx-type: #a8761a;
   --sx-dec: #be185d;
-  --sx-op: #000000;
+  --sx-op: #444444;
+  --sx-qual: #a8761a;
 }
 
 /* Escuro seguindo o sistema, exceto quando o usuário forçou o claro. */
@@ -162,14 +164,15 @@
     --mint: #a9d3b6;
     --coral: #dfaeae;
     --creamy: #e6ddb5;
-    --sx-kw: #c9bef5;
-    --sx-str: #a3ddb3;
-    --sx-num: #edc199;
-    --sx-com: #a19c93;
-    --sx-fn: #a9c6ee;
-    --sx-type: #ead38a;
+    --sx-kw: #569cd6;
+    --sx-str: #ce9178;
+    --sx-num: #b5cea8;
+    --sx-com: #6a9955;
+    --sx-fn: #dcdcaa;
+    --sx-type: #e5c07b;
     --sx-dec: #e6b3cf;
-    --sx-op: #e8e4da;
+    --sx-op: #c8c8c8;
+    --sx-qual: #e5c07b;
   }
 }
 
@@ -218,14 +221,15 @@
   --mint: #a9d3b6;
   --coral: #dfaeae;
   --creamy: #e6ddb5;
-  --sx-kw: #c9bef5;
-  --sx-str: #a3ddb3;
-  --sx-num: #edc199;
-  --sx-com: #a19c93;
-  --sx-fn: #a9c6ee;
-  --sx-type: #ead38a;
+  --sx-kw: #569cd6;
+  --sx-str: #ce9178;
+  --sx-num: #b5cea8;
+  --sx-com: #6a9955;
+  --sx-fn: #dcdcaa;
+  --sx-type: #e5c07b;
   --sx-dec: #e6b3cf;
-  --sx-op: #e8e4da;
+  --sx-op: #c8c8c8;
+  --sx-qual: #e5c07b;
 }
 
 /* Claro forçado pelo toggle (explícito para vencer a media query). */

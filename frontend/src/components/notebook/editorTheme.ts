@@ -4,9 +4,9 @@
  * se aplica sem reconfigurar o editor. As cores de sintaxe (`--syntax-*`) são
  * definidas em `Notebook.module.css`, no contêiner do notebook.
  */
-import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { EditorView } from "@codemirror/view";
-import type { Extension } from "@codemirror/state";
+import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import { type Extension, RangeSetBuilder } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 
 const theme = EditorView.theme({
@@ -15,18 +15,25 @@ const theme = EditorView.theme({
     color: "var(--color-text)",
     fontSize: "13.5px",
   },
+  ".cm-content, .cm-gutters": {
+    fontWeight: "500",
+    fontVariantLigatures: "contextual",
+    fontFeatureSettings: '"calt" 1',
+  },
+  // O `*` vence o span de `special(string)` do QuotedIdentifier, aninhado ou não.
+  ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-qualifier)" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
-    fontFamily: "var(--font-mono)",
+    fontFamily: "var(--font-code)",
     lineHeight: "var(--line-height-code)",
     overflow: "auto",
   },
   ".cm-content": {
-    fontFamily: "var(--font-mono)",
+    fontFamily: "var(--font-code)",
     padding: "0",
     caretColor: "var(--color-text)",
   },
-  ".cm-gutters": { fontFamily: "var(--font-mono)" },
+  ".cm-gutters": { fontFamily: "var(--font-code)" },
   ".cm-line": { padding: "0" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-text)" },
   ".cm-placeholder": { color: "var(--color-text-subtle)", fontStyle: "normal" },
@@ -39,11 +46,11 @@ const theme = EditorView.theme({
 });
 
 const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syntax-keyword)" },
-  { tag: [t.definitionKeyword, t.self, t.null, t.bool], color: "var(--syntax-keyword)" },
+  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syntax-keyword)", fontWeight: "700" },
+  { tag: [t.definitionKeyword, t.self, t.null, t.bool], color: "var(--syntax-keyword)", fontWeight: "700" },
   { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)" },
   { tag: [t.number, t.integer, t.float], color: "var(--syntax-number)" },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontStyle: "italic" },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)" },
   { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syntax-function)" },
   { tag: [t.definition(t.variableName), t.definition(t.function(t.variableName))], color: "var(--syntax-definition)" },
   { tag: [t.className, t.typeName, t.namespace], color: "var(--syntax-type)" },
@@ -63,3 +70,46 @@ const highlight = HighlightStyle.define([
 ]);
 
 export const notebookEditorTheme: Extension = [theme, syntaxHighlighting(highlight)];
+
+const qualifierMark = Decoration.mark({ class: "cm-sql-qualifier" });
+const QUALIFIER_TAIL = /^\.[\w"`]/;
+
+/**
+ * SQL: o lang-sql etiqueta todo identificador como `name`, sem distinguir o
+ * qualificador (`main.schema.`) do nome final. Marca os identificadores
+ * seguidos de `.` + nome; o último segmento e as colunas ficam neutros.
+ */
+function qualifierDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  const doc = view.state.doc;
+  for (const { from, to } of view.visibleRanges) {
+    syntaxTree(view.state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (node.name !== "Identifier" && node.name !== "QuotedIdentifier") return;
+        const next = doc.sliceString(node.to, Math.min(node.to + 2, doc.length));
+        if (QUALIFIER_TAIL.test(next)) {
+          builder.add(node.from, node.to, qualifierMark);
+        }
+      },
+    });
+  }
+  return builder.finish();
+}
+
+/** Registrar somente na linguagem SQL (ver `CodeEditor.languageExtension`). */
+export const sqlQualifierHighlight: Extension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = qualifierDecorations(view);
+    }
+    update(u: ViewUpdate) {
+      if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+        this.decorations = qualifierDecorations(u.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);

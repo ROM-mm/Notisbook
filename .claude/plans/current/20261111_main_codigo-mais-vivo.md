@@ -3,7 +3,7 @@
 Branch: main   Fluxo: CODE-CHANGE   Peso: completo
 
 Criação:     2026-11-11 01:52:23 -0300
-Modificação: 2026-11-11 01:52:23 -0300
+Modificação: 2026-11-11 02:01:55 -0300
 Finalização: —
 
 ## Objetivo
@@ -40,6 +40,8 @@ O código das células code (Python e SQL/DuckDB) parece apagado: o peso 500 ped
 | T4 | Paleta clara: keyword `#1f5fa8`, função/qualificador `#a8761a`, número `#13875a` | `grep -ciE '#1f5fa8\|#a8761a\|#13875a' frontend/src/styles/tokens.css` ≥3 | feature |
 | T4 | Dois blocos escuros idênticos entre si | trecho `--sx-*` de `tokens.css` nos blocos `prefers-color-scheme: dark` e tema forçado: `diff` dos dois trechos vazio | constraint |
 | T5 | SQL: qualificadores em dourado via regra só do SQL | `CodeEditor.tsx`/`editorTheme.ts`: símbolo da regra de qualificador registrado apenas no ramo `sql()` (`CodeEditor.tsx` ~linha 48) | feature |
+| T5 | SQL: qualificador entre aspas (`QuotedIdentifier`, ex.: `"main"."schema".tbl`) também fica dourado (achado minor do review, rodada 1) | `grep -n 'QuotedIdentifier' frontend/src/components/notebook/editorTheme.ts` ≥1 no filtro de nós do `sqlQualifierHighlight` | feature |
+| T5 | SQL: qualificador entre crases (`` `a`.`b`.c ``, citação nativa do Spark SQL) também fica dourado (achado minor do review, rodada 2) | `grep -n 'identifierQuotes' frontend/src/components/notebook/CodeEditor.tsx` ≥1 com crase no dialeto passado a `sql()` | feature |
 | T1–T5 | Build passa | `cd frontend && npm run build` exit 0 | constraint |
 
 ## Arquivos previstos
@@ -50,6 +52,7 @@ O código das células code (Python e SQL/DuckDB) parece apagado: o peso 500 ped
 - `frontend/src/components/notebook/editorTheme.ts` — T2, T3, T4
 - `frontend/src/components/notebook/Notebook.module.css` — T4
 - `frontend/src/components/notebook/CodeEditor.tsx` — T5
+- `.claude/plans/pendencias/TODO-codigo-mais-vivo.md` — artefato de sessão (nits do review)
 
 ## Fora de escopo
 - Export HTML (`backend/src/notisbook/export/html_report.py`) — operador adiou ("depois vemos").
@@ -62,10 +65,19 @@ O código das células code (Python e SQL/DuckDB) parece apagado: o peso 500 ped
 - Backend inteiro.
 
 ## Status
-- [ ] T1  - [ ] T2  - [ ] T3  - [ ] T4  - [ ] T5
+- [x] T1  - [x] T2  - [x] T3  - [x] T4  - [x] T5
 
 <!-- effort-ledger:start -->
 | wave | agente | status | duration_ms | tokens |
 |------|--------|--------|-------------|--------|
 | 0 | knowledge-engineer | OK | 77788 | 52382 |
+| 1 | python-engineer | OK | 60821 | 44156 |
+| 1 | code-review | ajustes necessários | 88218 | 70374 |
+| 1 | plan-auditor | CONFORME | 32145 | 25685 |
+| 2 | python-engineer | OK | 24674 | 28279 |
+| 2 | plan-auditor | CONFORME | 25560 | 23525 |
+| 2 | code-review | ajustes necessários | 56070 | 63494 |
+| 3 | python-engineer | OK | 19639 | 27852 |
+| 3 | plan-auditor | CONFORME | 26733 | 27737 |
+| 3 | code-review | aprovar | 54044 | 65950 |
 <!-- effort-ledger:end -->

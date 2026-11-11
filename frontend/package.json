@@ -19,6 +19,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
     "@fontsource/archivo-black": "^5.3.0",
+    "@fontsource/fira-code": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@fontsource/pacifico": "^5.3.0",
     "@fontsource/public-sans": "^5.3.0",

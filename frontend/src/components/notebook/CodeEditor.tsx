@@ -10,12 +10,16 @@ import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
-import { sql } from "@codemirror/lang-sql";
+import { SQLDialect, sql } from "@codemirror/lang-sql";
 import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
 import { EditorState, type Extension, Prec } from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { useEffect, useRef } from "react";
-import { notebookEditorTheme } from "./editorTheme";
+import { notebookEditorTheme, sqlQualifierHighlight } from "./editorTheme";
+
+// Spark SQL usa crase como aspas de identificador; StandardSQL só reconhece `"`.
+// Sem `keywords`/`types` o define() herda os mesmos defaults do StandardSQL.
+const sparkSqlDialect = SQLDialect.define({ identifierQuotes: '`"' });
 
 export type EditorLanguage = "python" | "sql" | "markdown" | "plain";
 
@@ -45,7 +49,7 @@ function languageExtension(language: EditorLanguage): Extension {
     case "python":
       return [python(), indentUnit.of("    ")];
     case "sql":
-      return [sql(), indentUnit.of("  ")];
+      return [sql({ dialect: sparkSqlDialect }), indentUnit.of("  "), sqlQualifierHighlight];
     case "markdown":
       return [markdown(), EditorView.lineWrapping];
     case "plain":

@@ -17,7 +17,8 @@
   --syntax-type: var(--sx-type);
   --syntax-punctuation: var(--sx-op);
   --syntax-meta: var(--sx-dec);
-  --syntax-property: var(--sx-fn);
+  --syntax-property: var(--color-text);
+  --syntax-qualifier: var(--sx-qual);
   --syntax-heading: var(--sx-op);
   --syntax-link: var(--sx-fn);
 
