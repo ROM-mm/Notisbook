@@ -1,3 +1,13 @@
+## 20261111_main_painel-unico-explorer.md
+Criação: 2026-11-11 15:05:04 -0300   Finalização: —
+Problema: a lateral usa um rail de ícones para alternar entre os painéis Data e Notebooks — feio e desperdiça tela.
+Resolução: — em andamento
+
+## 20261111_main_script-de-release.md
+Criação: 2026-11-11 13:17:25 -0300   Finalização: 2026-11-11 14:42:26 -0300
+Problema: publicar uma versão nova do Notisbook (release no GitHub + fórmula do tap) exigia passos manuais e propensos a erro.
+Resolução: scripts/release.sh <versão> com --dry-run/--skip-brew-test — versão/tag, build, push atômico, release, sha256 do asset baixado, fórmula validada no brew e push do tap, com orientação de retomada por etapa — commits c3869ba, 78a241a.
+
 ## 20261111_main_publicar-release-e-tap.md
 Criação: 2026-11-11 11:48:28 -0300   Finalização: 2026-11-11 13:05:27 -0300
 Problema: o Notisbook não tem release publicada nem tap Homebrew — ninguém consegue instalar por brew.
