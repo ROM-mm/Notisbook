@@ -16,7 +16,6 @@ VERSION=""
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 WORKDIR=""
 ETAPA="conferências"
-TAG_CRIADA=0
 PUSH_FEITO=0
 RELEASE_CRIADA=0
 ATUALIZAR_RESOURCES=0
@@ -59,11 +58,22 @@ limpar() {
       printf '\nFalha na etapa: %s (exit %s).\n' "$ETAPA" "$codigo"
       if [ "$RELEASE_CRIADA" -eq 1 ]; then
         printf 'A release v%s JÁ FOI publicada em %s; o tap NÃO foi publicado.\n' "$VERSION" "$REPO_SLUG"
-        printf 'Para retomar: corrija o problema, ajuste/valide a fórmula no tap e faça commit+push manual de %s.\n' "$FORMULA_REL"
+        if [ "$(git -C "$TAP" rev-list --count origin/main..main 2>/dev/null || echo 0)" -gt 0 ]; then
+          printf 'O commit do tap já existe localmente; só falta enviá-lo: git -C %s push origin main\n' "$TAP"
+        else
+          printf 'Para retomar: corrija o problema, ajuste/valide a fórmula no tap e faça commit+push manual de %s.\n' "$FORMULA_REL"
+          if ! git -C "$TAP" diff --quiet HEAD -- "$FORMULA_REL" 2>/dev/null; then
+            printf 'Para descartar a edição da fórmula: git -C %s checkout HEAD -- %s\n' "$TAP" "$FORMULA_REL"
+          fi
+        fi
         printf 'Não rode o script de novo para a mesma versão (a tag/release existe e ele aborta).\n'
       elif [ "$PUSH_FEITO" -eq 1 ]; then
-        printf 'O commit e a tag %s JÁ FORAM publicados em origin; a release ainda NÃO existe. Não apague tag nem commit.\n' "$TAG"
-        printf 'Para retomar (com o build em %s):\n' "$ASSET_PATH"
+        printf 'O commit e a tag %s JÁ FORAM publicados em origin; a release pode não existir ou estar sem o asset. Não apague tag nem commit.\n' "$TAG"
+        printf 'Confira: gh release view %s --repo %s\n' "$TAG" "$REPO_SLUG"
+        printf 'Se a release existir sem o asset (com o build em %s):\n' "$ROOT/$ASSET_PATH"
+        printf '  gh release upload %s %s --repo %s\n' "$TAG" "$ROOT/$ASSET_PATH" "$REPO_SLUG"
+        printf 'Se não existir (a partir da raiz do repo):\n'
+        printf '  cd %q\n' "$ROOT"
         printf '  %q' "${CMD_RELEASE[@]}"; printf '\n'
         printf 'Depois siga com o tap manualmente: sha256 do asset, url/sha256 em %s, brew reinstall/test/audit, commit+push.\n' "$FORMULA_REL"
       else
@@ -176,6 +186,9 @@ git -C "$TAP" fetch origin
 
 info "Conferências ok para $TAG"
 
+# Temporários ficam aqui dentro; o trap limpar remove o diretório inteiro
+WORKDIR="$(mktemp -d)"
+
 # Versão, commit e tag
 ETAPA="versão"
 info "Gravando versão $VERSION"
@@ -183,11 +196,10 @@ if [ "$DRY_RUN" -eq 1 ]; then
   printf '[dry-run] atualizar version = "%s" em backend/pyproject.toml\n' "$VERSION"
 else
   # Troca só a primeira linha `version = "..."` (a do [project])
-  tmp_toml="$(mktemp)"
+  tmp_toml="$WORKDIR/pyproject.toml"
   awk -v v="$VERSION" '!feito && /^version = "/ { print "version = \"" v "\""; feito=1; next } { print }' \
     backend/pyproject.toml >"$tmp_toml"
   cat "$tmp_toml" >backend/pyproject.toml
-  rm -f "$tmp_toml"
   grep -q "^version = \"$VERSION\"$" backend/pyproject.toml || die "falha ao gravar a versão em backend/pyproject.toml"
 fi
 # uv.lock registra a versão do próprio projeto, então precisa acompanhar
@@ -196,7 +208,6 @@ run uv lock --project backend
 run git add -- backend/pyproject.toml backend/uv.lock frontend/package.json frontend/package-lock.json
 run git commit -m "chore(release): $TAG"
 run git tag -a "$TAG" -m "Notisbook $VERSION"
-TAG_CRIADA=1
 
 # D6: resources só são regenerados se as dependências mudaram desde a tag anterior.
 # Decidido antes do push para que uma falha aqui ainda não tenha publicado nada.
@@ -241,8 +252,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
   printf '[dry-run] curl -fL %s e shasum -a 256\n' "$ASSET_URL"
   SHA="<sha256-do-asset>"
 else
-  WORKDIR="$(mktemp -d)"
-  curl -fsSL --retry 3 -o "$WORKDIR/$ASSET" "$ASSET_URL"
+  # --retry-all-errors: logo após o upload o asset pode responder 404 por instantes
+  curl -fsSL --retry 3 --retry-all-errors -o "$WORKDIR/$ASSET" "$ASSET_URL"
   SHA="$(shasum -a 256 "$WORKDIR/$ASSET" | awk '{print $1}')"
   [[ "$SHA" =~ ^[0-9a-f]{64}$ ]] || die "sha256 inválido: $SHA"
   echo "sha256: $SHA"
@@ -255,16 +266,15 @@ FORMULA="$TAP/$FORMULA_REL"
 if [ "$DRY_RUN" -eq 1 ]; then
   printf '[dry-run] atualizar url/sha256 principais em %s (url=%s)\n' "$FORMULA" "$ASSET_URL"
 else
-  tmp_rb="$(mktemp)"
+  tmp_rb="$WORKDIR/notisbook.rb"
   # Só a primeira ocorrência de cada (os blocos resource ficam indentados mais fundo)
   awk -v url="$ASSET_URL" -v sha="$SHA" '
     !u && /^  url "/    { print "  url \"" url "\""; u=1; next }
     !s && /^  sha256 "/ { print "  sha256 \"" sha "\""; s=1; next }
     { print }
     END { if (!u || !s) exit 1 }
-  ' "$FORMULA" >"$tmp_rb" || { rm -f "$tmp_rb"; die "url/sha256 principais não encontrados na fórmula"; }
+  ' "$FORMULA" >"$tmp_rb" || die "url/sha256 principais não encontrados na fórmula"
   cat "$tmp_rb" >"$FORMULA"
-  rm -f "$tmp_rb"
 fi
 
 # Sem auto-update o brew não mexe no tap/fórmula durante os comandos abaixo
@@ -287,15 +297,8 @@ else
       && run brew test "$FORMULA_REF" \
       && run brew audit --strict "$FORMULA_REF"
   }
-  if ! validar; then
-    {
-      printf '\nERRO: validação da fórmula falhou; o tap NÃO foi commitado nem enviado.\n'
-      printf 'A release %s já está publicada em %s.\n' "$TAG" "$REPO_SLUG"
-      printf 'Para retomar: corrija %s, rode brew reinstall/test/audit e faça commit+push no tap.\n' "$FORMULA"
-      printf 'Para descartar a edição: git -C %s checkout -- %s\n' "$TAP" "$FORMULA_REL"
-    } >&2
-    exit 1
-  fi
+  # A orientação de falha sai uma vez só, no trap limpar
+  validar || exit 1
 fi
 
 # Publicação do tap
