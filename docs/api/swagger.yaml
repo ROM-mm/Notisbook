@@ -1,0 +1,1570 @@
+openapi: 3.0.3
+info:
+  title: Notisbook API
+  version: 0.1.0
+  description: |
+    API HTTP local do Notisbook, escrita a partir do código (o servidor não expõe OpenAPI).
+    O servidor escuta só em 127.0.0.1. Toda resposta leva o header `X-Notisbook: 1`.
+    Rotas marcadas com o requisito de host confiável exigem `Host` igual a `127.0.0.1:<porta>` ou `localhost:<porta>` (senão 403).
+    WebSockets (não descritos por OpenAPI): `/api/sessions/{session_id}/channel` (protocolo v1 de células),
+    `/api/jobs/{job_id}/events` (log de jobs) e `/api/ws/ping`.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+servers:
+  - url: http://127.0.0.1:8765
+    description: Servidor local (porta padrão; muda com --port)
+security:
+  - bearerToken: []
+  - cookieToken: []
+  - queryToken: []
+tags:
+  - name: system
+    description: Saúde, pré-requisitos e recursos da máquina
+  - name: contents
+    description: Notebooks e pastas sob a raiz dos notebooks
+  - name: export
+    description: Export de notebooks para py, ipynb e html
+  - name: fs
+    description: Navegação e exclusão de pastas por caminho absoluto
+  - name: notebooks-root
+    description: Pasta raiz dos notebooks
+  - name: sessions
+    description: Kernels e sessões
+  - name: variables
+    description: Variáveis do namespace do kernel
+  - name: catalog
+    description: Catálogos, schemas e tabelas
+  - name: spark
+    description: Ambientes Spark e libs
+  - name: jobs
+    description: Jobs de instalação e de libs
+paths:
+  /api/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Verifica se o servidor responde
+      responses:
+        '200':
+          description: Servidor ativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/system/prereqs:
+    get:
+      tags: [system]
+      operationId: getPrereqs
+      summary: Pré-requisitos (uv e JDKs)
+      responses:
+        '200':
+          description: Estado dos pré-requisitos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Prereqs'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/system/resources:
+    get:
+      tags: [system]
+      operationId: getResources
+      summary: Uso de memória, CPU e disco (requer host confiável)
+      responses:
+        '200':
+          description: Recursos da máquina
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Resources'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+  /api/contents:
+    get:
+      tags: [contents]
+      operationId: listContents
+      summary: Lista uma pasta da raiz dos notebooks
+      parameters:
+        - name: path
+          in: query
+          required: false
+          schema:
+            type: string
+            default: ''
+      responses:
+        '200':
+          description: Entradas da pasta
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Entry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/contents/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: Caminho relativo à raiz dos notebooks
+        schema:
+          type: string
+    get:
+      tags: [contents]
+      operationId: getNotebook
+      summary: Lê um notebook (nbformat 4)
+      responses:
+        '200':
+          description: Notebook
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notebook'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [contents]
+      operationId: saveNotebook
+      summary: Salva um notebook
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notebook'
+      responses:
+        '200':
+          description: Notebook salvo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [contents]
+      operationId: createContent
+      summary: Cria um notebook ou uma pasta
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                type:
+                  type: string
+                  enum: [notebook, directory]
+                  default: notebook
+      responses:
+        '201':
+          description: Criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+    patch:
+      tags: [contents]
+      operationId: renameContent
+      summary: Renomeia ou move um notebook ou pasta
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_path]
+              properties:
+                new_path:
+                  type: string
+      responses:
+        '200':
+          description: Renomeado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: Destino existe, notebook aberto num kernel ou raiz alterada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [contents]
+      operationId: deleteContent
+      summary: Exclui um notebook ou pasta (recursivo)
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      responses:
+        '204':
+          description: Excluído
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/export/{fmt}:
+    post:
+      tags: [export]
+      operationId: exportNotebook
+      summary: Exporta um notebook sem gravar em disco
+      parameters:
+        - name: fmt
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [py, ipynb, html]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notebook]
+              properties:
+                notebook:
+                  $ref: '#/components/schemas/Notebook'
+                filename:
+                  type: string
+                  default: ''
+      responses:
+        '200':
+          description: Arquivo exportado (anexo)
+          content:
+            text/x-python:
+              schema:
+                type: string
+            application/x-ipynb+json:
+              schema:
+                type: string
+            text/html:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/fs/choose-dir:
+    post:
+      tags: [fs]
+      operationId: chooseDirectory
+      summary: Abre o seletor de pasta nativo do macOS
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                default_path:
+                  type: string
+                  nullable: true
+                purpose:
+                  type: string
+                  enum: [data, notebooks]
+                  default: data
+      responses:
+        '200':
+          description: Pasta escolhida ou cancelamento
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - type: object
+                    required: [path]
+                    properties:
+                      path:
+                        type: string
+                  - type: object
+                    required: [cancelled]
+                    properties:
+                      cancelled:
+                        type: boolean
+                        enum: [true]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '501':
+          $ref: '#/components/responses/Error'
+        '504':
+          $ref: '#/components/responses/Error'
+  /api/fs/places:
+    get:
+      tags: [fs]
+      operationId: listPlaces
+      summary: Atalhos de navegação
+      responses:
+        '200':
+          description: Atalhos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label:
+                      type: string
+                      enum: [Home, Notebooks, Root]
+                    path:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+  /api/fs/list:
+    get:
+      tags: [fs]
+      operationId: listDirectory
+      summary: Lista uma pasta por caminho absoluto
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        '200':
+          description: Página da listagem
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FsListing'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/fs/dir:
+    delete:
+      tags: [fs]
+      operationId: deleteDirectory
+      summary: Exclui uma pasta (allowlist e checagem do catálogo)
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Excluída
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: open_kernel, contains_catalog_tables ou delete_failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/notebooks-root:
+    get:
+      tags: [notebooks-root]
+      operationId: getNotebooksRoot
+      summary: Pasta raiz atual dos notebooks
+      responses:
+        '200':
+          description: Descritor da raiz
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotebooksRoot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+    put:
+      tags: [notebooks-root]
+      operationId: setNotebooksRoot
+      summary: Troca a pasta raiz dos notebooks
+      parameters:
+        - name: dry_run
+          in: query
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path]
+              properties:
+                path:
+                  type: string
+      responses:
+        '200':
+          description: Nova raiz (ou validação, com dry_run)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/NotebooksRoot'
+                  - type: object
+                    properties:
+                      path:
+                        type: string
+                      name:
+                        type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          description: locked ou sessions_active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/kernelspecs:
+    get:
+      tags: [sessions]
+      operationId: listKernelspecs
+      summary: Kernels disponíveis
+      responses:
+        '200':
+          description: Kernelspecs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    display_name:
+                      type: string
+                    language:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/sessions:
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      summary: Sessões de kernel ativas
+      responses:
+        '200':
+          description: Sessões
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    session_id:
+                      type: string
+                    path:
+                      type: string
+                    kernel_name:
+                      type: string
+                    state:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [sessions]
+      operationId: createSession
+      summary: Inicia um kernel para um notebook
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [path, kernel_name]
+              properties:
+                path:
+                  type: string
+                kernel_name:
+                  type: string
+      responses:
+        '201':
+          description: Sessão criada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  session_id:
+                    type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+  /api/sessions/{session_id}:
+    delete:
+      tags: [sessions]
+      operationId: deleteSession
+      summary: Encerra a sessão e o kernel
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '204':
+          description: Encerrada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/sessions/{session_id}/variables:
+    get:
+      tags: [variables]
+      operationId: listVariables
+      summary: Variáveis do namespace do kernel (requer host confiável)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+      responses:
+        '200':
+          description: Variáveis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Variables'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/sessions/{session_id}/variables/children:
+    get:
+      tags: [variables]
+      operationId: listVariableChildren
+      summary: Filhos de uma variável (requer host confiável)
+      parameters:
+        - $ref: '#/components/parameters/SessionId'
+        - name: path
+          in: query
+          required: true
+          description: Lista JSON de 1 a 16 passos (string ou inteiro); o primeiro é o nome da variável
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 2000
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10000000
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 100
+      responses:
+        '200':
+          description: Filhos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VariableChildren'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/catalog:
+    get:
+      tags: [catalog]
+      operationId: getCatalog
+      summary: Catálogos, databases e tabelas (requer host confiável)
+      responses:
+        '200':
+          description: Árvore do catálogo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogTree'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/columns:
+    get:
+      tags: [catalog]
+      operationId: getColumns
+      summary: Colunas de uma tabela (requer host confiável)
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - name: database
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: table
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      responses:
+        '200':
+          description: Colunas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Column'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/schemas:
+    post:
+      tags: [catalog]
+      operationId: createSchema
+      summary: Cria um schema (requer host confiável)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [catalog, name]
+              properties:
+                catalog:
+                  type: string
+                name:
+                  type: string
+                  pattern: '^[A-Za-z_][A-Za-z0-9_]{0,127}$'
+      responses:
+        '201':
+          description: Schema criado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  catalog:
+                    type: string
+                  name:
+                    type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [catalog]
+      operationId: deleteSchema
+      summary: Exclui um schema e suas tabelas (requer host confiável)
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - $ref: '#/components/parameters/SchemaName'
+        - name: etag
+          in: query
+          required: true
+          description: Valor obtido em /api/catalog/schemas/preview
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Resultado da exclusão
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaDropResult'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/schemas/preview:
+    get:
+      tags: [catalog]
+      operationId: previewSchemaDelete
+      summary: Prévia da exclusão de um schema (requer host confiável)
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - $ref: '#/components/parameters/SchemaName'
+      responses:
+        '200':
+          description: Contagens e etag
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SchemaPreview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/spark/catalog:
+    get:
+      tags: [spark]
+      operationId: getSparkCatalog
+      summary: Versões do PySpark disponíveis
+      responses:
+        '200':
+          description: Catálogo de versões
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SparkCatalog'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/spark/versions:
+    get:
+      tags: [spark]
+      operationId: listSparkVersions
+      summary: Ambientes instalados e em instalação
+      responses:
+        '200':
+          description: Ambientes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SparkVersions'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [spark]
+      operationId: installSparkVersion
+      summary: Inicia a instalação de um ambiente Spark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version:
+                  $ref: '#/components/schemas/SparkVersion'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}:
+    delete:
+      tags: [spark]
+      operationId: removeSparkVersion
+      summary: Remove um ambiente Spark
+      parameters:
+        - $ref: '#/components/parameters/Version'
+      responses:
+        '204':
+          description: Removido
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}/packages:
+    parameters:
+      - $ref: '#/components/parameters/Version'
+    get:
+      tags: [spark]
+      operationId: listPackages
+      summary: Libs do usuário no ambiente (libs base omitidas)
+      responses:
+        '200':
+          description: Libs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Packages'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [spark]
+      operationId: addPackages
+      summary: Instala libs do PyPI no ambiente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requirements]
+              properties:
+                requirements:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [name]
+                    properties:
+                      name:
+                        type: string
+                      spec:
+                        type: string
+                        default: ''
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}/packages/upgrade:
+    post:
+      tags: [spark]
+      operationId: upgradePackages
+      summary: Atualiza libs do ambiente
+      parameters:
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        $ref: '#/components/requestBodies/PackageNames'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}/packages/uninstall:
+    post:
+      tags: [spark]
+      operationId: uninstallPackages
+      summary: Desinstala libs do ambiente
+      parameters:
+        - $ref: '#/components/parameters/Version'
+      requestBody:
+        $ref: '#/components/requestBodies/PackageNames'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/jobs/{job_id}:
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Estado e log de um job
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+components:
+  securitySchemes:
+    bearerToken:
+      type: http
+      scheme: bearer
+      description: Token impresso na inicialização (muda a cada start)
+    cookieToken:
+      type: apiKey
+      in: cookie
+      name: notisbook_token
+    queryToken:
+      type: apiKey
+      in: query
+      name: token
+      description: Também grava o cookie notisbook_token
+  parameters:
+    RootGeneration:
+      name: X-Notisbook-Root-Generation
+      in: header
+      required: false
+      description: Geração da raiz conhecida pelo cliente; diferente da atual gera 409 root_changed
+      schema:
+        type: integer
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema:
+        type: string
+    Version:
+      name: version
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/SparkVersion'
+    CatalogName:
+      name: catalog
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    SchemaName:
+      name: schema
+      in: query
+      required: true
+      schema:
+        type: string
+  requestBodies:
+    PackageNames:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [names]
+            properties:
+              names:
+                type: array
+                minItems: 1
+                maxItems: 500
+                items:
+                  type: string
+  responses:
+    Unauthorized:
+      description: Token ausente ou inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ForbiddenHost:
+      description: Header Host fora de 127.0.0.1/localhost na porta do servidor
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error:
+      description: Erro com detalhe
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    JobAccepted:
+      description: Job iniciado; acompanhe por /api/jobs/{job_id} ou pelo WebSocket de eventos
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              job_id:
+                type: string
+  schemas:
+    Error:
+      type: object
+      properties:
+        detail:
+          description: Mensagem, lista de erros de validação ou objeto com code e message
+          oneOf:
+            - type: string
+            - type: array
+              items:
+                type: object
+            - type: object
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+    Entry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [dir, notebook, file]
+        mtime:
+          type: number
+        size:
+          type: integer
+          nullable: true
+    Notebook:
+      type: object
+      description: Documento nbformat 4 (minor >= 5)
+      additionalProperties: true
+      properties:
+        nbformat:
+          type: integer
+        nbformat_minor:
+          type: integer
+        metadata:
+          type: object
+        cells:
+          type: array
+          items:
+            type: object
+    Prereqs:
+      type: object
+      properties:
+        uv:
+          type: object
+          properties:
+            found:
+              type: boolean
+            version:
+              type: string
+              nullable: true
+        java:
+          type: object
+          properties:
+            version:
+              type: string
+              nullable: true
+            ok:
+              type: boolean
+            jdks:
+              type: array
+              items:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  home:
+                    type: string
+            spark3_ok:
+              type: boolean
+            spark4_ok:
+              type: boolean
+        java_home:
+          type: string
+          nullable: true
+    UsedTotal:
+      type: object
+      nullable: true
+      properties:
+        used:
+          type: integer
+        total:
+          type: integer
+    Resources:
+      type: object
+      properties:
+        memory:
+          $ref: '#/components/schemas/UsedTotal'
+        cpu:
+          type: object
+          nullable: true
+          properties:
+            percent:
+              type: number
+            cores:
+              type: integer
+        disk:
+          $ref: '#/components/schemas/UsedTotal'
+    FsListing:
+      type: object
+      properties:
+        path:
+          type: string
+        parent:
+          type: string
+          nullable: true
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              path:
+                type: string
+              is_dir:
+                type: boolean
+              is_symlink:
+                type: boolean
+              size:
+                type: integer
+                nullable: true
+              mtime:
+                type: number
+                nullable: true
+        total:
+          type: integer
+        truncated:
+          type: boolean
+        next_offset:
+          type: integer
+          nullable: true
+    NotebooksRoot:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+          enum: [cli, saved, default]
+        locked:
+          type: boolean
+        generation:
+          type: integer
+    Variables:
+      type: object
+      properties:
+        status:
+          type: string
+          description: ok, busy, error, stale_path, no_spark_session ou kernel_<estado>
+        stale:
+          type: boolean
+        variables:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              type:
+                type: string
+              summary:
+                type: string
+              expandable:
+                type: boolean
+              group:
+                type: string
+        executionCount:
+          type: integer
+        total:
+          type: integer
+        truncated:
+          type: boolean
+        message:
+          type: string
+    VariableChildren:
+      type: object
+      properties:
+        status:
+          type: string
+        stale:
+          type: boolean
+        children:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                oneOf:
+                  - type: string
+                  - type: integer
+              name:
+                type: string
+              type:
+                type: string
+              summary:
+                type: string
+              expandable:
+                type: boolean
+        total:
+          type: integer
+        offset:
+          type: integer
+        message:
+          type: string
+    TableNode:
+      type: object
+      properties:
+        name:
+          type: string
+        namespace:
+          type: array
+          items:
+            type: string
+        format:
+          type: string
+        table_type:
+          type: string
+        is_temporary:
+          type: boolean
+        location:
+          type: string
+          nullable: true
+        available:
+          type: boolean
+          nullable: true
+        description:
+          type: string
+          nullable: true
+    CatalogTree:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        catalogs:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                enum: [spark_catalog, iceberg]
+              databases:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    tables:
+                      type: array
+                      items:
+                        $ref: '#/components/schemas/TableNode'
+                    truncated:
+                      type: boolean
+              error:
+                type: string
+                enum: [unsupported_iceberg_catalog_schema, iceberg_catalog_unreadable]
+    Column:
+      type: object
+      properties:
+        name:
+          type: string
+        data_type:
+          type: string
+        nullable:
+          type: boolean
+        is_partition:
+          type: boolean
+        is_bucket:
+          type: boolean
+        description:
+          type: string
+          nullable: true
+    SchemaPreview:
+      type: object
+      properties:
+        tables:
+          type: integer
+        views:
+          type: integer
+        managed:
+          type: integer
+        external:
+          type: integer
+        can_delete:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+        etag:
+          type: string
+    SchemaDropResult:
+      type: object
+      properties:
+        dropped_tables:
+          type: integer
+        dropped_views:
+          type: integer
+        files_deleted:
+          type: array
+          items:
+            type: string
+        files_kept:
+          type: array
+          items:
+            type: object
+            properties:
+              table:
+                type: string
+              reason:
+                type: string
+        folder_kept:
+          type: boolean
+    SparkVersion:
+      type: string
+      pattern: '^\d+\.\d+\.\d+$'
+      example: 3.5.9
+    SparkCatalog:
+      type: object
+      properties:
+        source:
+          type: string
+          enum: [pypi, fallback]
+        fallback:
+          type: boolean
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: string
+              released_at:
+                type: string
+                format: date-time
+                nullable: true
+              installed:
+                type: boolean
+              formats:
+                type: array
+                nullable: true
+                items:
+                  type: string
+    SparkVersions:
+      type: object
+      properties:
+        installed:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: string
+              kernel_name:
+                type: string
+              display_name:
+                type: string
+              legacy:
+                type: boolean
+              env_dir:
+                type: string
+              formats:
+                type: array
+                nullable: true
+                items:
+                  type: string
+              bundle_status:
+                type: string
+                enum: [installed, outdated, missing, unsupported]
+        catalog:
+          type: array
+          items:
+            type: string
+        installing:
+          type: array
+          items:
+            type: object
+            properties:
+              kernel_name:
+                type: string
+              job_id:
+                type: string
+              kind:
+                type: string
+    Packages:
+      type: object
+      properties:
+        version:
+          type: string
+        kernel_name:
+          type: string
+        env_dir:
+          type: string
+        job_id:
+          type: string
+          nullable: true
+        job_action:
+          type: string
+          nullable: true
+          enum: [add, upgrade, uninstall]
+        packages:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              version:
+                type: string
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [install, packages]
+        version:
+          type: string
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed]
+        error:
+          type: string
+          nullable: true
+        log:
+          type: array
+          items:
+            type: object
+            properties:
+              phase:
+                type: string
+              line:
+                type: string
+              progress:
+                type: number
