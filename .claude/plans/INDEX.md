@@ -1,3 +1,8 @@
+## 20261111_main_publicar-release-e-tap.md
+Criação: 2026-11-11 11:48:28 -0300   Finalização: 2026-11-11 13:05:27 -0300
+Problema: o Notisbook não tem release publicada nem tap Homebrew — ninguém consegue instalar por brew.
+Resolução: release v0.1.0 (sdist com frontend, sha256 do asset) e tap ROM-mm/homebrew-tap com Formula/notisbook.rb (python@3.12, openjdk@17, uv, zeromq, libyaml); install do remoto validado, exige brew trust — tap e1fd0e1.
+
 ## 20261111_main_botao-run-sem-sombra.md
 Criação: 2026-11-11 02:14:21 -0300   Finalização: 2026-11-11 02:21:02 -0300
 Problema: o botão ▶ da célula tem sombra e fica colado no seletor de linguagem.

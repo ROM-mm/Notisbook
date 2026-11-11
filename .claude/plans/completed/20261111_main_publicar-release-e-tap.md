@@ -3,8 +3,8 @@
 Branch: main   Fluxo: CODE-CHANGE   Peso: completo
 
 Criação:     2026-11-11 11:48:28 -0300
-Modificação: 2026-11-11 12:00:00 -0300
-Finalização: —
+Modificação: 2026-11-11 13:05:27 -0300
+Finalização: 2026-11-11 13:05:27 -0300
 
 ## Objetivo
 
@@ -66,7 +66,8 @@ Chegar a `brew install rom-mm/tap/notisbook` funcionando a partir do GitHub: có
 - Nenhum `git push` executado pelo tech-lead.
 
 ## Status
-- [x] T1 (8fab040)  - [~] T2 (push do operador em d97106f; 8fab040 — só plano/.gitignore — ainda não publicado)  - [x] T3  - [x] T4 (release v0.1.0 → d97106f, tag criada pelo gh; sha ae368938…76f4 conferido no asset baixado)  - [x] T5 (repo local git init d6b9126; ROM-mm/homebrew-tap criado pelo tech-lead com autorização do operador; visibility=PUBLIC)  - [x] T6 (review: aprovar; auditoria: PARCIALMENTE AUDITÁVEL, criterios_falhos=[])  - [ ] T7
+- [x] T1 (8fab040)  - [~] T2 (push do operador em d97106f; 8fab040 — só plano/.gitignore — ainda não publicado)  - [x] T3  - [x] T4 (release v0.1.0 → d97106f, tag criada pelo gh; sha ae368938…76f4 conferido no asset baixado)  - [x] T5 (repo local git init d6b9126; ROM-mm/homebrew-tap criado pelo tech-lead com autorização do operador; visibility=PUBLIC)  - [x] T6 (review: aprovar; auditoria: PARCIALMENTE AUDITÁVEL, criterios_falhos=[])  - [x] T7 (tap e1fd0e1 e app 58e9949 publicados pelo operador; uninstall+untap+install do remoto exit 0, --version 0.1.0, brew test exit 0)
+- [x] T2 (main == origin/main == 58e9949 após o push do operador)
 
 <!-- effort-ledger:start -->
 | wave | agente | status | duration_ms | tokens |
