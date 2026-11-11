@@ -187,16 +187,15 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  border: 0;
+  background: transparent;
   color: var(--color-text);
   transition: background var(--transition-fast);
   border-radius: var(--radius-control);
 }
 
-.runBtn:hover {
-  background: var(--yellow);
-  color: var(--on-fill);
+.runBtn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
 }
 
 .titleButton,
@@ -241,7 +240,6 @@
 }
 
 .stopBtn:not(:disabled) {
-  border-color: var(--color-danger);
   background: var(--color-danger-subtle);
   color: var(--color-danger);
 }
@@ -278,8 +276,8 @@
   gap: 2px;
   padding: 0 var(--space-2);
   grid-auto-flow: column;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  border: 0;
+  background: transparent;
   color: var(--color-text);
   font-family: var(--font-head);
   font-size: var(--font-size-xs);
@@ -289,9 +287,8 @@
   border-radius: var(--radius-control);
 }
 
-.languageMenu [aria-haspopup="menu"]:hover {
-  background: var(--yellow);
-  color: var(--on-fill);
+.languageMenu [aria-haspopup="menu"]:hover:not(:disabled) {
+  background: var(--color-bg-hover);
 }
 
 /* Gatilho desabilitado (célula na fila/em execução): mesmo formato do Menu, sem hover. */

@@ -29,9 +29,11 @@ import {
   DatabaseIcon,
   ExternalTableIcon,
   FolderIcon,
+  IcebergCatalogIcon,
   PlusIcon,
   RefreshIcon,
   SearchIcon,
+  SparkIcon,
   TableIcon,
 } from "../shell/icons";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
@@ -50,6 +52,10 @@ const DEFAULT_SCHEMA = "default";
 
 const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
+const CATALOG_ICONS: Record<string, ReactNode> = {
+  spark_catalog: <SparkIcon size={14} />,
+  iceberg: <IcebergCatalogIcon size={14} />,
+};
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
@@ -210,7 +216,7 @@ function buildItems(
       size: visible.length,
       label: CATALOG_LABELS[c.name] ?? c.name,
       detail: c.error ? "error" : undefined,
-      icon: <FolderIcon size={14} />,
+      icon: CATALOG_ICONS[c.name] ?? <FolderIcon size={14} />,
       expandable: true,
       open: cOpen,
       forced: cForced,

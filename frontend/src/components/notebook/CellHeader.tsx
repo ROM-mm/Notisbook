@@ -156,16 +156,10 @@ export function CellHeader({
               data-testid="cell-language"
             >
               {LANGUAGE_LABEL[language]}
-              <span aria-hidden="true">▾</span>
             </button>
           ) : (
             <Menu
-              trigger={
-                <>
-                  {LANGUAGE_LABEL[language]}
-                  <span aria-hidden="true">▾</span>
-                </>
-              }
+              trigger={LANGUAGE_LABEL[language]}
               ariaLabel="Cell language"
               title="Cell language"
               variant="icon"

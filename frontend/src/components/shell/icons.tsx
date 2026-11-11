@@ -29,6 +29,22 @@ export const FolderIcon = (p: IconProps) => (
   </Svg>
 );
 
+/** Marca simplificada do Apache Spark (estrela de quatro pontas), em laranja fixo. */
+export const SparkIcon = ({ size = 16, ...rest }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...rest}>
+    <path fill="#E25A1C" stroke="#E25A1C" strokeWidth={1} strokeLinejoin="round" d="M12 2.5l3.5 6l6 3.5l-6 3.5l-3.5 6l-3.5-6l-6-3.5l6-3.5z" />
+  </svg>
+);
+
+/** Marca simplificada do Apache Iceberg: pico acima da linha d'água, em tons de azul. */
+export const IcebergCatalogIcon = ({ size = 16, ...rest }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false" {...rest}>
+    <path fill="#5BB8F0" d="M12 2l7.5 9.5h-15z" />
+    <path fill="#1F78C8" d="M3 13.5h18l-4.5 8.5h-9z" />
+    <path fill="none" stroke="#5BB8F0" strokeWidth={1.5} d="M2 12.5h20" />
+  </svg>
+);
+
 export const NotebookIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-11a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1m3 0v18" />
