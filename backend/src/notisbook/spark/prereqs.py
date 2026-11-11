@@ -134,10 +134,52 @@ def jdk_candidates(version: str) -> tuple[int, ...]:
     return (17,) if spark_major(version) == 3 else (21, 17)
 
 
+async def _home_major(home: str) -> int | None:
+    """Major of the JDK at `home`, from its `release` file, else `bin/java -version`; None if unusable."""
+    java = Path(home) / "bin" / "java"
+    if not os.access(java, os.X_OK):
+        return None
+    try:
+        text = (Path(home) / "release").read_text(errors="replace")
+    except OSError:
+        text = ""
+    match = re.search(r'^JAVA_VERSION="([^"]+)"', text, re.MULTILINE)
+    if match is None:
+        result = await _capture([str(java), "-version"], merge_stderr=True)
+        match = _JAVA_VERSION.search(result[1]) if result is not None else None
+    return java_major(match.group(1)) if match else None
+
+
+async def _brew_prefix() -> Path | None:
+    brew = shutil.which("brew")
+    if brew is None:
+        return None
+    result = await _capture([brew, "--prefix"], merge_stderr=False)
+    if result is None or result[0] != 0 or not result[1].strip():
+        return None
+    return Path(result[1].strip())
+
+
+async def brew_jdk_home(major: int) -> str | None:
+    """Home of Homebrew's keg-only `openjdk@<major>`, which `java_home` cannot see; None if absent."""
+    prefix = await _brew_prefix()
+    if prefix is None:
+        return None
+    home = prefix / "opt" / f"openjdk@{major}" / "libexec" / "openjdk.jdk" / "Contents" / "Home"
+    return str(home) if os.access(home / "bin" / "java", os.X_OK) else None
+
+
 async def jdk_for_spark(version: str) -> str | None:
-    """JAVA_HOME for a Spark version, or None when no compatible JDK is installed."""
-    for major in jdk_candidates(version):
-        home = await jdk_home(major)
+    """JAVA_HOME for a Spark version, or None when no compatible JDK is installed.
+
+    Order: `$JAVA_HOME` if it points to an accepted major, then per major `java_home -v`, then the Homebrew keg.
+    """
+    candidates = jdk_candidates(version)
+    configured = os.environ.get("JAVA_HOME")
+    if configured and await _home_major(configured) in candidates:
+        return configured
+    for major in candidates:
+        home = await jdk_home(major) or await brew_jdk_home(major)
         if home is not None:
             return home
     return None
