@@ -1,7 +1,12 @@
-## 20261111_main_distribuicao-homebrew.md
-Criação: 2026-11-11 01:00:47 -0300   Finalização: —
-Problema: o Notisbook não pode ser instalado via Homebrew — o pacote sai sem frontend, não acha o JDK do Homebrew e não tem licença nem release limpa.
+## 20261111_main_codigo-mais-vivo.md
+Criação: 2026-11-11 01:52:23 -0300   Finalização: —
+Problema: o código das células code parece apagado — fonte fina, paleta pastel e Python/SQL sem o destaque do padrão Databricks.
 Resolução: — em andamento
+
+## 20261111_main_distribuicao-homebrew.md
+Criação: 2026-11-11 01:00:47 -0300   Finalização: 2026-11-11 01:36:01 -0300
+Problema: o Notisbook não pode ser instalado via Homebrew — o pacote sai sem frontend, não acha o JDK do Homebrew e não tem licença nem release limpa.
+Resolução: frontend embutido no pacote, JDK via JAVA_HOME/java_home/keg do Homebrew (prefixo em cache), Apache-2.0, --version, sdist limpo e scripts/build_release.py com sha256 — commits 194307b..bf46ffd.
 
 ## 20261110_main_about-link-github.md
 Criação: 2026-11-10 23:42:49 -0300   Finalização: 2026-11-10 23:50:12 -0300

@@ -3,8 +3,8 @@
 Branch: main   Fluxo: CODE-CHANGE   Peso: completo
 
 Criação:     2026-11-11 01:00:47 -0300
-Modificação: 2026-11-11 01:14:40 -0300
-Finalização: —
+Modificação: 2026-11-11 01:36:01 -0300
+Finalização: 2026-11-11 01:36:01 -0300
 
 ## Objetivo
 
@@ -91,4 +91,5 @@ Depois de `brew install <usuario>/tap/notisbook`, digitar `notisbook` no termina
 | - | code-review | aprovar | 49187 | 64609 |
 | - | plan-auditor | PARCIALMENTE AUDITÁVEL | 40924 | 28964 |
 | - | plan-auditor | CONFORME | 23544 | 23048 |
+| - | memory-manager | OK | 29081 | 50462 |
 <!-- effort-ledger:end -->
