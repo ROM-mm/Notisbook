@@ -3,7 +3,7 @@
 Branch: main   Fluxo: CODE-CHANGE   Peso: completo
 
 Criação:     2026-11-11 11:48:28 -0300
-Modificação: 2026-11-11 11:48:28 -0300
+Modificação: 2026-11-11 12:00:00 -0300
 Finalização: —
 
 ## Objetivo
@@ -30,6 +30,8 @@ Chegar a `brew install rom-mm/tap/notisbook` funcionando a partir do GitHub: có
 | D1 | Build depois da tag, sobre árvore limpa | garante que o sdist corresponde ao commit da tag | `scripts/build_release.py` não checa árvore limpa nem tag (análise knowledge-engineer) | build antes da tag, como no `brew.md` §1-2 — descartado |
 | D2 | `sha256` da fórmula calculado sobre o asset baixado da release | rebuild muda o hash (mtimes no tar) | análise knowledge-engineer | hash impresso pelo script — só conferência |
 | D3 | Fórmula com `depends_on "uv"` além de python@3.12, openjdk@17 e rust (build) | instalar Spark aborta sem uv | `backend/src/notisbook/spark/installer.py:404-406` | uv como pré-requisito manual — descartado |
+| D3a | Deps extras `zeromq`, `pkgconf` (build) e `libyaml` | 1º install falhou no build do pyzmq (libzmq não achado); audit exigiu libyaml para pyyaml | `Formula/notisbook.rb:10,12,16`; log Homebrew `30.python3.12.log` | sem elas — install/audit falham |
+| D3b | `brew trust --formula rom-mm/tap/notisbook` na config do Homebrew do operador (fora do write_scope) | o Homebrew recusa carregar fórmula de tap não confiável | retorno do python-engineer | trust do tap inteiro — mais amplo, descartado |
 | D4 | Fórmula delegada ao python-engineer | é empacotamento de app Python (virtualenv + resources); memória do projeto atribui toda implementação a ele | memória `python-engineer-implementa-back-e-front` | swift-engineer (cobre Homebrew, mas não Python) |
 
 ## Critérios de aceite
@@ -64,10 +66,13 @@ Chegar a `brew install rom-mm/tap/notisbook` funcionando a partir do GitHub: có
 - Nenhum `git push` executado pelo tech-lead.
 
 ## Status
-- [ ] T1  - [ ] T2  - [ ] T3  - [ ] T4  - [ ] T5  - [ ] T6  - [ ] T7
+- [x] T1 (8fab040)  - [~] T2 (push do operador em d97106f; 8fab040 — só plano/.gitignore — ainda não publicado)  - [x] T3  - [x] T4 (release v0.1.0 → d97106f, tag criada pelo gh; sha ae368938…76f4 conferido no asset baixado)  - [x] T5 (repo local git init d6b9126; ROM-mm/homebrew-tap criado pelo tech-lead com autorização do operador; visibility=PUBLIC)  - [x] T6 (review: aprovar; auditoria: PARCIALMENTE AUDITÁVEL, criterios_falhos=[])  - [ ] T7
 
 <!-- effort-ledger:start -->
 | wave | agente | status | duration_ms | tokens |
 |------|--------|--------|-------------|--------|
 | 0 | knowledge-engineer | OK | 88921 | 46395 |
+| 6 | python-engineer | OK | 2296182 | 66269 |
+| 6 | code-review | aprovar | 58893 | 66482 |
+| 6 | plan-auditor | PARCIALMENTE AUDITÁVEL | 63235 | 27331 |
 <!-- effort-ledger:end -->
