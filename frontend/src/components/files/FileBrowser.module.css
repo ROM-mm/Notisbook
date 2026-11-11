@@ -1,0 +1,218 @@
+/* Navegador de arquivos compacto (painel Notebooks). */
+
+.browser {
+  min-height: 100%;
+  padding: var(--space-3);
+  background-color: var(--color-bg);
+  background-image: var(--dots);
+  font-size: var(--font-size-sm);
+}
+
+/* Cartão: a barra da pasta é o cabeçalho e a árvore é o corpo. */
+.card {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--space-2);
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 4px 4px 0 var(--cell-shadow);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 38px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 2px solid var(--ink);
+  background: var(--color-bg-subtle);
+  font-size: var(--font-size-sm);
+}
+
+.toolbar nav {
+  font-size: var(--font-size-sm);
+}
+
+.toolbarActions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.muted,
+.empty {
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.notice {
+  margin: var(--space-2) var(--space-3) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--ink);
+  background: var(--coral);
+  color: var(--on-fill);
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree {
+  margin: var(--space-1) 0 0;
+  padding: 0 var(--space-2);
+}
+
+.treeStatus {
+  min-height: 24px;
+  padding-right: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 24px;
+}
+
+.chevron {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--color-text-subtle);
+  transition: transform var(--transition-fast);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border-left: 3px solid transparent;
+}
+
+.row[data-openable] {
+  cursor: pointer;
+}
+
+.row:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+/* Notebook aberto na aba ativa: barra de 3px sem preenchimento. */
+.row[data-active] {
+  border-left-color: var(--ink);
+  background: var(--color-bg-subtle);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Seleção: fundo amarelo e barra de 3px à esquerda. */
+.row[data-selected],
+.row[data-selected][data-active] {
+  border-left-color: var(--on-fill);
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.row[data-selected] :is(.chevron, .iconDir, .iconNotebook, .iconFile, .nameText) {
+  color: var(--on-fill);
+}
+
+.row[data-open] .treeName {
+  font-weight: var(--font-weight-bold);
+}
+
+.iconDir {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.iconNotebook {
+  flex: none;
+  color: var(--color-text);
+}
+
+.iconFile {
+  flex: none;
+  color: var(--color-text-subtle);
+}
+
+.treeName,
+.nameText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nameText {
+  color: var(--color-text-muted);
+}
+
+.iconButton {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.iconButton:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.iconButton:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.nameField {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--space-1) 0;
+}
+
+.nameField :global(.input) {
+  width: 100%;
+  height: 26px;
+  font-size: var(--font-size-sm);
+}
+
+.nameError {
+  color: var(--color-danger);
+  font-size: var(--font-size-xs);
+}

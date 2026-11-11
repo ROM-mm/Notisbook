@@ -1,0 +1,140 @@
+/* Tipografia do markdown renderizado (células markdown; reutilizável por saídas text/markdown). */
+
+.markdown {
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 1.4em 0 0.5em;
+  font-family: var(--font-head);
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+}
+
+.markdown h1 {
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: var(--font-weight-regular);
+}
+
+.markdown h2 {
+  padding-bottom: var(--space-1);
+  border-bottom: 2px solid var(--ink);
+  font-size: 24px;
+}
+
+.markdown h3 {
+  font-size: 17px;
+}
+
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: var(--font-size-md);
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote,
+.markdown pre,
+.markdown table {
+  margin: 0 0 0.85em;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.5em;
+}
+
+.markdown ul {
+  list-style: square;
+}
+
+.markdown a {
+  padding: 0 2px;
+  border-bottom: 2px solid var(--on-fill);
+  background: var(--blue);
+  color: var(--on-fill);
+  font-weight: var(--font-weight-bold);
+  text-decoration: none;
+}
+
+.markdown li + li {
+  margin-top: 0.25em;
+}
+
+.markdown code {
+  padding: 1px 5px;
+  border: 1px solid var(--ink);
+  background: var(--color-code-bg);
+  color: var(--color-text);
+  font-size: 0.88em;
+}
+
+.markdown pre {
+  padding: var(--space-3) var(--space-4);
+  overflow-x: auto;
+  border: 2px solid var(--ink);
+  background: var(--color-code-bg);
+  line-height: var(--line-height-code);
+}
+
+.markdown pre code {
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.markdown blockquote {
+  padding: var(--space-2) var(--space-4);
+  border-left: 6px solid var(--ink);
+  background: var(--pink);
+  color: var(--on-fill);
+}
+
+.markdown hr {
+  margin: 1.5em 0;
+  border: none;
+  border-top: 3px solid var(--ink);
+}
+
+.markdown table {
+  border: 2px solid var(--ink);
+  border-collapse: collapse;
+  font-size: var(--font-size-md);
+}
+
+.markdown th,
+.markdown td {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--ink);
+  text-align: left;
+}
+
+.markdown th {
+  background: var(--yellow);
+  color: var(--on-fill);
+  font-family: var(--font-head);
+  font-weight: var(--font-weight-bold);
+}
+
+.markdown img {
+  max-width: 100%;
+}

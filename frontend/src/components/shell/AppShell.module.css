@@ -1,0 +1,541 @@
+/* Layout em coluna: banner, abas e topbar (largura total), depois linha com barra de ícones | painel lateral | conteúdo. */
+
+.shell {
+  --rail-width: 52px;
+  --panel-width: 288px;
+
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg);
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Barra de ícones */
+.rail {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  width: var(--rail-width);
+  padding: var(--space-3) 0;
+  border-right: 3px solid var(--ink);
+  background: var(--color-bg);
+}
+
+.railNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.railItem {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  transition:
+    background var(--transition-fast),
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.railItem:hover {
+  background: var(--hover);
+  border-color: var(--ink);
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.railItem:active {
+  transform: translate(1px, 1px);
+  box-shadow: none;
+}
+
+/* Item ativo: pastel amarelo com sombra sólida. */
+.railItem[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--shadow);
+  color: var(--on-fill);
+}
+
+/* Painel lateral */
+.panel {
+  composes: neo from "../../styles/dialog.module.css";
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: var(--panel-width);
+  min-height: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.panelHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 3px solid var(--ink);
+  background: var(--color-bg);
+}
+
+.panelTitle {
+  font-family: var(--font-head);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.panelActions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.panelBody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.iconBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.iconBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Conteúdo */
+.content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* Abas */
+.tabs {
+  display: flex;
+  flex: none;
+  align-items: flex-end;
+  gap: 3px;
+  height: 40px;
+  padding: 0 var(--space-3);
+  overflow-x: auto;
+  /* Linha de 2px como sombra interna: a aba ativa a cobre sem ser cortada pelo overflow. */
+  box-shadow: inset 0 -2px 0 var(--ink);
+  background: var(--color-bg-subtle);
+}
+
+.tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 240px;
+  height: 32px;
+  border: 2px solid var(--ink);
+  border-bottom: none;
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  font-family: var(--font-head);
+  font-weight: var(--font-weight-bold);
+}
+
+.tab:hover {
+  background: var(--hover);
+}
+
+.tab[data-active] {
+  /* 2px mais alta que as demais, alinhada embaixo: cobre a linha da faixa e
+     emenda com a topbar. */
+  position: relative;
+  height: 34px;
+  border: 2px solid var(--ink);
+  border-bottom: none;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+/* Sombra lateral rente à borda direita; para 2px acima da base para não
+   pintar sobre a linha da faixa. O gap de 3px da faixa evita sobrepor a aba vizinha. */
+.tab[data-active]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  right: -5px;
+  bottom: 2px;
+  width: 3px;
+  background: var(--shadow);
+}
+
+.tabMain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.tabLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabDirty {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: currentColor;
+}
+
+.tabClose {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: var(--space-1);
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.tabClose:hover {
+  border-color: var(--ink);
+  background: var(--coral);
+  color: var(--on-fill);
+}
+
+/* Topbar */
+.topbar {
+  flex: none;
+  padding: var(--space-3) var(--space-6) var(--space-1);
+  border-bottom: 3px solid var(--ink);
+  background: var(--color-surface);
+}
+
+.topbarSingle {
+  padding-block: var(--space-2);
+}
+
+.topbarSingle .menubar {
+  margin-top: 0;
+}
+
+/* Linha única: o menubar não rola (overflow cortaria os dropdowns absolutos);
+   quem cede espaço em larguras médias é o seletor de ambiente, que trunca. */
+.topbarSingle .menubar {
+  flex: none;
+  min-width: 0;
+}
+
+.topbarSingle .topActions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.topbarSingle .topActions > :has(> [data-testid="kernel-selector"]) {
+  min-width: 0;
+}
+
+.topbarSingle .topActions [data-testid="kernel-selector"] {
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* O seletor fica junto da borda direita: a lista abre ancorada à direita do
+   wrapper (position: relative) para não vazar da viewport. */
+.topActions [data-testid="kernel-selector-list"] {
+  right: 0;
+  left: auto;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: 34px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.title {
+  overflow: hidden;
+  font-family: var(--font-head);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
+  line-height: var(--line-height-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sysResources {
+  flex-shrink: 0;
+  padding: 2px var(--space-3);
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 2px 2px 0 var(--shadow);
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Some antes de o seletor de ambiente começar a encolher. */
+@media (max-width: 1280px) {
+  .sysResources {
+    display: none;
+  }
+}
+
+.topToggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.topToggle:hover {
+  border-color: var(--ink);
+  background: var(--hover);
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--shadow);
+}
+
+.topToggle[aria-pressed="true"] {
+  border-color: var(--ink);
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--shadow);
+  color: var(--on-fill);
+}
+
+.saveText {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.saveError {
+  color: var(--color-danger);
+}
+
+.menubar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: var(--space-1) 0 0 calc(-1 * var(--space-2));
+}
+
+.menuButton {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.menuButton:hover {
+  border-color: var(--ink);
+  background: var(--hover);
+}
+
+/* Diálogo de atalhos */
+.shortcutsDialog[open] {
+  width: min(520px, calc(100vw - 32px));
+  padding-bottom: var(--space-4);
+}
+
+.shortcuts {
+  margin: 0;
+  padding: 0 var(--space-4);
+}
+
+.shortcutRow {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: 6px 0;
+  border-top: 2px solid var(--ink);
+  font-size: var(--font-size-sm);
+}
+
+.shortcutRow dd {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* Início (nenhum notebook ativo) */
+.home {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-16) var(--space-8);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.homeHero {
+  margin: var(--space-4) 0 0;
+  font-family: var(--font-script);
+  font-size: clamp(40px, 7vw, 72px);
+  font-weight: var(--font-weight-regular);
+  line-height: 1.5;
+}
+
+/* Marca-texto: faixa sólida atrás do texto, deslocada e inclinada; o texto usa
+   --on-fill para manter contraste sobre o amarelo nos dois temas. */
+.homeMark {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+  padding: 0 0.15em;
+  color: var(--on-fill);
+}
+
+.homeMark::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 -0.1em;
+  background: var(--yellow);
+  transform: translate(0.06em, 0.04em) skewX(-6deg);
+}
+
+.homeSub {
+  margin: 0;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-lg);
+}
+
+.homeFormats {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-6);
+  margin: var(--space-4) 0;
+  padding: 0;
+  list-style: none;
+}
+
+.homeFormat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 72px;
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.homeActions {
+  composes: neo from "../../styles/dialog.module.css";
+  display: flex;
+  gap: var(--space-2);
+}
+
+.aboutDialog[open] {
+  width: min(320px, calc(100vw - 32px));
+}
+
+/* O padding fica no conteúdo interno: assim o clique no próprio <dialog>
+   só ocorre no backdrop, que é o que fecha o diálogo. */
+.aboutBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6, 24px) var(--space-4) var(--space-4);
+  text-align: center;
+}
+
+.aboutName {
+  margin: 0;
+  font-size: var(--font-size-lg, 18px);
+}
+
+.aboutAuthor {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.aboutLink {
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.aboutLink:hover,
+.aboutLink:focus-visible {
+  background: var(--yellow);
+  color: var(--on-fill);
+}

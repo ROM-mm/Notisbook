@@ -1,0 +1,233 @@
+/* Painel direito: cabeçalho de 44px alinhado ao do painel lateral esquerdo. */
+
+.panel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-bg);
+}
+
+.header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  height: 44px;
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 3px solid var(--ink);
+  background: var(--color-bg);
+}
+
+.title {
+  font-family: var(--font-head);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+}
+
+.badge {
+  padding: 0 var(--space-2);
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.stale {
+  padding: 0 var(--space-2);
+  border: 2px solid var(--ink);
+  background: var(--peach);
+  color: var(--on-fill);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.iconBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.iconBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.iconBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  padding: 12px 16px 16px 12px;
+  overflow: auto;
+  background-color: var(--color-bg);
+  background-image: var(--dots);
+}
+
+/* Altura acompanha o conteúdo; o padding do .body preserva a sombra ao rolar. */
+.card {
+  padding: var(--space-1) 0;
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 4px 4px 0 var(--cell-shadow);
+}
+
+.tree {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 26px;
+  overflow: hidden;
+  margin: 0;
+  padding-right: var(--space-3);
+  border-left: 3px solid transparent;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+/* Foco: fundo amarelo e barra de 3px à esquerda, como a seleção dos demais painéis. */
+.row:focus-visible {
+  border-left-color: var(--on-fill);
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.row:focus-visible :is(.caret, .name, .type) {
+  color: var(--on-fill);
+}
+
+.caret {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  color: var(--color-text-subtle);
+  transition: transform var(--transition-fast);
+}
+
+.caret[data-open] {
+  transform: rotate(90deg);
+}
+
+.glyph {
+  flex: none;
+  min-width: 20px;
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  line-height: 1.3;
+  text-align: center;
+}
+
+.name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-accent-text);
+}
+
+.type {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.special {
+  color: var(--color-text-muted);
+}
+
+.specialLabel {
+  font-style: italic;
+}
+
+.more {
+  display: block;
+  width: 100%;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--color-accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  text-align: left;
+}
+
+.more:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.more:disabled {
+  color: var(--color-text-subtle);
+  cursor: default;
+}
+
+.note {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.noteError {
+  color: var(--color-danger);
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  border: 2px solid var(--ink);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  text-align: center;
+}
+
+.empty p {
+  margin: 0;
+}
+
+.emptyTitle {
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-weight: var(--font-weight-bold);
+}

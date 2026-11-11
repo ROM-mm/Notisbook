@@ -1,0 +1,52 @@
+/* Folha compartilhada dos diálogos (Config/Libraries, About, Shortcuts). */
+
+/* Marcador de escopo usado via `composes`; botões e campos vêm das classes globais .btn/.input. */
+.neo {
+  color: inherit;
+}
+
+.dialog {
+  composes: neo;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border: 3px solid var(--ink);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  box-shadow: 8px 8px 0 var(--shadow);
+}
+
+.dialog:not([open]) {
+  display: none;
+}
+
+.dialog::backdrop {
+  background: var(--color-overlay);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-5);
+  border-bottom: 3px solid var(--ink);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-head);
+  font-size: var(--font-size-lg, 18px);
+  font-weight: var(--font-weight-bold);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5);
+  border-top: 3px solid var(--ink);
+  background: var(--color-bg-subtle);
+}

@@ -1,0 +1,290 @@
+/* Status do kernel (topbar), slot do seletor e rodapé de execução por célula. */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--space-3);
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 2px 2px 0 var(--shadow);
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--ink);
+  background: var(--color-text-subtle);
+}
+
+.ok {
+  background: var(--color-success);
+}
+
+.busy {
+  background: var(--color-accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.warn {
+  background: var(--color-warning);
+}
+
+.danger {
+  background: var(--color-danger);
+}
+
+.muted {
+  background: var(--color-text-subtle);
+}
+
+/* Rodapé */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: 0 var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.footerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--font-weight-medium);
+}
+
+.sep::before {
+  content: "·";
+  margin-right: var(--space-2);
+  color: var(--ink);
+}
+
+.f_ok .footerStatus {
+  color: var(--color-success);
+}
+
+.f_error .footerStatus {
+  color: var(--color-danger);
+}
+
+.f_running .footerStatus {
+  color: var(--color-accent-text);
+}
+
+.f_queued .footerStatus,
+.f_aborted .footerStatus {
+  color: var(--color-text-muted);
+}
+
+.note {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.banner {
+  composes: neo from "../../styles/dialog.module.css";
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: var(--space-2) var(--space-3);
+  margin: 0 0 var(--space-4);
+  padding: 10px 12px;
+  border: 3px solid var(--ink);
+  background: var(--coral);
+  box-shadow: 4px 4px 0 var(--shadow);
+  color: var(--on-fill);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+/* Ícone decorativo; o contêiner já tem role="alert" e a mensagem em texto. */
+.banner::before {
+  content: "!";
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-top: 4px;
+  border: 2px solid var(--on-fill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: var(--font-weight-bold, 700);
+  line-height: 1;
+}
+
+/* Mensagem divide a linha com o ícone e quebra o próprio texto; linha de 22px
+   com margem de 4px a centraliza na faixa de 30px do botão (.btn). */
+.banner > span {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin-block: 4px;
+  line-height: 22px;
+}
+
+.banner :global(.btn) {
+  margin-left: auto;
+}
+
+.spinner {
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+
+.f_queued .spinner {
+  animation: none;
+  border-style: dotted;
+  border-right-color: currentColor;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .busy {
+    animation: none;
+  }
+}
+
+/* Seletor de ambiente (combobox da topbar). */
+.selector {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 260px;
+  height: 30px;
+  padding: 0 var(--space-2);
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 2px 2px 0 var(--shadow);
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  white-space: nowrap;
+  transition:
+    transform var(--transition-fast),
+    box-shadow var(--transition-fast),
+    background var(--transition-fast);
+}
+
+.selector:hover {
+  background: var(--hover);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--shadow);
+}
+
+.selector[data-open] {
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.selector[data-open] :is(.selectorKernel, .selectorCaret) {
+  color: inherit;
+}
+
+.selectorLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selectorCaret {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.selectorList {
+  width: max-content;
+  min-width: 260px;
+  max-width: min(440px, 90vw);
+}
+
+.selectorKernel {
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.selectorEmpty {
+  padding: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+/* Barra de execução: alinhada ao cabeçalho do painel lateral (.panelHeader em
+   AppShell.module.css, 44px) para alinhar os ícones com o título; cartão com
+   borda e sombra sólidas. */
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  box-sizing: border-box;
+  height: 44px;
+  margin-bottom: var(--space-6);
+  padding: 0 var(--space-2);
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 4px 4px 0 var(--cell-shadow);
+}
+
+.toolBtn {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+}
+
+.toolBtnPrimary {
+  border-color: var(--ink);
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--shadow);
+  color: var(--on-fill);
+}
+
+.toolBtn:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--hover);
+  color: var(--color-text);
+}
+
+.toolBtnPrimary:hover:not(:disabled) {
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.toolBtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

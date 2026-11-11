@@ -1,0 +1,188 @@
+/* Saídas de célula: alinhadas ao bloco de código; erro em moldura 3px com etiqueta coral. */
+
+.area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: 13px;
+}
+
+.item {
+  min-width: 0;
+}
+
+.pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: var(--line-height-code);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--color-text);
+}
+
+.stream .pre {
+  max-height: 640px;
+  overflow: auto;
+}
+
+.stderr {
+  display: inline;
+  background: var(--coral);
+  color: var(--on-fill);
+}
+
+.more {
+  margin-top: var(--space-1);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.more:hover {
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.error {
+  padding: var(--space-2) var(--space-3);
+  border: 3px solid var(--ink);
+  background: var(--color-surface);
+  overflow-x: auto;
+}
+
+.error .pre {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
+/* Host do Shadow DOM: contém posicionamento fixo/absoluto da saída. */
+.html {
+  max-width: 100%;
+  overflow-x: auto;
+  contain: content;
+}
+
+.image {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.markdown {
+  font-size: 14px;
+}
+
+.unsupported {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  font-style: italic;
+}
+
+/* Cores ANSI (classes do ansi_up), legíveis nos dois temas */
+.area :global(.ansi-black-fg) { color: #3b3b3b; }
+.area :global(.ansi-red-fg) { color: #c4322f; }
+.area :global(.ansi-green-fg) { color: #2b8a3e; }
+.area :global(.ansi-yellow-fg) { color: #a66a00; }
+.area :global(.ansi-blue-fg) { color: #2f5fd0; }
+.area :global(.ansi-magenta-fg) { color: #a03ab8; }
+.area :global(.ansi-cyan-fg) { color: #0e7f8c; }
+.area :global(.ansi-white-fg) { color: #8a8a85; }
+.area :global(.ansi-bright-black-fg) { color: #6b6b68; }
+.area :global(.ansi-bright-red-fg) { color: #e5484d; }
+.area :global(.ansi-bright-green-fg) { color: #30a46c; }
+.area :global(.ansi-bright-yellow-fg) { color: #c47f00; }
+.area :global(.ansi-bright-blue-fg) { color: #3e63dd; }
+.area :global(.ansi-bright-magenta-fg) { color: #ab4aba; }
+.area :global(.ansi-bright-cyan-fg) { color: #12a594; }
+.area :global(.ansi-bright-white-fg) { color: #9b9b97; }
+.area :global(.ansi-black-bg) { background: rgba(0, 0, 0, 0.12); }
+.area :global(.ansi-red-bg) { background: rgba(196, 50, 47, 0.18); }
+.area :global(.ansi-green-bg) { background: rgba(43, 138, 62, 0.18); }
+.area :global(.ansi-yellow-bg) { background: rgba(196, 127, 0, 0.18); }
+.area :global(.ansi-blue-bg) { background: rgba(47, 95, 208, 0.18); }
+.area :global(.ansi-magenta-bg) { background: rgba(160, 58, 184, 0.18); }
+.area :global(.ansi-cyan-bg) { background: rgba(14, 127, 140, 0.18); }
+.area :global(.ansi-white-bg) { background: rgba(127, 127, 127, 0.15); }
+
+@media (prefers-color-scheme: dark) {
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-black-fg) { color: #a3a3a0; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-red-fg) { color: #ff6369; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-green-fg) { color: #4cc38a; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-yellow-fg) { color: #f1a10d; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-blue-fg) { color: #7c9cf5; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-magenta-fg) { color: #d38bf0; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-cyan-fg) { color: #4ccce6; }
+}
+
+:global(:root[data-theme="dark"]) .area :global(.ansi-black-fg) { color: #a3a3a0; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-red-fg) { color: #ff6369; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-green-fg) { color: #4cc38a; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-yellow-fg) { color: #f1a10d; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-blue-fg) { color: #7c9cf5; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-magenta-fg) { color: #d38bf0; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-cyan-fg) { color: #4ccce6; }
+
+/* Resumo de erro do Spark (padrão "erro curto + ver detalhes"). */
+.errHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.errName {
+  padding: 0 3px;
+  background: var(--coral);
+  color: var(--on-fill);
+  font-weight: var(--font-weight-bold);
+}
+
+.errChip {
+  padding: 0 var(--space-1);
+  border: 2px solid var(--ink);
+  background: var(--coral);
+  color: var(--on-fill);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.errMsg,
+.errCause,
+.errMeta {
+  margin: var(--space-1) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.errMeta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.errCause abbr {
+  text-decoration: none;
+  font-family: var(--font-mono);
+}
+
+.errDetails {
+  margin-top: var(--space-2);
+}
+
+.errDetails summary {
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  cursor: pointer;
+}
+
+.errDetails .pre {
+  margin-top: var(--space-1);
+}

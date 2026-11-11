@@ -1,0 +1,26 @@
+[project]
+name = "notisbook"
+version = "0.1.0"
+description = "Local notebook UI and Spark environment manager"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "jupyter-client>=8.6",
+    "markdown-it-py>=4.2.0",
+    "nbformat>=5.11.1",
+    "nh3>=0.3.7",
+    "packaging>=24",
+    "psutil>=7.2.2",
+    "pygments>=2.21.0",
+    "uvicorn[standard]>=0.30",
+]
+
+[project.scripts]
+notisbook = "notisbook.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/notisbook"]

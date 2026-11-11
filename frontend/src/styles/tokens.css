@@ -1,0 +1,235 @@
+/*
+ * Design tokens do Notisbook: Neo-Brutalism pastel (borda sólida, sombra sólida
+ * sem blur, cantos retos). Os nomes --color-* são mantidos e remapeados para a
+ * paleta nova; --ink/--shadow e os pastéis (--yellow, --blue...) são a base.
+ * Fontes empacotadas via @fontsource (main.tsx) — nada de CDN (CSP: default-src 'self').
+ *
+ * Tema: claro por padrão; escuro via `prefers-color-scheme: dark` (quando o
+ * usuário não forçou `data-theme="light"`) ou via `[data-theme="dark"]`.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Tipografia */
+  --font-sans: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-head: "Space Grotesk", "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Archivo Black", "Space Grotesk", "Public Sans", sans-serif;
+  --font-script: "Pacifico", "Brush Script MT", cursive;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-size-xs: 11px;
+  --font-size-sm: 12.5px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 26px;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-code: 1.55;
+  --letter-spacing-tight: 0;
+
+  /* Espaçamento (escala de 4px) */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Layout */
+  --sidebar-width: 248px;
+  --header-height: 52px;
+  --content-max-width: 960px;
+
+  /* Movimento */
+  --transition-fast: 120ms ease;
+  --transition-normal: 180ms ease;
+
+  /* Cores (claro) */
+  --color-bg: #fefeee;
+  --color-bg-subtle: #f6f5df;
+  --color-bg-muted: #f6f5df;
+  --color-bg-hover: #f6f5df;
+  --color-bg-active: #fde68a;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border: #000000;
+  --color-border-strong: #000000;
+  --color-text: #000000;
+  --color-text-muted: #4a443b;
+  --color-text-subtle: #7a7266;
+  --color-text-inverse: #ffffff;
+  --color-accent: #fde68a;
+  --color-accent-hover: #fcd95a;
+  --color-accent-subtle: rgba(253, 230, 138, 0.55);
+  --color-accent-text: #000000;
+  --color-focus-ring: #000000;
+  --color-success: #15803d;
+  --color-success-subtle: #bbf7d0;
+  --color-warning: #b45309;
+  --color-warning-subtle: #fed7aa;
+  --color-danger: #b91c1c;
+  --color-danger-subtle: #fecaca;
+  --color-code-bg: #f6f5df;
+  --color-overlay: rgba(0, 0, 0, 0.55);
+
+  /* Sombra do cartão de célula (alias de --shadow) */
+  --cell-shadow: var(--shadow);
+  --cell-shadow-active: var(--shadow);
+
+  /* Marca (Spark Spiral): cor da sombra deslocada */
+  --brand-mark-shadow: #000000;
+
+  /* Linguagem Neo-Brutalism pastel: borda sólida, sombra sólida sem blur, cantos retos */
+  --ink: #000000;
+  --shadow: #000000;
+  --on-fill: #000000;
+  --hover: #f6f5df;
+  --placeholder: #7a7266;
+  --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Crect x='8' y='8' width='2' height='2' fill='%23000' fill-opacity='0.10'/%3E%3C/svg%3E");
+  --yellow: #fde68a;
+  --blue: #bfdbfe;
+  --peach: #fed7aa;
+  --lav: #ddd6fe;
+  --pink: #fbcfe8;
+  --mint: #bbf7d0;
+  --coral: #fecaca;
+  --creamy: #fff4c7;
+
+  /* Paleta de sintaxe */
+  --sx-kw: #7c3aed;
+  --sx-str: #15803d;
+  --sx-num: #c2410c;
+  --sx-com: #6b7280;
+  --sx-fn: #1d4ed8;
+  --sx-type: #b45309;
+  --sx-dec: #be185d;
+  --sx-op: #000000;
+}
+
+/* Escuro seguindo o sistema, exceto quando o usuário forçou o claro. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-bg: #2b2a31;
+    --color-bg-subtle: #3e3d46;
+    --color-bg-muted: #3e3d46;
+    --color-bg-hover: #46454e;
+    --color-bg-active: #e6d48e;
+    --color-surface: #35343c;
+    --color-surface-raised: #35343c;
+    --color-border: #cfc9bc;
+    --color-border-strong: #cfc9bc;
+    --color-text: #e8e4da;
+    --color-text-muted: #b3aea3;
+    --color-text-subtle: #8e897f;
+    --color-text-inverse: #2a2930;
+    --color-accent: #e6d48e;
+    --color-accent-hover: #efe0a3;
+    --color-accent-subtle: rgba(230, 212, 142, 0.2);
+    --color-accent-text: #e8e4da;
+    --color-focus-ring: #cfc9bc;
+    --color-success: #a9d3b6;
+    --color-success-subtle: rgba(169, 211, 182, 0.18);
+    --color-warning: #e2c09c;
+    --color-warning-subtle: rgba(226, 192, 156, 0.18);
+    --color-danger: #dfaeae;
+    --color-danger-subtle: rgba(223, 174, 174, 0.18);
+    --color-code-bg: #3e3d46;
+    --color-overlay: rgba(27, 26, 32, 0.6);
+    --brand-mark-shadow: #cfc9bc;
+
+    --ink: #cfc9bc;
+    --shadow: #1b1a20;
+    --on-fill: #2a2930;
+    --hover: #46454e;
+    --placeholder: #8e897f;
+    --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Crect x='8' y='8' width='2' height='2' fill='%23E8E4DA' fill-opacity='0.07'/%3E%3C/svg%3E");
+    --yellow: #e6d48e;
+    --blue: #a9c2e0;
+    --peach: #e2c09c;
+    --lav: #c3bce0;
+    --pink: #dfb8cd;
+    --mint: #a9d3b6;
+    --coral: #dfaeae;
+    --creamy: #e6ddb5;
+    --sx-kw: #c9bef5;
+    --sx-str: #a3ddb3;
+    --sx-num: #edc199;
+    --sx-com: #a19c93;
+    --sx-fn: #a9c6ee;
+    --sx-type: #ead38a;
+    --sx-dec: #e6b3cf;
+    --sx-op: #e8e4da;
+  }
+}
+
+/* Escuro forçado pelo toggle. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #2b2a31;
+  --color-bg-subtle: #3e3d46;
+  --color-bg-muted: #3e3d46;
+  --color-bg-hover: #46454e;
+  --color-bg-active: #e6d48e;
+  --color-surface: #35343c;
+  --color-surface-raised: #35343c;
+  --color-border: #cfc9bc;
+  --color-border-strong: #cfc9bc;
+  --color-text: #e8e4da;
+  --color-text-muted: #b3aea3;
+  --color-text-subtle: #8e897f;
+  --color-text-inverse: #2a2930;
+  --color-accent: #e6d48e;
+  --color-accent-hover: #efe0a3;
+  --color-accent-subtle: rgba(230, 212, 142, 0.2);
+  --color-accent-text: #e8e4da;
+  --color-focus-ring: #cfc9bc;
+  --color-success: #a9d3b6;
+  --color-success-subtle: rgba(169, 211, 182, 0.18);
+  --color-warning: #e2c09c;
+  --color-warning-subtle: rgba(226, 192, 156, 0.18);
+  --color-danger: #dfaeae;
+  --color-danger-subtle: rgba(223, 174, 174, 0.18);
+  --color-code-bg: #3e3d46;
+  --color-overlay: rgba(27, 26, 32, 0.6);
+  --brand-mark-shadow: #cfc9bc;
+
+  --ink: #cfc9bc;
+  --shadow: #1b1a20;
+  --on-fill: #2a2930;
+  --hover: #46454e;
+  --placeholder: #8e897f;
+  --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Crect x='8' y='8' width='2' height='2' fill='%23E8E4DA' fill-opacity='0.07'/%3E%3C/svg%3E");
+  --yellow: #e6d48e;
+  --blue: #a9c2e0;
+  --peach: #e2c09c;
+  --lav: #c3bce0;
+  --pink: #dfb8cd;
+  --mint: #a9d3b6;
+  --coral: #dfaeae;
+  --creamy: #e6ddb5;
+  --sx-kw: #c9bef5;
+  --sx-str: #a3ddb3;
+  --sx-num: #edc199;
+  --sx-com: #a19c93;
+  --sx-fn: #a9c6ee;
+  --sx-type: #ead38a;
+  --sx-dec: #e6b3cf;
+  --sx-op: #e8e4da;
+}
+
+/* Claro forçado pelo toggle (explícito para vencer a media query). */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --brand-mark-shadow: #000000;
+}

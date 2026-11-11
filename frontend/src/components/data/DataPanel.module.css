@@ -1,0 +1,334 @@
+/* O arraste mede `.panel` (getBoundingClientRect) e divide por flex-grow, então
+   `.panel` e os slots não têm padding/borda: o respiro externo é margem. O
+   fundo pontilhado vem do ::before, que estende 12px além de `.panel` para
+   cobrir a margem sem entrar na medição. */
+.panel {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 2 * var(--space-3));
+  margin: var(--space-3);
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-3));
+  z-index: -1;
+  background-color: var(--color-bg);
+  background-image: var(--dots);
+}
+
+/* Cada seção fica num slot cujo flex-grow vem de `catalogRatio`. A alça "gap"
+   ocupa 1px; o vão de 14px entre os cartões vem das margens de 7px do cartão
+   dentro de cada slot, que entram no conteúdo distribuído. */
+.slot {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.slot > .section {
+  margin-bottom: 7px;
+}
+
+.slotFiles > .section {
+  margin-top: 7px;
+  margin-bottom: 0;
+}
+
+/* Cartão: cada seção divide a altura do painel; só o corpo (.tree) rola. O
+   overflow da seção é um recuo para estados altos (ex.: seletor aberto). */
+.section {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: 0 0 var(--space-3);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 2px solid var(--ink);
+  background: var(--color-surface);
+  box-shadow: 4px 4px 0 var(--cell-shadow);
+}
+
+.section > :not(.tree, .sectionHeader) {
+  flex: none;
+}
+
+.section > :not(.sectionHeader) {
+  margin-inline: var(--space-3);
+}
+
+.sectionTitle {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-6) var(--space-2);
+  border: 2px solid var(--ink);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  text-align: center;
+}
+
+.emptyIcons {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  color: var(--color-text-subtle);
+}
+
+.hint {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.notice {
+  color: var(--color-warning);
+  font-size: var(--font-size-xs);
+}
+
+.sectionHeader {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 38px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border-bottom: 2px solid var(--ink);
+  background: var(--color-bg-subtle);
+}
+
+/* Botões de ícone do cabeçalho: compactos, sem sombra do .btn (a especificidade
+   precisa superar `.btn-ghost:hover:not(:disabled)` global). */
+.sectionActions :global(.btn.btn-ghost) {
+  width: 26px;
+  height: 26px;
+  justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-text);
+}
+
+.sectionActions :global(.btn.btn-ghost):hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--yellow);
+  color: var(--on-fill);
+}
+
+.sectionActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pathForm {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.pathForm input {
+  flex: 1;
+  min-width: 0;
+}
+
+.tree {
+  flex: 1 1 0;
+  min-height: 80px;
+  margin-inline: var(--space-2);
+  padding: 0;
+  overflow: auto;
+}
+
+.treeBody {
+  min-width: max-content;
+  font-size: var(--font-size-sm);
+}
+
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-top: 1px;
+  padding-bottom: 1px;
+  border-left: 3px solid transparent;
+  cursor: default;
+  white-space: nowrap;
+}
+
+.treeRow:hover {
+  background: var(--hover);
+}
+
+.treeRow:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+/* Seleção: fundo amarelo e barra de 3px à esquerda. */
+.treeRow[aria-selected="true"] {
+  border-left-color: var(--on-fill);
+  background: var(--yellow);
+  color: var(--on-fill);
+  font-weight: var(--font-weight-bold);
+}
+
+.treeRow[aria-selected="true"] :is(.chevron, .treeIcon, .treeDetail, .treeMore) {
+  color: var(--on-fill);
+}
+
+.chevron {
+  display: inline-flex;
+  flex: none;
+  width: 12px;
+  color: var(--color-text-subtle);
+  transition: transform var(--transition-fast);
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.treeIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.treeName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.treeMore {
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+}
+
+.treeStatus {
+  padding-top: 2px;
+  padding-bottom: 2px;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.treeError {
+  color: var(--color-danger);
+}
+
+.copyFeedback {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  width: max-content;
+  max-width: 100%;
+  padding: 0 var(--space-2);
+  overflow-wrap: anywhere;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.copyFeedback:empty {
+  display: none;
+}
+
+.treeDetail {
+  margin-left: var(--space-2);
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs);
+}
+
+.treeUnavailable .treeDetail {
+  color: var(--color-warning);
+}
+
+/* Diálogos de confirmação e de criação (Catalog e Files); o cartão vem de dialog.module.css. */
+.confirmDialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.dialogBody p {
+  margin: 0;
+}
+
+.dialogBody code {
+  font-family: var(--font-mono, monospace);
+}
+
+.dialogField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.dialogInvalid {
+  border-color: var(--color-danger);
+}
+
+.dialogError {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--ink);
+  background: var(--coral);
+  color: var(--on-fill);
+  font-size: var(--font-size-sm);
+}
+
+dialog .confirmDanger:global(.btn),
+dialog .confirmDanger:global(.btn):hover:not(:disabled) {
+  border-color: var(--ink);
+  background: var(--coral);
+  color: var(--on-fill);
+}
+
+.catalogNotice {
+  padding: 0 var(--space-2);
+  color: var(--color-warning);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.catalogNotice:empty {
+  display: none;
+}
