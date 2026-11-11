@@ -1,11 +1,11 @@
-/** Painel lateral recolhível (à direita da barra de ícones): título + X. */
+/** Painel lateral recolhível (Explorer): título + X. */
 import type { ReactNode } from "react";
 import { useWorkspace } from "../../state/workspace";
 import styles from "./AppShell.module.css";
 import { CloseIcon } from "./icons";
 
 export function SidePanel({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {
-  const setPanel = useWorkspace((s) => s.setPanel);
+  const setExplorerOpen = useWorkspace((s) => s.setExplorerOpen);
   return (
     <section className={styles.panel} aria-label={title} data-testid="side-panel">
       <header className={styles.panelHeader}>
@@ -17,7 +17,7 @@ export function SidePanel({ title, children, actions }: { title: string; childre
             className={styles.iconBtn}
             aria-label="Close panel"
             title="Close panel"
-            onClick={() => setPanel(null)}
+            onClick={() => setExplorerOpen(false)}
           >
             <CloseIcon size={14} />
           </button>

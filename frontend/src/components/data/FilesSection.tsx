@@ -1,14 +1,15 @@
-/** Seção Files do painel Dados: raiz escolhida, PATH absoluto no topo e árvore. */
+/** Cartão Files do Explorer: raiz escolhida, PATH absoluto no topo e árvore (corpo desmontado quando recolhido). */
 import { useState } from "react";
 import { chooseDirectory } from "../../api/files";
 import { ApiError, errorMessage } from "../../api/http";
 import { useFiles } from "../../state/files";
 import { FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
+import { CardTitle } from "./CardTitle";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileTree } from "./FileTree";
 import styles from "./DataPanel.module.css";
 
-export function FilesSection() {
+export function FilesSection({ collapsed, onToggle, onExpand }: { collapsed: boolean; onToggle: () => void; onExpand: () => void }) {
   const root = useFiles((s) => s.root);
   const setRoot = useFiles((s) => s.setRoot);
   const refresh = useFiles((s) => s.refresh);
@@ -16,7 +17,19 @@ export function FilesSection() {
   const [manual, setManual] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // Feedback só existe no corpo, desmontado quando recolhido: expande antes de exibi-lo.
+  function showNotice(message: string) {
+    setNotice(message);
+    onExpand();
+  }
+
+  function openManual() {
+    setManual(true);
+    onExpand();
+  }
+
   async function choose() {
+    onExpand();
     setOpening(true);
     setNotice(null);
     try {
@@ -25,15 +38,15 @@ export function FilesSection() {
     } catch (err) {
       const status = err instanceof ApiError ? err.status : null;
       if (status === 409) {
-        setNotice("A folder picker is already open. Check Finder (it may be behind the browser).");
+        showNotice("A folder picker is already open. Check Finder (it may be behind the browser).");
       } else if (status === 504) {
-        setNotice("Timed out choosing the folder.");
+        showNotice("Timed out choosing the folder.");
       } else if (status === 501) {
-        setNotice("Native picker unavailable on this system. Enter the path below.");
-        setManual(true);
+        showNotice("Native picker unavailable on this system. Enter the path below.");
+        openManual();
       } else {
-        setNotice(`${errorMessage(err)} Enter the path below.`);
-        setManual(true);
+        showNotice(`${errorMessage(err)} Enter the path below.`);
+        openManual();
       }
     } finally {
       setOpening(false);
@@ -41,11 +54,9 @@ export function FilesSection() {
   }
 
   return (
-    <section className={styles.section} data-testid="data-files" aria-labelledby="data-files-title">
+    <section className={`${styles.section} ${collapsed ? styles.sectionCollapsed : ""}`} data-testid="data-files" aria-labelledby="data-files-title">
       <div className={styles.sectionHeader}>
-        <h3 id="data-files-title" className={styles.sectionTitle}>
-          <FolderIcon size={14} /> Files
-        </h3>
+        <CardTitle id="data-files-title" icon={<FolderIcon size={14} />} label="Files" collapsed={collapsed} onToggle={onToggle} />
         <div className={styles.sectionActions}>
           {root ? (
             <button type="button" className="btn btn-ghost" onClick={refresh} aria-label="Refresh tree" title="Refresh">
@@ -65,33 +76,37 @@ export function FilesSection() {
           </button>
         </div>
       </div>
-      {notice ? (
-        <p className={styles.notice} role="alert">
-          {notice}
-        </p>
-      ) : null}
-      {manual ? (
-        <DirectoryPicker
-          initialPath={root}
-          onCancel={() => {
-            setManual(false);
-            setNotice(null);
-          }}
-          onSelect={(p) => {
-            setRoot(p);
-            setManual(false);
-            setNotice(null);
-          }}
-        />
-      ) : null}
-      {root ? (
-        <div className={styles.tree}>
-          <FileTree root={root} />
-        </div>
-      ) : (
-        <div className={styles.tree}>
-          <p className={styles.hint}>No directory selected.</p>
-        </div>
+      {collapsed ? null : (
+        <>
+        {notice ? (
+          <p className={styles.notice} role="alert">
+            {notice}
+          </p>
+        ) : null}
+        {manual ? (
+          <DirectoryPicker
+            initialPath={root}
+            onCancel={() => {
+              setManual(false);
+              setNotice(null);
+            }}
+            onSelect={(p) => {
+              setRoot(p);
+              setManual(false);
+              setNotice(null);
+            }}
+          />
+        ) : null}
+        {root ? (
+          <div className={styles.tree}>
+            <FileTree root={root} />
+          </div>
+        ) : (
+          <div className={styles.tree}>
+            <p className={styles.hint}>No directory selected.</p>
+          </div>
+        )}
+        </>
       )}
     </section>
   );

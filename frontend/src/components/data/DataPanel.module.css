@@ -1,46 +1,8 @@
-/* O arraste mede `.panel` (getBoundingClientRect) e divide por flex-grow, então
-   `.panel` e os slots não têm padding/borda: o respiro externo é margem. O
-   fundo pontilhado vem do ::before, que estende 12px além de `.panel` para
-   cobrir a margem sem entrar na medição. */
-.panel {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  flex-direction: column;
-  height: calc(100% - 2 * var(--space-3));
-  margin: var(--space-3);
-}
+/* Estilos compartilhados dos cartões do Explorer (Notebooks, Files, Catalog) e
+   dos diálogos de dados. Layout do painel: shell/Explorer.module.css. */
 
-.panel::before {
-  content: "";
-  position: absolute;
-  inset: calc(-1 * var(--space-3));
-  z-index: -1;
-  background-color: var(--color-bg);
-  background-image: var(--dots);
-}
-
-/* Cada seção fica num slot cujo flex-grow vem de `catalogRatio`. A alça "gap"
-   ocupa 1px; o vão de 14px entre os cartões vem das margens de 7px do cartão
-   dentro de cada slot, que entram no conteúdo distribuído. */
-.slot {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.slot > .section {
-  margin-bottom: 7px;
-}
-
-.slotFiles > .section {
-  margin-top: 7px;
-  margin-bottom: 0;
-}
-
-/* Cartão: cada seção divide a altura do painel; só o corpo (.tree) rola. O
-   overflow da seção é um recuo para estados altos (ex.: seletor aberto). */
+/* Cartão: divide a altura do painel; só o corpo (.tree) rola. O overflow da
+   seção é um recuo para estados altos (ex.: seletor aberto). */
 .section {
   display: flex;
   flex: 1 1 0;
@@ -53,6 +15,16 @@
   border: 2px solid var(--ink);
   background: var(--color-surface);
   box-shadow: 4px 4px 0 var(--cell-shadow);
+}
+
+/* Recolhido: só o cabeçalho, sem a linha inferior nem o respiro do corpo. */
+.sectionCollapsed {
+  flex: none;
+  padding-bottom: 0;
+}
+
+.sectionCollapsed > .sectionHeader {
+  border-bottom: none;
 }
 
 .section > :not(.tree, .sectionHeader) {
@@ -74,6 +46,35 @@
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.titleToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.titleToggle:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.titleChevron {
+  display: inline-flex;
+  flex: none;
+  transition: transform var(--transition-fast);
+}
+
+.titleChevronOpen {
+  transform: rotate(90deg);
 }
 
 .empty {

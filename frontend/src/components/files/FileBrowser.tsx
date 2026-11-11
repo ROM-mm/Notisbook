@@ -1,5 +1,5 @@
 /**
- * Painel Notebooks: título fixo com o nome da pasta raiz e a árvore expansível
+ * Cartão Notebooks do Explorer: título recolhível (corpo desmontado) e a árvore expansível
  * (`NotebookTree`, estado em `state/notebookTree`). Cria pasta na pasta alvo (`targetDir`), troca a pasta raiz (`+`);
  * renomear (inline) e excluir ficam no menu de contexto de qualquer nível.
  * Clicar num notebook abre/foca a aba (`/notebooks/<path>`). Trocar a raiz fecha todas as abas antes.
@@ -13,8 +13,10 @@ import { putNotebooksRoot, validateNotebooksRoot } from "../../api/notebooksRoot
 import { dirname, joinPath, NOTEBOOK_EXT } from "../../lib/paths";
 import { selectTargetDir, useNotebookTree } from "../../state/notebookTree";
 import { closeAllTabs, isOpenUnder, useWorkspace } from "../../state/workspace";
-import { FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
+import { FolderIcon, NotebookIcon, PlusIcon, RefreshIcon } from "../shell/icons";
+import { CardTitle } from "../data/CardTitle";
 import { DirectoryPicker } from "../data/DirectoryPicker";
+import cardStyles from "../data/DataPanel.module.css";
 import styles from "./FileBrowser.module.css";
 import { type Draft, NotebookTree } from "./NotebookTree";
 
@@ -25,7 +27,7 @@ function withNotebookExt(name: string): string {
   return name.toLowerCase().endsWith(NOTEBOOK_EXT) ? name : `${name}${NOTEBOOK_EXT}`;
 }
 
-export function FileBrowser() {
+export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: boolean; onToggle: () => void; onExpand: () => void }) {
   const root = useWorkspace((s) => s.root);
   const applyRoot = useWorkspace((s) => s.applyRoot);
   const rootStatus = useNotebookTree((s) => s.dirs[""]?.status);
@@ -53,7 +55,19 @@ export function FileBrowser() {
     return () => window.removeEventListener("keydown", onKey);
   }, [hasSelection, draft]);
 
+  // Feedback só existe no corpo, desmontado quando recolhido: expande antes de exibi-lo.
+  function showNotice(message: string) {
+    setNotice(message);
+    onExpand();
+  }
+
+  function openManual() {
+    setManual(true);
+    onExpand();
+  }
+
   function startCreate() {
+    onExpand();
     const tree = useNotebookTree.getState();
     setNotice(null);
     tree.expandTo(targetDir);
@@ -64,7 +78,7 @@ export function FileBrowser() {
     await createEntry(joinPath(dir, name), "directory");
     setDraft(null);
     await useNotebookTree.getState().reload(dir);
-    setNotice(`Folder “${name}” created.`);
+    showNotice(`Folder “${name}” created.`);
   }
 
   /** PUT da raiz; após fechar abas, o DELETE das sessões pode ainda estar em voo → repete em `sessions_active`. */
@@ -85,7 +99,7 @@ export function FileBrowser() {
     try {
       await validateNotebooksRoot(path);
     } catch (err) {
-      setNotice(errorMessage(err));
+      showNotice(errorMessage(err));
       return;
     }
     const open = useWorkspace.getState().tabs.length;
@@ -100,14 +114,15 @@ export function FileBrowser() {
       setDraft(null);
       const tree = useNotebookTree.getState();
       tree.reset();
-      setNotice(`Notebooks folder set to “${next.name}”.`);
+      showNotice(`Notebooks folder set to “${next.name}”.`);
       await tree.reload("");
     } catch (err) {
-      setNotice(errorMessage(err));
+      showNotice(errorMessage(err));
     }
   }
 
   async function chooseRoot() {
+    onExpand();
     setSwitching(true);
     setNotice(null);
     try {
@@ -115,11 +130,11 @@ export function FileBrowser() {
       if (res.path) await changeRoot(res.path);
     } catch (err) {
       const status = err instanceof ApiError ? err.status : null;
-      if (status === 409) setNotice("A folder picker is already open. Check Finder (it may be behind the browser).");
-      else if (status === 504) setNotice("Timed out choosing the folder.");
+      if (status === 409) showNotice("A folder picker is already open. Check Finder (it may be behind the browser).");
+      else if (status === 504) showNotice("Timed out choosing the folder.");
       else {
-        setNotice(status === 501 ? "Native picker unavailable on this system. Enter the path below." : `${errorMessage(err)} Enter the path below.`);
-        setManual(true);
+        showNotice(status === 501 ? "Native picker unavailable on this system. Enter the path below." : `${errorMessage(err)} Enter the path below.`);
+        openManual();
       }
     } finally {
       setSwitching(false);
@@ -134,14 +149,14 @@ export function FileBrowser() {
     const tree = useNotebookTree.getState();
     tree.forget(entry.path);
     setDraft(null);
-    setNotice(`“${entry.name}” renamed to “${name}”.`);
+    showNotice(`“${entry.name}” renamed to “${name}”.`);
     await tree.reload(parent);
     tree.select({ path: target, type: entry.type });
   }
 
   function startRename(entry: ContentEntry) {
     if (isOpenUnder(entry.path)) {
-      setNotice(`Close the tab for “${entry.name}” (or for notebooks inside it) before renaming.`);
+      showNotice(`Close the tab for “${entry.name}” (or for notebooks inside it) before renaming.`);
       return;
     }
     setDraft({ kind: "rename", path: entry.path });
@@ -149,7 +164,7 @@ export function FileBrowser() {
 
   async function handleDelete(entry: ContentEntry) {
     if (isOpenUnder(entry.path)) {
-      setNotice(`Close the tab for “${entry.name}” (or for notebooks inside it) before deleting.`);
+      showNotice(`Close the tab for “${entry.name}” (or for notebooks inside it) before deleting.`);
       return;
     }
     const suffix = entry.type === "dir" ? " and everything in it" : "";
@@ -158,82 +173,89 @@ export function FileBrowser() {
     try {
       await deleteEntry(entry.path);
       tree.forget(entry.path);
-      setNotice(`“${entry.name}” deleted.`);
+      showNotice(`“${entry.name}” deleted.`);
     } catch (err) {
-      setNotice(errorMessage(err));
+      showNotice(errorMessage(err));
     }
     await tree.reload(dirname(entry.path));
   }
 
   return (
-    <div className={styles.browser} data-testid="file-browser">
-      <div className={styles.card}>
-        <div className={styles.toolbar}>
-          <span className={styles.title} title={root?.name ?? "Root"}>
-            {root?.name ?? "Root"}
-          </span>
-          <div className={styles.toolbarActions}>
-            <button
-              type="button"
-              className={styles.iconButton}
-              title="Reload"
-              aria-label="Reload"
-              onClick={() => useNotebookTree.getState().reloadAll()}
-            >
-              <RefreshIcon size={14} />
-            </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              title={targetDir ? `New folder in ${targetDir}` : "New folder"}
-              aria-label="New folder"
-              disabled={rootStatus !== "ready"}
-              onClick={startCreate}
-            >
-              <FolderIcon size={14} />
-            </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              title={root?.locked ? "Notebooks folder fixed by --root" : switching ? "Opening Finder…" : "Change notebooks folder"}
-              aria-label="Change notebooks folder"
-              data-testid="files-change-root"
-              disabled={root === null || root.locked || switching}
-              onClick={() => void chooseRoot()}
-            >
-              <PlusIcon size={14} />
-            </button>
-          </div>
-        </div>
-
-        {notice ? (
-          <p className={styles.notice} role="status">
-            {notice}
-          </p>
-        ) : null}
-
-        {manual ? (
-          <DirectoryPicker initialPath={root?.path ?? null} onSelect={(p) => void changeRoot(p)} onCancel={() => setManual(false)} />
-        ) : null}
-
-        {rootStatus === "error" ? (
-          <div className={styles.error} role="alert">
-            <span>Could not list the notebooks folder: {rootError}</span>
-            <button type="button" className="btn" onClick={() => void useNotebookTree.getState().reload("")}>
-              Try again
-            </button>
-          </div>
-        ) : null}
-
-        <NotebookTree
-          draft={draft}
-          onCreate={handleCreate}
-          onRename={handleRename}
-          onCancelDraft={() => setDraft(null)}
-          onStartRename={startRename}
-          onDelete={(entry) => void handleDelete(entry)}
+    <section
+      className={`${cardStyles.section} ${collapsed ? cardStyles.sectionCollapsed : ""}`}
+      data-testid="file-browser"
+      aria-labelledby="notebooks-title"
+    >
+      <div className={cardStyles.sectionHeader}>
+        <CardTitle
+          id="notebooks-title"
+          icon={<NotebookIcon size={14} />}
+          label="Notebooks"
+          collapsed={collapsed}
+          onToggle={onToggle}
+          title={root?.name ?? undefined}
         />
+        <div className={cardStyles.sectionActions}>
+          <button type="button" className="btn btn-ghost" title="Reload" aria-label="Reload" onClick={() => useNotebookTree.getState().reloadAll()}>
+            <RefreshIcon size={14} />
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            title={targetDir ? `New folder in ${targetDir}` : "New folder"}
+            aria-label="New folder"
+            disabled={rootStatus !== "ready"}
+            onClick={startCreate}
+          >
+            <FolderIcon size={14} />
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            title={root?.locked ? "Notebooks folder fixed by --root" : switching ? "Opening Finder…" : "Change notebooks folder"}
+            aria-label="Change notebooks folder"
+            data-testid="files-change-root"
+            disabled={root === null || root.locked || switching}
+            onClick={() => void chooseRoot()}
+          >
+            <PlusIcon size={14} />
+          </button>
+        </div>
       </div>
-    </div>
+
+      {collapsed ? null : (
+        <>
+          {notice ? (
+            <p className={styles.notice} role="status">
+              {notice}
+            </p>
+          ) : null}
+
+          {manual ? (
+            <DirectoryPicker initialPath={root?.path ?? null} onSelect={(p) => void changeRoot(p)} onCancel={() => setManual(false)} />
+          ) : null}
+
+          {rootStatus === "error" ? (
+            <div className={styles.error} role="alert">
+              <span>Could not list the notebooks folder: {rootError}</span>
+              <button type="button" className="btn" onClick={() => void useNotebookTree.getState().reload("")}>
+                Try again
+              </button>
+            </div>
+          ) : null}
+
+          <div className={cardStyles.tree}>
+            <NotebookTree
+              draft={draft}
+              onCreate={handleCreate}
+              onRename={handleRename}
+              onCancelDraft={() => setDraft(null)}
+              onStartRename={startRename}
+              onDelete={(entry) => void handleDelete(entry)}
+            />
+          </div>
+        </>
+      )}
+    </section>
   );
 }

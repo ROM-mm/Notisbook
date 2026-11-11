@@ -117,6 +117,13 @@ function viewItems(): MenuItem[] {
   const themes = THEMES.map((t) => ({ label: t.label, checked: pref === t.pref, onSelect: () => setPref(t.pref), testId: `menu-view-${t.pref}` }));
   return [
     {
+      label: "Explorer",
+      shortcut: "⌘B",
+      checked: useWorkspace.getState().explorerOpen,
+      onSelect: () => useWorkspace.getState().toggleExplorer(),
+      testId: "menu-view-explorer",
+    },
+    {
       label: "Focus mode",
       shortcut: "⌘.",
       checked: useWorkspace.getState().focusMode,

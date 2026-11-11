@@ -1,0 +1,41 @@
+/* O arraste mede os slots (getBoundingClientRect), então `.panel` e os slots não
+   têm padding/borda: o respiro externo é margem. O fundo pontilhado vem do
+   ::before, que estende 12px além de `.panel` para cobrir a margem. */
+.panel {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 2 * var(--space-3));
+  margin: var(--space-3);
+}
+
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--space-3));
+  z-index: -1;
+  background-color: var(--color-bg);
+  background-image: var(--dots);
+}
+
+/* Slot aberto divide a altura por `flex-grow`; recolhido ocupa só o cabeçalho. */
+.slot {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.slotCollapsed {
+  flex: none;
+}
+
+/* Vão de 14px entre cartões; a alça (1px) fica centralizada nele quando existe. */
+.gap {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: center;
+  height: 14px;
+}

@@ -1,7 +1,6 @@
-/* Layout em coluna: banner, abas e topbar (largura total), depois linha com barra de ícones | painel lateral | conteúdo. */
+/* Layout em coluna: banner, abas e topbar (largura total), depois linha com Explorer | conteúdo. */
 
 .shell {
-  --rail-width: 52px;
   --panel-width: 288px;
 
   display: flex;
@@ -14,60 +13,6 @@
   display: flex;
   flex: 1;
   min-height: 0;
-}
-
-/* Barra de ícones */
-.rail {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  width: var(--rail-width);
-  padding: var(--space-3) 0;
-  border-right: 3px solid var(--ink);
-  background: var(--color-bg);
-}
-
-.railNav {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.railItem {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 2px solid transparent;
-  background: transparent;
-  color: var(--color-text);
-  transition:
-    background var(--transition-fast),
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast);
-}
-
-.railItem:hover {
-  background: var(--hover);
-  border-color: var(--ink);
-  transform: translate(-1px, -1px);
-  box-shadow: 2px 2px 0 var(--shadow);
-}
-
-.railItem:active {
-  transform: translate(1px, 1px);
-  box-shadow: none;
-}
-
-/* Item ativo: pastel amarelo com sombra sólida. */
-.railItem[aria-pressed="true"] {
-  border-color: var(--ink);
-  background: var(--yellow);
-  box-shadow: 2px 2px 0 var(--shadow);
-  color: var(--on-fill);
 }
 
 /* Painel lateral */
@@ -143,17 +88,31 @@
 }
 
 /* Abas */
-.tabs {
+.tabsReopen {
+  flex: none;
+  align-self: center;
+  margin-right: var(--space-1);
+}
+
+.tabBar {
   display: flex;
   flex: none;
-  align-items: flex-end;
-  gap: 3px;
+  align-items: stretch;
   height: 40px;
   padding: 0 var(--space-3);
-  overflow-x: auto;
   /* Linha de 2px como sombra interna: a aba ativa a cobre sem ser cortada pelo overflow. */
   box-shadow: inset 0 -2px 0 var(--ink);
   background: var(--color-bg-subtle);
+}
+
+/* O tablist rola na horizontal dentro da faixa; o botão de reabrir fica fora dele. */
+.tabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
 }
 
 .tab {

@@ -78,7 +78,7 @@ const FORMATS: { name: string; Icon: ComponentType<{ size?: number }> }[] = [
 ];
 
 function Home() {
-  const setPanel = useWorkspace((s) => s.setPanel);
+  const setExplorerOpen = useWorkspace((s) => s.setExplorerOpen);
   const [error, setError] = useState<string | null>(null);
   return (
     <div className={shellStyles.home}>
@@ -104,8 +104,8 @@ function Home() {
         >
           New notebook
         </button>
-        <button type="button" className="btn" onClick={() => setPanel("notebooks")}>
-          Open Notebooks panel
+        <button type="button" className="btn" onClick={() => setExplorerOpen(true)}>
+          Open Explorer
         </button>
       </div>
       {error ? <p role="alert">{error}</p> : null}
@@ -122,7 +122,7 @@ function Workspace({ route }: { route: Route }) {
     if (route.view === "notebook") ensureTab(route.path);
     else if (route.view === "files" && route.dir) {
       useNotebookTree.getState().expandTo(route.dir);
-      useWorkspace.getState().setPanel("notebooks");
+      useWorkspace.getState().setExplorerOpen(true);
     }
   }, [route, ensureTab]);
 

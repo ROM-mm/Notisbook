@@ -28,7 +28,6 @@ export interface NotebookEntry {
   view: { scrollTop: number };
 }
 
-export type SidePanel = "data" | "notebooks";
 export type RightPanel = "variables";
 
 export const UNSAVED_MESSAGE = "This notebook has unsaved changes. Close anyway?";
@@ -64,11 +63,9 @@ async function start(entry: NotebookEntry): Promise<void> {
 interface WorkspaceState {
   /** Paths dos notebooks abertos, na ordem das abas. */
   tabs: string[];
-  /** Painel lateral aberto (null = recolhido). */
-  panel: SidePanel | null;
-  /** Rail visível: false no início limpo; vira true na primeira abertura de painel e fica. */
-  railVisible: boolean;
-  /** Modo foco: oculta rail, painel lateral e Variables sem alterar `panel`/`rightPanel`. */
+  /** Explorer (painel lateral único) aberto; começa fechado. */
+  explorerOpen: boolean;
+  /** Modo foco: oculta Explorer e Variables sem alterar `explorerOpen`/`rightPanel`. */
   focusMode: boolean;
   /** Painel direito (independente do lateral); null = recolhido. */
   rightPanel: RightPanel | null;
@@ -83,8 +80,9 @@ interface WorkspaceState {
   reload: (path: string) => void;
   /** Fecha a aba (pede confirmação se houver alterações). Devolve `false` se cancelado. */
   closeTab: (path: string) => boolean;
-  togglePanel: (panel: SidePanel) => void;
-  setPanel: (panel: SidePanel | null) => void;
+  /** Abrir sai do modo foco; em modo foco, alternar sempre reexibe o Explorer. */
+  toggleExplorer: () => void;
+  setExplorerOpen: (open: boolean) => void;
   toggleFocusMode: () => void;
   toggleRightPanel: (panel: RightPanel) => void;
   setRightPanel: (panel: RightPanel | null) => void;
@@ -98,8 +96,7 @@ interface WorkspaceState {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   tabs: [],
-  panel: null,
-  railVisible: false,
+  explorerOpen: false,
   focusMode: false,
   rightPanel: null,
   root: null,
@@ -145,17 +142,9 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     return true;
   },
 
-  togglePanel: (panel) =>
-    set((s) => {
-      const next = s.panel === panel ? null : panel;
-      return next ? { panel: next, railVisible: true, focusMode: false } : { panel: next };
-    }),
-  setPanel: (panel) =>
-    set((s) =>
-      panel !== null
-        ? { panel, railVisible: true, focusMode: false }
-        : { panel, railVisible: s.railVisible },
-    ),
+  toggleExplorer: () =>
+    set((s) => (s.focusMode || !s.explorerOpen ? { explorerOpen: true, focusMode: false } : { explorerOpen: false })),
+  setExplorerOpen: (open) => set(open ? { explorerOpen: true, focusMode: false } : { explorerOpen: false }),
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
   toggleRightPanel: (panel) =>
     set((s) => {
@@ -203,7 +192,7 @@ export async function createUntitledNotebook(dir: string): Promise<string> {
   const tree = useNotebookTree.getState();
   if (dir === "" || tree.dirs[dir]?.status === "loading") void tree.reload(dir);
   tree.expandTo(dir);
-  useWorkspace.getState().setPanel("notebooks");
+  useWorkspace.getState().setExplorerOpen(true);
   openNotebook(path);
   return path;
 }

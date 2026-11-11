@@ -34,6 +34,7 @@ import {
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
+import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
 
@@ -521,24 +522,19 @@ function IdleRefresh({ entry }: { entry: NotebookEntry }) {
   return null;
 }
 
-function CatalogTitle() {
-  return (
-    <h3 id="data-catalog-title" className={styles.sectionTitle}>
-      <TableIcon size={14} /> Catalog
-    </h3>
-  );
+function CatalogTitle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  return <CardTitle id="data-catalog-title" icon={<TableIcon size={14} />} label="Catalog" collapsed={collapsed} onToggle={onToggle} />;
 }
 
-export function CatalogSection({ testId }: { testId?: string }) {
+/** Corpo do cartão: só monta expandido, então recolher também para a leitura no foco da janela e o refresh por idle. */
+function CatalogBody() {
   const path = useRouter((s) => activeNotebookPath(s.route));
   useWorkspace((s) => s.tabs);
   const entry = path ? getEntry(path) : undefined;
-  const loading = useCatalog((s) => s.loading);
   const data = useCatalog((s) => s.data);
   const error = useCatalog((s) => s.error);
   const expanded = useCatalog((s) => s.expanded);
   const columns = useCatalog((s) => s.columns);
-  const refresh = useCatalog((s) => s.refresh);
 
   // O painel só monta depois de `bootstrapAuth()` "ok": a primeira leitura é segura aqui.
   useEffect(() => {
@@ -565,17 +561,32 @@ export function CatalogSection({ testId }: { testId?: string }) {
   }
 
   return (
-    <section className={styles.section} data-testid={testId} aria-labelledby="data-catalog-title">
+    <>
       {entry ? <IdleRefresh key={entry.path} entry={entry} /> : null}
+      {body}
+    </>
+  );
+}
+
+export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {
+  const loading = useCatalog((s) => s.loading);
+  const refresh = useCatalog((s) => s.refresh);
+
+  return (
+    <section
+      className={`${styles.section} ${collapsed ? styles.sectionCollapsed : ""}`}
+      data-testid={testId}
+      aria-labelledby="data-catalog-title"
+    >
       <div className={styles.sectionHeader}>
-        <CatalogTitle />
+        <CatalogTitle collapsed={collapsed} onToggle={onToggle} />
         <div className={styles.sectionActions}>
           <button type="button" className="btn btn-ghost" onClick={refresh} disabled={loading} aria-label="Refresh catalog" title="Refresh">
             <RefreshIcon size={14} />
           </button>
         </div>
       </div>
-      {body}
+      {collapsed ? null : <CatalogBody />}
     </section>
   );
 }
