@@ -1,5 +1,5 @@
 /**
- * Alça de redimensionamento (divisória sólida de 3px com área de captura maior).
+ * Alça de redimensionamento (divisória sutil de 1px com área de captura maior).
  * `onDrag` recebe o deslocamento TOTAL (px) desde o início do arraste no eixo
  * da alça; `onDragStart` permite ao pai fixar o tamanho-base.
  */
@@ -8,7 +8,7 @@ import { useState, type CSSProperties, type PointerEvent } from "react";
 // Espaço de layout (px) da variante "gap": 1px, para não distorcer a conta do
 // arraste; o vão visual vem do padding dos cartões e a captura, de `hit`.
 const GAP_SIZE = 1;
-const LINE_SIZE = 3;
+const LINE_SIZE = 1;
 const GAP_HIT = 7;
 
 interface ResizeHandleProps {
@@ -36,7 +36,7 @@ export function ResizeHandle({ orientation, label, onDragStart, onDrag, onReset,
 
   const vertical = orientation === "vertical";
   const gap = variant === "gap";
-  // Linha de 3px no lugar da borda do painel; a área de captura vem de `hit`,
+  // Linha de 1px no lugar da borda do painel; a área de captura vem de `hit`,
   // sobreposta à linha. Estilos inline: sem CSS module próprio.
   const line: CSSProperties = {
     position: "relative",
@@ -45,7 +45,7 @@ export function ResizeHandle({ orientation, label, onDragStart, onDrag, onReset,
     touchAction: "none",
     cursor: vertical ? "col-resize" : "row-resize",
     [vertical ? "width" : "height"]: gap ? GAP_SIZE : LINE_SIZE,
-    background: gap ? "transparent" : hover || dragging ? "var(--yellow)" : "var(--ink)",
+    background: gap ? "transparent" : hover || dragging ? "var(--color-accent)" : "var(--color-border)",
     transition: "background var(--transition-fast)",
   };
   const grip: CSSProperties = {
@@ -55,9 +55,9 @@ export function ResizeHandle({ orientation, label, onDragStart, onDrag, onReset,
     width: vertical ? 7 : 32,
     height: vertical ? 32 : 7,
     transform: "translate(-50%, -50%)",
-    border: "2px solid var(--ink)",
-    background: dragging ? "var(--yellow)" : "var(--color-surface)",
-    boxShadow: "2px 2px 0 var(--shadow)",
+    border: "1px solid var(--color-border-strong)",
+    borderRadius: 3,
+    background: dragging ? "var(--color-accent)" : "var(--color-surface)",
   };
   const reach = gap ? GAP_HIT : 3;
   const hit: CSSProperties = { position: "absolute", inset: vertical ? `0 -${reach}px` : `-${reach}px 0` };

@@ -1,5 +1,6 @@
 /**
- * Seletor de ambiente na topbar, no lugar do "Python ▾" do Databricks.
+ * Seletor de ambiente na barra de abas, unido ao estado do kernel (ponto
+ * colorido + nome + palavra de estado), no lugar do "Python ▾" do Databricks.
  *
  * Combobox da aba ativa: lista os kernelspecs (`display_name`), marca o atual
  * e, ao escolher outro, chama `changeKernel(name)` da sessão desta aba (grava
@@ -12,6 +13,7 @@ import { openSettings } from "../../state/router";
 import { useKernel, useKernelStore, useNotebook } from "../../state/notebookContext";
 import { refreshKernelspecs } from "../../state/workspace";
 import menuStyles from "../shell/Menu.module.css";
+import { useKernelDescription } from "./KernelStatus";
 import styles from "./Kernel.module.css";
 
 const SWITCH_BUSY =
@@ -22,6 +24,7 @@ export function KernelSelector() {
   const kernelName = useKernel((s) => s.kernelName);
   const kernelspecs = useKernel((s) => s.kernelspecs);
   const fromMetadata = useNotebook((s) => s.metadata.kernelspec?.display_name ?? null);
+  const { label: stateLabel, tone, state, error } = useKernelDescription();
   const display = kernelspecs.find((k) => k.name === kernelName)?.display_name ?? fromMetadata ?? kernelName;
 
   const [open, setOpen] = useState(false);
@@ -84,17 +87,23 @@ export function KernelSelector() {
         className={styles.selector}
         data-testid="kernel-selector"
         data-kernel={kernelName ?? undefined}
+        data-state={state}
         data-open={open || undefined}
         aria-haspopup="listbox"
         aria-expanded={open}
-        title="Notebook environment (kernel)"
+        title={error ?? "Notebook environment (kernel)"}
         onClick={() => setOpen((o) => !o)}
       >
+        <span className={`${styles.dot} ${styles[tone]}`} aria-hidden="true" />
         <span className={styles.selectorLabel}>{display ?? "No kernel"}</span>
+        <span className={styles.selectorState}>{stateLabel}</span>
         <span aria-hidden="true" className={styles.selectorCaret}>
           ▾
         </span>
       </button>
+      <span className={styles.srOnly} role="status" aria-live="polite">
+        {stateLabel}
+      </span>
       {open ? (
         <div ref={listRef} className={`${menuStyles.list} ${styles.selectorList}`} role="listbox" aria-label="Environments" data-testid="kernel-selector-list">
           {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No environments installed.</div> : null}

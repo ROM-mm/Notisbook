@@ -1,10 +1,17 @@
-/** Abas dos notebooks abertos: ativa = rota; × fecha (encerra a sessão do kernel). */
+/**
+ * Abas dos notebooks abertos: ativa = rota; × fecha (encerra a sessão do
+ * kernel); "+" cria um notebook. À direita, com notebook ativo, ficam os
+ * controles do kernel.
+ */
 import { useStore } from "zustand";
 import { notebookTitle } from "../../lib/paths";
+import { NotebookProvider } from "../../state/notebookContext";
 import { activeNotebookPath, openNotebook, useRouter } from "../../state/router";
 import { getEntry, type NotebookEntry, useWorkspace } from "../../state/workspace";
+import { KernelToolbar } from "../kernel/KernelToolbar";
 import styles from "./AppShell.module.css";
-import { CloseIcon, FolderIcon, NotebookIcon } from "./icons";
+import { CloseIcon, NotebookIcon, PlusIcon } from "./icons";
+import { newNotebook } from "./MenuBar";
 
 function Tab({ path, active }: { path: string; active: boolean }) {
   const entry = getEntry(path);
@@ -43,31 +50,35 @@ function TabInner({ path, active, entry }: { path: string; active: boolean; entr
   );
 }
 
-export function TabBar() {
+export function TabBar({ entry }: { entry: NotebookEntry | null }) {
   const tabs = useWorkspace((s) => s.tabs);
   const active = useRouter((s) => activeNotebookPath(s.route));
-  const explorerOpen = useWorkspace((s) => s.explorerOpen);
-  const setExplorerOpen = useWorkspace((s) => s.setExplorerOpen);
   if (tabs.length === 0) return null;
   return (
     <div className={styles.tabBar}>
-      {explorerOpen ? null : (
-        <button
-          type="button"
-          className={`${styles.iconBtn} ${styles.tabsReopen}`}
-          aria-label="Show Explorer (⌘B)"
-          title="Show Explorer (⌘B)"
-          data-testid="explorer-reopen"
-          onClick={() => setExplorerOpen(true)}
-        >
-          <FolderIcon size={14} />
-        </button>
-      )}
       <div className={styles.tabs} role="tablist" aria-label="Open notebooks">
         {tabs.map((p) => (
           <Tab key={p} path={p} active={p === active} />
         ))}
       </div>
+      <button
+        type="button"
+        className={`${styles.iconBtn} ${styles.tabAdd}`}
+        aria-label="New notebook"
+        title="New notebook"
+        data-testid="tab-new"
+        onClick={() => newNotebook(entry)}
+      >
+        <PlusIcon size={14} />
+      </button>
+      <span className={styles.tabSpacer} />
+      {entry ? (
+        <div className={styles.tabActions}>
+          <NotebookProvider entry={entry}>
+            <KernelToolbar />
+          </NotebookProvider>
+        </div>
+      ) : null}
     </div>
   );
 }

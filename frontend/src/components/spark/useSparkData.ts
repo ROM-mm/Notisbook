@@ -7,7 +7,7 @@
  * - Cada instalação é acompanhada por um `JobStream` (`/api/jobs/{id}/events`);
  *   instalações já em andamento (`installing`) são reconectadas ao abrir a página.
  * - Ao terminar uma instalação ou remoção, recarrega listas e os kernelspecs
- *   das abas abertas (seletor de ambiente da topbar).
+ *   das abas abertas (seletor de ambiente da barra de abas).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../../api/http";

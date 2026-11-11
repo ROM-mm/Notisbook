@@ -1,33 +1,104 @@
-/** Faixa de marca no topo do shell: ícone, wordmark, frase e decoração de fluxo (puramente visual). */
+/**
+ * Header do shell: marca, menubar e, à direita, estado de salvamento e os
+ * toggles de Explorer (⌘B), painel direito e modo foco (⌘.). Recebe a aba
+ * ativa para os menus e o estado de salvamento.
+ */
+import { NotebookProvider, useNotebook } from "../../state/notebookContext";
+import type { NotebookEntry } from "../../state/workspace";
+import { useWorkspace } from "../../state/workspace";
 import styles from "./Banner.module.css";
-import { BrandMark } from "./icons";
+import { BrandMark, FocusIcon, FolderIcon, VariablesIcon } from "./icons";
+import { MenuBar } from "./MenuBar";
+import { SystemResources } from "./SystemResources";
 
-export function Banner() {
+function SaveState() {
+  const saving = useNotebook((s) => s.saving);
+  const saveError = useNotebook((s) => s.saveError);
+  const dirty = useNotebook((s) => s.dirty);
+  const ready = useNotebook((s) => s.status === "ready");
+  if (!ready) return null;
+  if (!saving && !saveError && dirty) return null;
+  const text = saving ? "Saving…" : saveError ? "Save failed" : "Saved";
+  return (
+    <span className={saveError ? `${styles.saveText} ${styles.saveError}` : styles.saveText} title={saveError ?? undefined} data-testid="save-state">
+      {text}
+    </span>
+  );
+}
+
+function ExplorerToggle() {
+  const open = useWorkspace((s) => s.explorerOpen && !s.focusMode);
+  const toggle = useWorkspace((s) => s.toggleExplorer);
+  return (
+    <button
+      type="button"
+      className={styles.toggle}
+      data-testid="toggle-explorer"
+      title="Explorer (⌘B)"
+      aria-label="Explorer"
+      aria-pressed={open}
+      onClick={toggle}
+    >
+      <FolderIcon size={16} />
+    </button>
+  );
+}
+
+function VariablesToggle() {
+  const open = useWorkspace((s) => s.rightPanel === "variables" && !s.focusMode);
+  const toggle = useWorkspace((s) => s.toggleRightPanel);
+  return (
+    <button
+      type="button"
+      className={styles.toggle}
+      data-testid="toggle-variables"
+      title="Variables"
+      aria-label="Variables"
+      aria-pressed={open}
+      onClick={() => toggle("variables")}
+    >
+      <VariablesIcon size={16} />
+    </button>
+  );
+}
+
+function FocusToggle() {
+  const on = useWorkspace((s) => s.focusMode);
+  const toggle = useWorkspace((s) => s.toggleFocusMode);
+  return (
+    <button
+      type="button"
+      className={styles.toggle}
+      data-testid="toggle-focus"
+      title="Focus mode (⌘.)"
+      aria-label="Focus mode"
+      aria-pressed={on}
+      onClick={toggle}
+    >
+      <FocusIcon size={16} />
+    </button>
+  );
+}
+
+export function Banner({ entry }: { entry: NotebookEntry | null }) {
   return (
     <header className={styles.banner} aria-label="Notisbook">
       <BrandMark size={32} />
       <span className={styles.wordmark}>notisbook</span>
-      <span className={styles.separator} aria-hidden="true" />
       <span className={styles.tagline}>Explore. Code. Transform.</span>
-      <svg
-        className={styles.flow}
-        viewBox="0 0 320 56"
-        preserveAspectRatio="xMaxYMid slice"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d="M0 40 C 50 40, 60 16, 110 16 S 170 40, 220 40 S 280 16, 320 16" />
-        <path d="M0 48 C 60 48, 90 28, 150 28 S 250 48, 320 30" />
-        <g fill="currentColor" stroke="none">
-          <circle cx="110" cy="16" r="3" />
-          <circle cx="220" cy="40" r="3" />
-          <circle cx="150" cy="28" r="2.5" />
-          <circle cx="290" cy="22" r="3" />
-        </g>
-      </svg>
+      <span className={styles.separator} aria-hidden="true" />
+      <MenuBar entry={entry} />
+      <div className={styles.actions}>
+        {entry ? (
+          <NotebookProvider entry={entry}>
+            <SystemResources />
+            <SaveState />
+          </NotebookProvider>
+        ) : null}
+        <ExplorerToggle />
+        <VariablesToggle />
+        <FocusToggle />
+      </div>
     </header>
   );
 }

@@ -1,20 +1,34 @@
 /**
- * Barra de execução do notebook (fixa no topo das células): Run all,
- * Interrupt e Restart kernel. Assina o kernel da aba e usa as mesmas regras
- * de habilitação do menu Run da topbar.
+ * Controles do kernel na barra de abas: seletor de ambiente com estado,
+ * Run all, Interrupt e menu ⋮ (Restart kernel, Restart and run all). Usa as
+ * mesmas regras de habilitação do menu Run do header.
  */
 import { useKernel, useKernelStore } from "../../state/notebookContext";
-import { PlayFilledIcon, RefreshIcon, StopFilledIcon } from "../shell/icons";
+import { Menu, type MenuItem } from "../shell/Menu";
+import { MoreVerticalIcon, PlayFilledIcon, StopFilledIcon } from "../shell/icons";
+import { KernelSelector } from "./KernelSelector";
 import { kernelAlive, kernelHasWork, kernelReady } from "./KernelStatus";
 import styles from "./Kernel.module.css";
 
 export function KernelToolbar() {
   const store = useKernelStore();
   const alive = useKernel(kernelAlive);
-  const ready = useKernel(kernelReady);
   const hasWork = useKernel(kernelHasWork);
+  const moreItems = (): MenuItem[] => {
+    const ready = kernelReady(store.getState());
+    return [
+      { label: "Restart kernel", disabled: !ready, onSelect: () => store.getState().restart(), testId: "toolbar-restart" },
+      {
+        label: "Restart and run all",
+        disabled: !ready,
+        onSelect: () => store.getState().restartAndRunAll(),
+        testId: "toolbar-restart-run-all",
+      },
+    ];
+  };
   return (
     <div className={styles.toolbar} role="toolbar" aria-label="Kernel controls" data-testid="kernel-toolbar">
+      <KernelSelector />
       <button
         type="button"
         className={`${styles.toolBtn} ${styles.toolBtnPrimary}`}
@@ -39,18 +53,15 @@ export function KernelToolbar() {
       >
         <StopFilledIcon size={12} />
       </button>
-      <button
-        type="button"
-        className={styles.toolBtn}
-        data-testid="toolbar-restart"
-        title="Restart kernel"
-        aria-label="Restart kernel"
-        disabled={!ready}
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={() => store.getState().restart()}
-      >
-        <RefreshIcon size={14} />
-      </button>
+      <Menu
+        variant="icon"
+        align="right"
+        trigger={<MoreVerticalIcon size={14} />}
+        ariaLabel="More kernel actions"
+        title="More kernel actions"
+        testId="toolbar-more"
+        items={moreItems}
+      />
     </div>
   );
 }

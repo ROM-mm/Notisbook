@@ -1,5 +1,5 @@
 /**
- * Menu suspenso acessível e sem dependências (barra de menus da topbar e ⋮ da
+ * Menu suspenso acessível e sem dependências (barra de menus do header e ⋮ da
  * célula). Os itens são calculados na abertura (`items()`), então refletem o
  * estado atual sem assinaturas extras. Fecha com clique fora, Esc ou ao
  * escolher um item; ↑/↓ navegam entre os itens habilitados.

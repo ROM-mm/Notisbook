@@ -16,7 +16,6 @@
   inset: calc(-1 * var(--space-3));
   z-index: -1;
   background-color: var(--color-bg);
-  background-image: var(--dots);
 }
 
 /* Slot aberto divide a altura por `flex-grow`; recolhido ocupa só o cabeçalho. */

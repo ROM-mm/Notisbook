@@ -6,25 +6,23 @@
 .barTrigger {
   height: 24px;
   padding: 0 var(--space-2);
-  border: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-text);
   font-family: var(--font-head);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
   transition: background var(--transition-fast);
 }
 
 .barTrigger:hover {
-  border-color: var(--ink);
-  background: var(--hover);
+  background: var(--color-bg-hover);
 }
 
 .barTrigger[data-open] {
-  border-color: var(--ink);
-  background: var(--yellow);
-  box-shadow: 2px 2px 0 var(--shadow);
-  color: var(--on-fill);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-text);
 }
 
 .iconTrigger {
@@ -33,16 +31,16 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
   background: transparent;
   color: var(--color-text);
 }
 
 .iconTrigger:hover,
 .iconTrigger[data-open] {
-  border-color: var(--ink);
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-text);
 }
 
 .list {
@@ -54,9 +52,10 @@
   flex-direction: column;
   min-width: 220px;
   padding: 5px 0;
-  border: 3px solid var(--ink);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
   background: var(--color-surface-raised);
-  box-shadow: 6px 6px 0 var(--shadow);
+  box-shadow: var(--shadow-float);
 }
 
 .right {
@@ -70,9 +69,8 @@
   align-items: center;
   gap: var(--space-2);
   height: 28px;
-  padding: 0 var(--space-3) 0 calc(var(--space-2) - 3px);
+  padding: 0 var(--space-3) 0 var(--space-2);
   border: none;
-  border-left: 3px solid transparent;
   background: transparent;
   color: var(--color-text);
   font-size: var(--font-size-sm);
@@ -83,10 +81,8 @@
 .item:hover:not(:disabled),
 .item:focus-visible {
   outline: none;
-  border-left-color: var(--on-fill);
-  background: var(--yellow);
-  color: var(--on-fill);
-  font-weight: var(--font-weight-bold);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-text);
 }
 
 .item:hover:not(:disabled) :is(.check, .shortcut),
@@ -101,13 +97,12 @@
 
 .danger:not(:disabled) {
   color: var(--color-danger);
-  font-weight: var(--font-weight-bold);
 }
 
 .danger:hover:not(:disabled),
 .danger:focus-visible:not(:disabled) {
-  background: var(--coral);
-  color: var(--on-fill);
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
 }
 
 .check {
@@ -127,7 +122,7 @@
 }
 
 .separator {
-  height: 2px;
+  height: 1px;
   margin: var(--space-1) 0;
-  background: var(--ink);
+  background: var(--color-border);
 }

@@ -1,5 +1,6 @@
-/** Cartão Files do Explorer: raiz escolhida, PATH absoluto no topo e árvore (corpo desmontado quando recolhido). */
+/** Cartão Connections do Explorer: a pasta local escolhida como conexão (nome + caminho) e sua árvore; corpo desmontado quando recolhido. */
 import { useState } from "react";
+import { basename } from "../../lib/paths";
 import { chooseDirectory } from "../../api/files";
 import { ApiError, errorMessage } from "../../api/http";
 import { useFiles } from "../../state/files";
@@ -54,9 +55,9 @@ export function FilesSection({ collapsed, onToggle, onExpand }: { collapsed: boo
   }
 
   return (
-    <section className={`${styles.section} ${collapsed ? styles.sectionCollapsed : ""}`} data-testid="data-files" aria-labelledby="data-files-title">
+    <section className={`${styles.section} ${collapsed ? styles.sectionCollapsed : ""}`} data-testid="data-files" aria-labelledby="data-connections-title">
       <div className={styles.sectionHeader}>
-        <CardTitle id="data-files-title" icon={<FolderIcon size={14} />} label="Files" collapsed={collapsed} onToggle={onToggle} />
+        <CardTitle id="data-connections-title" icon={<FolderIcon size={14} />} label="Connections" collapsed={collapsed} onToggle={onToggle} />
         <div className={styles.sectionActions}>
           {root ? (
             <button type="button" className="btn btn-ghost" onClick={refresh} aria-label="Refresh tree" title="Refresh">
@@ -69,8 +70,8 @@ export function FilesSection({ collapsed, onToggle, onExpand }: { collapsed: boo
             data-testid="files-select-dir"
             disabled={opening}
             onClick={() => void choose()}
-            aria-label={root ? "Change folder" : "Select folder"}
-            title={opening ? "Opening Finder…" : root ? "Change folder" : "Select folder"}
+            aria-label={root ? "Change folder" : "Add local folder"}
+            title={opening ? "Opening Finder…" : root ? "Change folder" : "Add local folder"}
           >
             <PlusIcon size={14} />
           </button>
@@ -98,12 +99,19 @@ export function FilesSection({ collapsed, onToggle, onExpand }: { collapsed: boo
           />
         ) : null}
         {root ? (
-          <div className={styles.tree}>
-            <FileTree root={root} />
-          </div>
+          <>
+            <div className={styles.connection} title={root}>
+              <FolderIcon size={14} />
+              <span className={styles.connectionName}>{basename(root) || root}</span>
+              <span className={styles.connectionPath}>{root}</span>
+            </div>
+            <div className={styles.tree}>
+              <FileTree root={root} />
+            </div>
+          </>
         ) : (
           <div className={styles.tree}>
-            <p className={styles.hint}>No directory selected.</p>
+            <p className={styles.hint}>No connection yet. Use + to add a local folder.</p>
           </div>
         )}
         </>

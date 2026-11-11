@@ -12,7 +12,6 @@ import { NotebookView } from "../notebook/NotebookView";
 import { OutputArea } from "../outputs/OutputArea";
 import { CellRunFooter } from "./CellRunFooter";
 import { KernelBanner } from "./KernelBanner";
-import { KernelToolbar } from "./KernelToolbar";
 
 const renderOutputs = (cell: EditorCodeCell) => <OutputArea outputs={cell.outputs} language={cellLanguage(cell)} />;
 const renderFooter = (cell: EditorCell) => (cell.cell_type === "code" ? <CellRunFooter cellId={cell.id} /> : null);
@@ -26,7 +25,6 @@ export function NotebookPage({ entry }: { entry: NotebookEntry }) {
         renderOutputs={renderOutputs}
         renderFooter={renderFooter}
         banner={<KernelBanner />}
-        toolbar={<KernelToolbar />}
       />
     </NotebookProvider>
   );

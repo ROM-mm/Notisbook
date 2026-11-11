@@ -12,9 +12,10 @@
   padding: 0 0 var(--space-3);
   overflow-x: hidden;
   overflow-y: auto;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: 4px 4px 0 var(--cell-shadow);
+  box-shadow: none;
+  border-radius: var(--radius-control);
 }
 
 /* Recolhido: só o cabeçalho, sem a linha inferior nem o respiro do corpo. */
@@ -63,7 +64,7 @@
 }
 
 .titleToggle:focus-visible {
-  outline: 3px solid var(--ink);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
@@ -83,12 +84,13 @@
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-6) var(--space-2);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   font-style: italic;
   text-align: center;
+  border-radius: var(--radius-control);
 }
 
 .emptyIcons {
@@ -117,7 +119,7 @@
   gap: var(--space-2);
   min-height: 38px;
   padding: 0 var(--space-2) 0 var(--space-3);
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
 }
 
@@ -135,7 +137,7 @@
 }
 
 .sectionActions :global(.btn.btn-ghost):hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--color-border-strong);
   background: var(--yellow);
   color: var(--on-fill);
 }
@@ -192,13 +194,13 @@
 }
 
 .treeRow:focus-visible {
-  outline: 3px solid var(--ink);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: -3px;
 }
 
 /* Seleção: fundo amarelo e barra de 3px à esquerda. */
 .treeRow[aria-selected="true"] {
-  border-left-color: var(--on-fill);
+  border-left-color: var(--color-accent);
   background: var(--yellow);
   color: var(--on-fill);
   font-weight: var(--font-weight-bold);
@@ -310,15 +312,16 @@
 .dialogError {
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--coral);
   color: var(--on-fill);
   font-size: var(--font-size-sm);
+  border-radius: var(--radius-control);
 }
 
 dialog .confirmDanger:global(.btn),
 dialog .confirmDanger:global(.btn):hover:not(:disabled) {
-  border-color: var(--ink);
+  border-color: var(--color-border-strong);
   background: var(--coral);
   color: var(--on-fill);
 }
@@ -332,4 +335,64 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
 
 .catalogNotice:empty {
   display: none;
+}
+
+/* Busca do Catalog: campo compacto sob o cabeçalho. */
+.searchField {
+  position: relative;
+  flex: none;
+  display: flex;
+}
+
+.searchIcon {
+  position: absolute;
+  top: 50%;
+  left: var(--space-2);
+  transform: translateY(-50%);
+  color: var(--color-text-subtle);
+  pointer-events: none;
+}
+
+.searchInput {
+  flex: 1;
+  width: 100%;
+  height: 28px;
+  padding-left: calc(var(--space-2) + 14px + var(--space-2));
+  font-size: var(--font-size-sm);
+}
+
+/* Conexão local: pasta escolhida, com o caminho como selo à direita. */
+.connection {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 0 var(--space-1);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+}
+
+.connectionName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.connectionPath {
+  margin-left: auto;
+  min-width: 0;
+  max-width: 55%;
+  overflow: hidden;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-xs);
+  font-weight: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

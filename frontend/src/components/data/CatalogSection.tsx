@@ -2,8 +2,9 @@
  * Seção Catalog do painel Dados: catálogo → banco → tabela → colunas, lidos do
  * catálogo persistente (`catalog.db`), sem depender de kernel ou notebook.
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
- * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Menu de contexto:
- * Create Schema no catálogo e Delete Schema no schema.
+ * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
+ * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
+ * A busca filtra só os nós já carregados, no cliente.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -28,7 +29,9 @@ import {
   DatabaseIcon,
   ExternalTableIcon,
   FolderIcon,
+  PlusIcon,
   RefreshIcon,
+  SearchIcon,
   TableIcon,
 } from "../shell/icons";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
@@ -72,6 +75,10 @@ interface Row {
   icon: ReactNode;
   /** Expansível (catálogo, banco e tabela). */
   expandable: boolean;
+  /** Aberto na tela: expandido no estado ou forçado aberto por um resultado de busca abaixo. */
+  open: boolean;
+  /** Aberto só pela busca (fora de `expanded`): abrir/fechar é local e não grava no store. */
+  forced?: boolean;
   /** Tabela cujos arquivos não existem mais. */
   unavailable?: boolean;
   table?: ColumnsQuery;
@@ -120,6 +127,7 @@ function columnItems(key: string, level: number, col: ColumnsState | undefined, 
         title: [c.name, c.data_type, ...flags, c.description ?? ""].filter(Boolean).join(" · "),
         icon: <ColumnIcon size={14} />,
         expandable: false,
+        open: false,
       });
     });
   }
@@ -148,6 +156,7 @@ function tableRows(
       title: tableTitle(t),
       icon: tableIcon(t),
       expandable: true,
+      open: Boolean(s.expanded[key]),
       unavailable: !t.available,
       table: { catalog, database, table: t.name },
     });
@@ -155,13 +164,41 @@ function tableRows(
   });
 }
 
+/** Busca por nome, sem diferenciar caixa; `q` já vem em minúsculas e aparado. */
+const matches = (q: string, ...names: string[]) => names.some((n) => n.toLowerCase().includes(q));
+
+/**
+ * Árvore plana. Com `q` não vazio, mostra só os nós cujo nome casa e seus
+ * ancestrais; ancestrais de um resultado abrem mesmo sem estar expandidos no
+ * store, salvo os fechados localmente em `closed`. Um catálogo ou schema que casa mantém os filhos como estão.
+ */
 function buildItems(
   catalogs: CatalogNode[],
   s: { expanded: Record<string, true>; columns: Record<string, ColumnsState> },
+  q: string,
+  closed: ReadonlySet<string>,
 ): Item[] {
   const out: Item[] = [];
-  catalogs.forEach((c, ci) => {
+  const searching = q !== "";
+  const visible = searching
+    ? catalogs.flatMap((c) => {
+        const catalogHit = matches(q, c.name, CATALOG_LABELS[c.name] ?? c.name);
+        const databases = c.databases.flatMap((d) => {
+          const tables = d.tables.filter((t) => matches(q, t.name));
+          const schemaHit = matches(q, d.name);
+          if (!catalogHit && !schemaHit && tables.length === 0) return [];
+          return [{ db: d, tables: schemaHit || catalogHit ? d.tables : tables, forceOpen: tables.length > 0 }];
+        });
+        if (!catalogHit && databases.length === 0) return [];
+        const shown = catalogHit ? c.databases.map((d) => databases.find((x) => x.db === d) ?? { db: d, tables: d.tables, forceOpen: false }) : databases;
+        return [{ c, databases: shown, forceOpen: databases.some((x) => x.forceOpen || matches(q, x.db.name)) }];
+      })
+    : catalogs.map((c) => ({ c, databases: c.databases.map((d) => ({ db: d, tables: d.tables, forceOpen: false })), forceOpen: false }));
+
+  visible.forEach(({ c, databases, forceOpen }, ci) => {
     const ckey = `c:${c.name}`;
+    const cForced = forceOpen && !s.expanded[ckey];
+    const cOpen = Boolean(s.expanded[ckey]) || (cForced && !closed.has(ckey));
     out.push({
       key: ckey,
       kind: "catalog",
@@ -170,22 +207,26 @@ function buildItems(
       parent: null,
       level: 1,
       pos: ci + 1,
-      size: catalogs.length,
+      size: visible.length,
       label: CATALOG_LABELS[c.name] ?? c.name,
       detail: c.error ? "error" : undefined,
       icon: <FolderIcon size={14} />,
       expandable: true,
+      open: cOpen,
+      forced: cForced,
     });
-    if (!s.expanded[ckey]) return;
+    if (!cOpen) return;
     if (c.error) {
       out.push({ status: true, key: `error:${ckey}`, level: 2, text: CATALOG_ERRORS[c.error] ?? "Catalog could not be read.", error: true });
     }
-    c.databases.forEach((d, di) => {
+    databases.forEach(({ db: d, tables, forceOpen: dForce }, di) => {
       const dkey = schemaKey(c.name, d.name);
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true });
-      if (s.expanded[dkey]) {
-        if (d.tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
-        tableRows(c.name, d.tables, dkey, 3, d.name, s, out);
+      const dForced = dForce && !s.expanded[dkey];
+      const dOpen = Boolean(s.expanded[dkey]) || (dForced && !closed.has(dkey));
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen, forced: dForced });
+      if (dOpen) {
+        if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
+        tableRows(c.name, tables, dkey, 3, d.name, s, out);
         if (d.truncated) {
           out.push({ status: true, key: `truncated:${dkey}`, level: 3, text: "Limited list: not all tables are shown.", error: false });
         }
@@ -315,13 +356,13 @@ interface MenuState {
   origin: HTMLElement | null;
 }
 
-function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode[] }) {
-  const expanded = useCatalog((s) => s.expanded);
-  const { toggle, expand, collapse } = useCatalog.getState();
+function CatalogTree({ items, onCreate, onToggleForced }: { items: Item[]; onCreate: (catalog: string) => void; onToggleForced: (key: string) => void }) {
+  const { toggle: storeToggle, expand: storeExpand, collapse } = useCatalog.getState();
+  // Linhas abertas só pela busca alternam localmente; as demais gravam no store.
+  const toggle = (row: Row) => (row.forced ? onToggleForced(row.key) : storeToggle(row.key, row.table));
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [createIn, setCreateIn] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<{ catalog: string; schema: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -336,7 +377,7 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
   function menuItems(row: Row): MenuItem[] | null {
     if (row.kind === "catalog" && row.catalog) {
       const catalog = row.catalog;
-      return [{ label: "Create Schema…", disabled: row.catalogError, onSelect: () => setCreateIn(catalog), testId: "catalog-create-schema" }];
+      return [{ label: "Create Schema…", disabled: row.catalogError, onSelect: () => onCreate(catalog), testId: "catalog-create-schema" }];
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
@@ -359,12 +400,6 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
     // Tecla ContextMenu em alguns navegadores gera o evento sem coordenadas.
     if (e.clientX === 0 && e.clientY === 0) openMenuAtRow(row);
     else setMenu({ x: e.clientX, y: e.clientY, row, origin: e.currentTarget });
-  }
-
-  function onCreated(catalog: string) {
-    const { refresh, expand: open } = useCatalog.getState();
-    open(`c:${catalog}`);
-    refresh();
   }
 
   function onDeleted(catalog: string, schema: string, res: SchemaDeletion) {
@@ -396,7 +431,10 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
         break;
       case "ArrowRight":
         if (row.expandable) {
-          if (!expanded[row.key]) expand(row.key, row.table);
+          if (!row.open) {
+            if (row.forced) onToggleForced(row.key);
+            else storeExpand(row.key, row.table);
+          }
           else {
             const next = nav[index + 1];
             if (next && next.level > row.level) focusRow(next.key);
@@ -404,8 +442,10 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
         }
         break;
       case "ArrowLeft":
-        if (row.expandable && expanded[row.key]) collapse(row.key);
-        else focusRow(row.parent);
+        if (row.expandable && row.open) {
+          if (row.forced) onToggleForced(row.key);
+          else collapse(row.key);
+        } else focusRow(row.parent);
         break;
       case "ContextMenu":
         openMenuAtRow(row);
@@ -416,7 +456,7 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
         break;
       case "Enter":
       case " ":
-        if (row.expandable) toggle(row.key, row.table);
+        if (row.expandable) toggle(row);
         break;
       default:
         return;
@@ -439,7 +479,7 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
           );
         }
         const index = nav.indexOf(item);
-        const open = item.expandable && Boolean(expanded[item.key]);
+        const open = item.expandable && item.open;
         return (
           <div
             key={item.key}
@@ -462,7 +502,7 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
             onContextMenu={(e) => onContextMenu(e, item)}
             onClick={() => {
               setFocusKey(item.key);
-              if (item.expandable) toggle(item.key, item.table);
+              if (item.expandable) toggle(item);
             }}
           >
             <span className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`} aria-hidden="true">
@@ -483,15 +523,6 @@ function CatalogTree({ items, catalogs }: { items: Item[]; catalogs: CatalogNode
         ariaLabel={`Actions for ${menu.row.label}`}
         onClose={closeMenu}
         returnFocusTo={menu.origin}
-      />
-    ) : null}
-    {createIn ? (
-      <CreateSchemaDialog
-        catalog={createIn}
-        catalogLabel={CATALOG_LABELS[createIn] ?? createIn}
-        existing={catalogs.find((c) => c.name === createIn)?.databases.map((d) => d.name) ?? []}
-        onCreated={() => onCreated(createIn)}
-        onClose={() => setCreateIn(null)}
       />
     ) : null}
     {deleting ? (
@@ -527,7 +558,7 @@ function CatalogTitle({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
 }
 
 /** Corpo do cartão: só monta expandido, então recolher também para a leitura no foco da janela e o refresh por idle. */
-function CatalogBody() {
+function CatalogBody({ query, onCreate }: { query: string; onCreate: (catalog: string) => void }) {
   const path = useRouter((s) => activeNotebookPath(s.route));
   useWorkspace((s) => s.tabs);
   const entry = path ? getEntry(path) : undefined;
@@ -535,6 +566,18 @@ function CatalogBody() {
   const error = useCatalog((s) => s.error);
   const expanded = useCatalog((s) => s.expanded);
   const columns = useCatalog((s) => s.columns);
+  // Nós abertos só pela busca que o usuário fechou; vale apenas enquanto a busca durar.
+  const [searchClosed, setSearchClosed] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => setSearchClosed(new Set()), [query]);
+  const toggleForced = useCallback(
+    (key: string) =>
+      setSearchClosed((prev) => {
+        const next = new Set(prev);
+        if (!next.delete(key)) next.add(key);
+        return next;
+      }),
+    [],
+  );
 
   // O painel só monta depois de `bootstrapAuth()` "ok": a primeira leitura é segura aqui.
   useEffect(() => {
@@ -544,7 +587,7 @@ function CatalogBody() {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const items = data ? buildItems(data.catalogs, { expanded, columns }) : [];
+  const items = data ? buildItems(data.catalogs, { expanded, columns }, query, searchClosed) : [];
 
   let body: ReactNode;
   if (!data) {
@@ -555,7 +598,7 @@ function CatalogBody() {
     body = (
       <div className={styles.tree}>
         {error ? <p className={`${styles.treeStatus} ${styles.treeError}`} role="alert">{error}</p> : null}
-        <CatalogTree items={items} catalogs={data.catalogs} />
+        {items.length === 0 ? <p className={styles.hint}>No matches.</p> : <CatalogTree items={items} onCreate={onCreate} onToggleForced={toggleForced} />}
       </div>
     );
   }
@@ -568,9 +611,25 @@ function CatalogBody() {
   );
 }
 
+/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro. */
+function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
+  const ok = (catalogs ?? []).filter((c) => !c.error);
+  return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
+}
+
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {
   const loading = useCatalog((s) => s.loading);
   const refresh = useCatalog((s) => s.refresh);
+  const data = useCatalog((s) => s.data);
+  const [query, setQuery] = useState("");
+  const [createIn, setCreateIn] = useState<string | null>(null);
+  const createTarget = defaultCreateTarget(data?.catalogs);
+
+  function onCreated(catalog: string) {
+    const { refresh: reload, expand } = useCatalog.getState();
+    expand(`c:${catalog}`);
+    reload();
+  }
 
   return (
     <section
@@ -584,9 +643,45 @@ export function CatalogSection({ testId, collapsed, onToggle }: { testId?: strin
           <button type="button" className="btn btn-ghost" onClick={refresh} disabled={loading} aria-label="Refresh catalog" title="Refresh">
             <RefreshIcon size={14} />
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            data-testid="catalog-add-schema"
+            disabled={createTarget === null}
+            onClick={() => createTarget && setCreateIn(createTarget)}
+            aria-label="Create schema"
+            title="Create schema"
+          >
+            <PlusIcon size={14} />
+          </button>
         </div>
       </div>
-      {collapsed ? null : <CatalogBody />}
+      {collapsed ? null : (
+        <>
+          <div className={styles.searchField}>
+            <SearchIcon size={14} className={styles.searchIcon} />
+            <input
+              type="search"
+              className={`input ${styles.searchInput}`}
+              data-testid="catalog-search"
+              placeholder="Search catalog…"
+              aria-label="Search catalog"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <CatalogBody query={query.trim().toLowerCase()} onCreate={setCreateIn} />
+        </>
+      )}
+      {createIn ? (
+        <CreateSchemaDialog
+          catalog={createIn}
+          catalogLabel={CATALOG_LABELS[createIn] ?? createIn}
+          existing={data?.catalogs.find((c) => c.name === createIn)?.databases.map((d) => d.name) ?? []}
+          onCreated={() => onCreated(createIn)}
+          onClose={() => setCreateIn(null)}
+        />
+      ) : null}
     </section>
   );
 }

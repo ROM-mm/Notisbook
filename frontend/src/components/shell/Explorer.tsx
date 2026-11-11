@@ -1,8 +1,9 @@
 /**
- * Corpo do painel Explorer: cartões Notebooks, Files e Catalog empilhados, cada
- * um com seu próprio scroll e recolhível. Alças horizontais entre cartões
- * abertos e adjacentes ajustam só os dois vizinhos (mín. 120px); duplo clique
- * restaura os pesos 1/1/1. Cartão recolhido não participa do redimensionamento.
+ * Corpo do painel Explorer: cartões Catalog, Notebooks e Connections (chave
+ * `files`) empilhados nessa ordem, cada um com seu próprio scroll e recolhível.
+ * Alças horizontais entre cartões abertos e adjacentes ajustam só os dois
+ * vizinhos (mín. 120px); duplo clique restaura os pesos 1/1/1. Cartão recolhido
+ * não participa do redimensionamento.
  */
 import { Fragment, useRef, type ReactNode } from "react";
 import { EXPLORER_CARDS, useLayout, type ExplorerCard } from "../../state/layout";
@@ -16,9 +17,9 @@ import { ResizeHandle } from "./ResizeHandle";
 const MIN_CARD_HEIGHT = 120;
 
 const GRIP_LABELS: Record<ExplorerCard, string> = {
-  notebooks: "Resize notebooks and files sections",
-  files: "Resize files and catalog sections",
-  catalog: "",
+  catalog: "Resize catalog and notebooks sections",
+  notebooks: "Resize notebooks and connections sections",
+  files: "",
 };
 
 export function Explorer() {

@@ -1,14 +1,13 @@
 /**
- * Cabeçalho da célula (padrão Databricks): ▶ e seletor Python/SQL à esquerda, "N: Título"
- * centralizado (`cell-number` = posição 1-based; título opcional em
- * `metadata.title`) e menu ⋮ à direita (título, tipo, mover, inserir,
- * excluir).
+ * Cabeçalho da célula (padrão Databricks): ▶, ■ e seletor Python/SQL à esquerda, título
+ * opcional (`metadata.title`) centralizado e menu ⋮ à direita (título, tipo, mover,
+ * inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
  */
 import { useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
-import { useKernel, useNotebookStore } from "../../state/notebookContext";
+import { useKernel, useKernelStore, useNotebookStore } from "../../state/notebookContext";
 import { Menu, type MenuItem } from "../shell/Menu";
-import { MoreVerticalIcon, PlayFilledIcon } from "../shell/icons";
+import { MoreVerticalIcon, PlayFilledIcon, StopFilledIcon } from "../shell/icons";
 import { insertAndEdit } from "./AddCellBar";
 import { CheckIcon } from "./icons";
 import styles from "./Notebook.module.css";
@@ -76,12 +75,15 @@ export function CellHeader({
   setTitleEditing,
 }: CellHeaderProps) {
   const store = useNotebookStore();
+  const kernelStore = useKernelStore();
   const id = cell.id;
-  // Trocar a linguagem com a célula na fila ou em execução reescreve o código já despachado.
+  // Trocar a linguagem com a célula na fila ou em execução reescreve o código já despachado;
   const languageLocked = useKernel((s) => {
     const status = s.runs[id]?.status;
     return status === "running" || status === "queued";
   });
+  // O ■ só vale para a célula em execução; na fila ela ainda não está rodando.
+  const running = useKernel((s) => s.runs[id]?.status === "running");
   const title = cellTitle(cell);
   const isCode = cell.cell_type === "code";
   const target = isCode ? "markdown" : "code";
@@ -130,6 +132,18 @@ export function CellHeader({
           data-testid="cell-run"
         >
           <PlayFilledIcon size={12} />
+        </button>
+        <button
+          type="button"
+          className={`${styles.runBtn} ${styles.stopBtn}`}
+          onClick={() => kernelStore.getState().interrupt()}
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={!running}
+          title="Interrupt kernel"
+          aria-label="Interrupt kernel"
+          data-testid="cell-stop"
+        >
+          <StopFilledIcon size={12} />
         </button>
         <span className={styles.languageMenu}>
           {languageLocked ? (
@@ -183,10 +197,6 @@ export function CellHeader({
       <div className={styles.headerCenter}>
         {titleEditing ? (
           <span className={styles.titleEditRow}>
-            <span className={styles.cellNumber} data-testid="cell-number">
-              {index + 1}
-            </span>
-            <span className={styles.titleSep}>:</span>
             <TitleInput
               initial={title ?? ""}
               onDone={(v) => {
@@ -202,17 +212,13 @@ export function CellHeader({
             onClick={() => setTitleEditing(true)}
             title={title ? "Click to edit the title" : "Click to add a title"}
           >
-            <span className={styles.cellNumber} data-testid="cell-number">
-              {index + 1}
-            </span>
             {title ? (
-              <>
-                <span className={styles.titleSep}>:</span>
-                <span className={styles.cellTitle} data-testid="cell-title">
-                  {title}
-                </span>
-              </>
-            ) : null}
+              <span className={styles.cellTitle} data-testid="cell-title">
+                {title}
+              </span>
+            ) : (
+              <span className={styles.titlePlaceholder}>Add title</span>
+            )}
           </button>
         )}
       </div>

@@ -1,26 +1,18 @@
 /**
- * Barra superior (`data-testid="notebook-topbar"`).
- * Com notebook: linha única — menus File / Edit / View / Run / Help e About
- * à esquerda; à direita status do kernel, seletor de ambiente, aviso de
- * salvamento (só Saving…/Save failed) e toggle de variáveis.
- * Sem notebook ativo (início/Settings) mostra o título e os itens de notebook
- * ficam desabilitados.
+ * Barra de menus File / Edit / View / Run / Help (+ About) do header. Os itens
+ * são montados na abertura de cada menu a partir da aba ativa (`entry`); sem
+ * notebook ativo, os itens que dependem dele ficam desabilitados.
  */
-import type { ReactNode } from "react";
 import { exportNotebook, type ExportFormat } from "../../api/export";
 import { saveBlob } from "../../lib/download";
 import { basename, dirname } from "../../lib/paths";
 import { type EditableCellType, type InsertWhere, toNotebook } from "../../state/notebook";
-import { NotebookProvider, useNotebook } from "../../state/notebookContext";
 import { type ThemePref, useTheme } from "../../state/theme";
 import { getTargetDir } from "../../state/notebookTree";
 import { createUntitledNotebook, type NotebookEntry, useWorkspace } from "../../state/workspace";
-import { kernelAlive, kernelHasWork, kernelReady, KernelStatus } from "../kernel/KernelStatus";
-import { KernelSelector } from "../kernel/KernelSelector";
-import { FocusIcon, VariablesIcon } from "./icons";
+import { kernelAlive, kernelHasWork, kernelReady } from "../kernel/KernelStatus";
 import { Menu, type MenuItem } from "./Menu";
-import { SystemResources } from "./SystemResources";
-import styles from "./AppShell.module.css";
+import styles from "./Banner.module.css";
 
 const THEMES: { pref: ThemePref; label: string }[] = [
   { pref: "light", label: "Light theme" },
@@ -28,7 +20,7 @@ const THEMES: { pref: ThemePref; label: string }[] = [
   { pref: "system", label: "System theme" },
 ];
 
-function newNotebook(entry: NotebookEntry | null): void {
+export function newNotebook(entry: NotebookEntry | null): void {
   const dir = entry ? dirname(entry.path) : getTargetDir();
   createUntitledNotebook(dir).catch((err: unknown) =>
     window.alert(`Could not create the notebook: ${err instanceof Error ? err.message : String(err)}`),
@@ -161,7 +153,7 @@ function helpItems(): MenuItem[] {
   return [{ label: "Keyboard shortcuts", onSelect: () => useWorkspace.getState().setShortcutsOpen(true), testId: "menu-help-shortcuts" }];
 }
 
-function MenuBar({ entry }: { entry: NotebookEntry | null }) {
+export function MenuBar({ entry }: { entry: NotebookEntry | null }) {
   return (
     <nav className={styles.menubar} aria-label="Menus">
       <Menu trigger="File" testId="menu-file" items={() => fileItems(entry)} />
@@ -177,98 +169,5 @@ function MenuBar({ entry }: { entry: NotebookEntry | null }) {
         onClick={() => useWorkspace.getState().setAboutOpen(true)}
       >About</button>
     </nav>
-  );
-}
-
-function SaveState() {
-  const saving = useNotebook((s) => s.saving);
-  const saveError = useNotebook((s) => s.saveError);
-  const ready = useNotebook((s) => s.status === "ready");
-  if (!ready || (!saving && !saveError)) return null;
-  const text = saving ? "Saving…" : "Save failed";
-  return (
-    <span className={saveError ? `${styles.saveText} ${styles.saveError}` : styles.saveText} title={saveError ?? undefined} data-testid="save-state">
-      {text}
-    </span>
-  );
-}
-
-function VariablesToggle() {
-  const open = useWorkspace((s) => s.rightPanel === "variables" && !s.focusMode);
-  const toggle = useWorkspace((s) => s.toggleRightPanel);
-  return (
-    <button
-      type="button"
-      className={styles.topToggle}
-      data-testid="toggle-variables"
-      title="Variables"
-      aria-label="Variables"
-      aria-pressed={open}
-      onClick={() => toggle("variables")}
-    >
-      <VariablesIcon size={16} />
-    </button>
-  );
-}
-
-function FocusToggle() {
-  const on = useWorkspace((s) => s.focusMode);
-  const toggle = useWorkspace((s) => s.toggleFocusMode);
-  return (
-    <button
-      type="button"
-      className={styles.topToggle}
-      data-testid="toggle-focus"
-      title="Focus mode"
-      aria-label="Focus mode"
-      aria-pressed={on}
-      onClick={toggle}
-    >
-      <FocusIcon size={16} />
-    </button>
-  );
-}
-
-function NotebookActions() {
-  return (
-    <div className={styles.topActions}>
-      <SystemResources />
-      <KernelStatus />
-      <KernelSelector />
-      <SaveState />
-      <FocusToggle />
-      <VariablesToggle />
-    </div>
-  );
-}
-
-export function Topbar({ entry, title }: { entry: NotebookEntry | null; title: ReactNode | null }) {
-  return (
-    <header className={entry ? `${styles.topbar} ${styles.topbarSingle}` : styles.topbar} data-testid="notebook-topbar">
-      {entry ? (
-        <div className={styles.topRow}>
-          <NotebookProvider entry={entry}>
-            <MenuBar entry={entry} />
-            <NotebookActions />
-          </NotebookProvider>
-        </div>
-      ) : (
-        <>
-          {title ? (
-            <div className={styles.topRow}>
-              <div className={styles.titleRow}>
-                <h1 className={styles.title}>{title}</h1>
-              </div>
-            </div>
-          ) : null}
-          <div className={styles.topRow}>
-            <MenuBar entry={entry} />
-            <div className={styles.topActions}>
-              <FocusToggle />
-            </div>
-          </div>
-        </>
-      )}
-    </header>
   );
 }

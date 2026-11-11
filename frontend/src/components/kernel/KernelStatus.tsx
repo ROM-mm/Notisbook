@@ -1,13 +1,12 @@
 /**
- * Indicador compacto do estado da sessão de kernel da aba (topbar).
- * As ações (executar tudo, interromper, reiniciar…) ficam na `KernelToolbar`
- * e no menu Run da topbar.
+ * Estado da sessão de kernel da aba e predicados de habilitação das ações.
+ * O indicador visual (ponto + palavra de estado) vive no `KernelSelector`;
+ * as ações ficam na `KernelToolbar` e no menu Run do header.
  */
 import { type KernelSessionState } from "../../state/kernel";
 import { useKernel } from "../../state/notebookContext";
-import styles from "./Kernel.module.css";
 
-type Tone = "ok" | "busy" | "warn" | "danger" | "muted";
+export type Tone = "ok" | "busy" | "warn" | "danger" | "muted";
 
 function describe(s: Pick<KernelSessionState, "phase" | "kernelState" | "connection">): {
   label: string;
@@ -47,17 +46,11 @@ export function kernelHasWork(s: Pick<KernelSessionState, "running" | "queue" | 
   return s.running !== null || s.queue.length > 0 || s.kernelState === "busy";
 }
 
-export function KernelStatus() {
+/** Descrição (rótulo, tom e estado) da sessão de kernel da aba, reativa ao store. */
+export function useKernelDescription(): { label: string; tone: Tone; state: string; error: string | null } {
   const phase = useKernel((s) => s.phase);
   const kernelState = useKernel((s) => s.kernelState);
   const connection = useKernel((s) => s.connection);
   const error = useKernel((s) => s.error);
-  const { label, tone, state } = describe({ phase, kernelState, connection });
-
-  return (
-    <span className={styles.status} data-testid="kernel-status" data-state={state} title={error ?? undefined} role="status">
-      <span className={`${styles.dot} ${styles[tone]}`} aria-hidden="true" />
-      {label}
-    </span>
-  );
+  return { ...describe({ phase, kernelState, connection }), error };
 }

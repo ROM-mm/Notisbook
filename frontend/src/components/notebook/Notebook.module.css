@@ -26,7 +26,6 @@
   overflow: auto;
   padding: 0 var(--space-6) var(--space-16);
   background-color: var(--color-bg);
-  background-image: var(--dots);
 }
 
 /* Lista */
@@ -45,11 +44,12 @@
 .banner {
   margin: 0 0 var(--space-4);
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--coral);
   color: var(--on-fill);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-control);
 }
 
 .empty {
@@ -89,8 +89,8 @@
 
 .addLine {
   flex: 1;
-  height: 2px;
-  background: var(--ink);
+  height: 1px;
+  background: var(--color-border);
 }
 
 .addBtn {
@@ -99,58 +99,47 @@
   gap: var(--space-1);
   height: 24px;
   padding: 0 var(--space-2);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: 2px 2px 0 var(--shadow);
+  box-shadow: none;
   color: var(--color-text);
   font-family: var(--font-head);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
-  transition:
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast),
-    background var(--transition-fast);
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-control);
 }
 
 .addBtn:hover {
-  background: var(--hover);
-  transform: translate(-1px, -1px);
-  box-shadow: 3px 3px 0 var(--shadow);
-}
-
-.addBtn:active {
-  transform: translate(2px, 2px);
-  box-shadow: none;
+  background: var(--color-bg-hover);
 }
 
 .addBtn:focus-visible {
-  outline: 3px solid var(--ink);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
-/* Célula: cartão com borda e sombra sólidas deslocadas. Sem overflow:hidden
- * porque os menus do cabeçalho são absolutos dentro do cartão. */
+/* Célula: cartão reto com borda fina. Sem overflow:hidden porque os menus
+ * do cabeçalho são absolutos dentro do cartão. */
 .cell {
   position: relative;
   margin-bottom: var(--space-4);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
+  border-radius: 0;
   background: var(--color-surface);
-  box-shadow: 4px 4px 0 var(--cell-shadow);
   color: var(--color-text);
 }
 
-/* Seleção (modo comando): contorno de 3px rente à borda e sombra maior.
- * Declarada antes de .cellEditing, que herda a sombra e afasta o contorno. */
+/* Seleção (modo comando): borda de acento; em edição, um halo suave por cima. */
 .cellActive,
 .cellActive:hover {
-  outline: 3px solid var(--ink);
-  outline-offset: 0;
-  box-shadow: 6px 6px 0 var(--cell-shadow-active);
+  border-color: var(--color-accent);
+  outline: none;
 }
 
 .cellEditing,
 .cellEditing:hover {
-  outline-offset: 3px;
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
 }
 
 .cellHeader {
@@ -160,26 +149,9 @@
   gap: var(--space-2);
   height: 40px;
   padding: 0 var(--space-3);
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-surface);
-  color: var(--on-fill);
-}
-
-/* Faixa pastel por tipo de célula (atributo data-cell-type em CellHeader.tsx). */
-.cellHeader[data-cell-type="python"] {
-  background: var(--blue);
-}
-
-.cellHeader[data-cell-type="sql"] {
-  background: var(--peach);
-}
-
-.cellHeader[data-cell-type="duckdb"] {
-  background: var(--lav);
-}
-
-.cellHeader[data-cell-type="markdown"] {
-  background: var(--pink);
+  color: var(--color-text);
 }
 
 .headerLeft {
@@ -203,11 +175,6 @@
   transition: opacity var(--transition-fast);
 }
 
-/* O gatilho "⋮" herda --color-text, ilegível no tema escuro sobre a faixa pastel; hover/aberto usam o mesmo --on-fill sobre o fundo amarelo. */
-.headerRight button[aria-haspopup="menu"] {
-  color: var(--on-fill);
-}
-
 .cell:hover .headerRight,
 .cellActive .headerRight,
 .headerRight:focus-within {
@@ -220,10 +187,11 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   transition: background var(--transition-fast);
+  border-radius: var(--radius-control);
 }
 
 .runBtn:hover {
@@ -239,27 +207,48 @@
   max-width: 100%;
   height: 24px;
   padding: 0 var(--space-2);
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background: transparent;
-  color: var(--on-fill);
+  color: var(--color-text);
   font-family: var(--font-head);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-control);
 }
 
 .titleButton:hover {
-  border-color: var(--ink);
+  border-color: var(--color-border-strong);
   background: var(--color-surface);
   color: var(--color-text);
 }
 
-.cellNumber {
-  font-variant-numeric: tabular-nums;
-  font-weight: var(--font-weight-bold);
+.titlePlaceholder {
+  color: var(--color-text-subtle);
+  font-weight: var(--font-weight-regular, 400);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
 }
 
-.titleSep {
-  margin-left: -4px;
+.cellHeader:hover .titlePlaceholder,
+.titleButton:focus-visible .titlePlaceholder {
+  opacity: 1;
+}
+
+/* ■ da célula: neutro e apagado sem execução; avermelhado quando a célula roda ou está na fila. */
+.stopBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.stopBtn:not(:disabled) {
+  border-color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+}
+
+.stopBtn:not(:disabled):hover {
+  background: var(--color-danger);
+  color: var(--on-accent);
 }
 
 .cellTitle {
@@ -274,11 +263,12 @@
   width: 260px;
   height: 22px;
   padding: 0 var(--space-2);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   outline: none;
   background: var(--color-surface);
   color: var(--color-text);
   font-size: var(--font-size-sm);
+  border-radius: var(--radius-control);
 }
 
 /* Seletor de linguagem junto do ▶: reaproveita o botão do Menu, alargado para caber o texto. */
@@ -288,7 +278,7 @@
   gap: 2px;
   padding: 0 var(--space-2);
   grid-auto-flow: column;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   font-family: var(--font-head);
@@ -296,6 +286,7 @@
   font-weight: var(--font-weight-bold);
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  border-radius: var(--radius-control);
 }
 
 .languageMenu [aria-haspopup="menu"]:hover {
@@ -322,7 +313,7 @@
   margin-inline: calc(-1 * var(--space-3));
   margin-top: var(--space-3);
   padding: var(--space-3) var(--space-3) 0;
-  border-top: 2px solid var(--ink);
+  border-top: 1px solid var(--color-border);
 }
 
 /* Bloco de código: campo de superfície simples, sem moldura própria. */
@@ -333,8 +324,9 @@
 /* Markdown em edição: sem fundo, só um contorno leve quando focado. */
 .textBox {
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
+  border-radius: var(--radius-control);
 }
 
 .rendered {

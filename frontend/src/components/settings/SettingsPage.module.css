@@ -5,7 +5,6 @@
      com a largura máxima de antes. */
   padding: var(--space-8) max(var(--space-6), calc((100% - var(--content-max-width)) / 2 + var(--space-6))) var(--space-16);
   background-color: var(--color-bg);
-  background-image: var(--dots);
 }
 
 .section {

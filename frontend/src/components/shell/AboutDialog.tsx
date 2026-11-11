@@ -1,4 +1,4 @@
-/** Diálogo "About" (botão da topbar): marca, nome e autoria. */
+/** Diálogo "About" (botão About da barra de menus): marca, nome e autoria. */
 import { useEffect, useRef } from "react";
 import { useWorkspace } from "../../state/workspace";
 import dlg from "../../styles/dialog.module.css";

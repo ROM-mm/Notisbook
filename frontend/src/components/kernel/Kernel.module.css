@@ -1,25 +1,11 @@
-/* Status do kernel (topbar), slot do seletor e rodapé de execução por célula. */
-
-.status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px var(--space-3);
-  border: 2px solid var(--ink);
-  background: var(--color-surface);
-  box-shadow: 2px 2px 0 var(--shadow);
-  color: var(--color-text);
-  font-family: var(--font-head);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
-  white-space: nowrap;
-}
+/* Controles do kernel na barra de abas, seletor com estado e rodapé de execução por célula. */
 
 .dot {
-  width: 9px;
-  height: 9px;
-  border: 2px solid var(--ink);
+  flex: none;
+  width: 8px;
+  height: 8px;
   background: var(--color-text-subtle);
+  border-radius: 50%;
 }
 
 .ok {
@@ -66,7 +52,7 @@
 .sep::before {
   content: "·";
   margin-right: var(--space-2);
-  color: var(--ink);
+  color: var(--color-text-subtle);
 }
 
 .f_ok .footerStatus {
@@ -100,12 +86,13 @@
   gap: var(--space-2) var(--space-3);
   margin: 0 0 var(--space-4);
   padding: 10px 12px;
-  border: 3px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--coral);
-  box-shadow: 4px 4px 0 var(--shadow);
+  box-shadow: none;
   color: var(--on-fill);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-control);
 }
 
 /* Ícone decorativo; o contêiner já tem role="alert" e a mensagem em texto. */
@@ -123,6 +110,7 @@
   color: var(--color-text);
   font-weight: var(--font-weight-bold, 700);
   line-height: 1;
+  border-radius: var(--radius-control);
 }
 
 /* Mensagem divide a linha com o ícone e quebra o próprio texto; linha de 22px
@@ -144,6 +132,7 @@
   border: 2px solid currentColor;
   border-right-color: transparent;
   animation: spin 0.8s linear infinite;
+  border-radius: var(--radius-control);
 }
 
 .f_queued .spinner {
@@ -171,41 +160,50 @@
   }
 }
 
-/* Seletor de ambiente (combobox da topbar). */
+/* Seletor de ambiente com estado (combobox da barra de abas). */
 .selector {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  max-width: 260px;
-  height: 30px;
+  max-width: 280px;
+  height: 28px;
   padding: 0 var(--space-2);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: 2px 2px 0 var(--shadow);
+  box-shadow: none;
   color: var(--color-text);
   font-family: var(--font-head);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-bold);
   white-space: nowrap;
-  transition:
-    transform var(--transition-fast),
-    box-shadow var(--transition-fast),
-    background var(--transition-fast);
+  transition: background var(--transition-fast);
+  border-radius: var(--radius-control);
 }
 
-.selector:hover {
-  background: var(--hover);
-  transform: translate(-1px, -1px);
-  box-shadow: 3px 3px 0 var(--shadow);
-}
-
+.selector:hover,
 .selector[data-open] {
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-hover);
 }
 
-.selector[data-open] :is(.selectorKernel, .selectorCaret) {
-  color: inherit;
+.selectorState {
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-regular);
+  text-transform: lowercase;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Lista ancorada à direita: o seletor fica junto da borda direita da viewport. */
+.toolbar :global([data-testid="kernel-selector-list"]) {
+  right: 0;
+  left: auto;
 }
 
 .selectorLabel {
@@ -236,52 +234,40 @@
   font-size: var(--font-size-sm);
 }
 
-/* Barra de execução: alinhada ao cabeçalho do painel lateral (.panelHeader em
-   AppShell.module.css, 44px) para alinhar os ícones com o título; cartão com
-   borda e sombra sólidas. */
+/* Controles do kernel (dentro de .tabActions da barra de abas). */
 .toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  box-sizing: border-box;
-  height: 44px;
-  margin-bottom: var(--space-6);
-  padding: 0 var(--space-2);
-  border: 2px solid var(--ink);
-  background: var(--color-surface);
-  box-shadow: 4px 4px 0 var(--cell-shadow);
 }
 
 .toolBtn {
   display: inline-grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background: transparent;
   color: var(--color-text);
+  border-radius: var(--radius-control);
 }
 
 .toolBtnPrimary {
-  border-color: var(--ink);
-  background: var(--yellow);
-  box-shadow: 2px 2px 0 var(--shadow);
-  color: var(--on-fill);
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-bg);
 }
 
 .toolBtn:hover:not(:disabled) {
-  border-color: var(--ink);
-  background: var(--hover);
+  background: var(--color-bg-hover);
   color: var(--color-text);
 }
 
 .toolBtnPrimary:hover:not(:disabled) {
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-text);
+  color: var(--color-bg);
+  opacity: 0.85;
 }
 
 .toolBtn:disabled {

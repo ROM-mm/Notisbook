@@ -1,6 +1,6 @@
 /**
  * Raiz da aplicação: autentica (cookie via `?token=`) e monta o layout
- * (`AppShell`: barra de ícones, painel lateral, abas, topbar, conteúdo).
+ * (`AppShell`: header, abas, painel lateral, conteúdo).
  *
  * Conteúdo por rota (`state/router.ts`):
  * - "files"    → início (nenhum notebook ativo); `/tree/<dir>` abre o painel
@@ -14,7 +14,6 @@ import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
 import { DeltaIcon, FileParquetIcon, HudiIcon, IcebergIcon } from "./components/shell/icons";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
-import { Topbar } from "./components/shell/Topbar";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { getTargetDir, useNotebookTree } from "./state/notebookTree";
 import { useFiles } from "./state/files";
@@ -129,9 +128,7 @@ function Workspace({ route }: { route: Route }) {
   const entry = route.view === "notebook" && tabs.includes(route.path) ? (getEntry(route.path) ?? null) : null;
 
   let content;
-  let title: string | null = null;
   if (route.view === "settings") {
-    title = "Settings";
     content = <SettingsPage />;
   } else if (route.view === "notebook") {
     content = entry ? (
@@ -143,5 +140,5 @@ function Workspace({ route }: { route: Route }) {
     content = <Home />;
   }
 
-  return <AppShell topbar={<Topbar entry={entry} title={title} />}>{content}</AppShell>;
+  return <AppShell entry={entry}>{content}</AppShell>;
 }

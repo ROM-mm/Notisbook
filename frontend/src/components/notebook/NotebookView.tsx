@@ -1,7 +1,7 @@
 /**
  * Corpo do notebook da aba ativa: lista as células e trata os atalhos.
- * O título, o seletor de ambiente, salvar e os menus ficam na `Topbar`
- * (components/shell); Run all/Interrupt/Restart vêm pelo slot `toolbar`. Lê o notebook da aba via contexto
+ * Menus e estado de salvamento ficam no header e os controles do kernel na
+ * barra de abas (components/shell). Lê o notebook da aba via contexto
  * (`NotebookProvider`); só a aba ativa é montada, e a rolagem é salva em
  * `entry.view.scrollTop` para ser restaurada ao voltar à aba.
  *
@@ -38,8 +38,6 @@ export interface NotebookViewProps {
   renderFooter?: (cell: EditorCell) => ReactNode;
   /** Aviso exibido acima das células (ex.: sessão de kernel encerrada). */
   banner?: ReactNode;
-  /** Barra fixa no topo das células (ex.: controles do kernel). */
-  toolbar?: ReactNode;
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -62,7 +60,7 @@ function PreservedOutputs({ cell }: { cell: EditorCodeCell }) {
   );
 }
 
-export function NotebookView({ onRunCell, renderOutputs, renderFooter, banner, toolbar }: NotebookViewProps) {
+export function NotebookView({ onRunCell, renderOutputs, renderFooter, banner }: NotebookViewProps) {
   const entry = useNotebookEntry();
   const store = entry.notebook;
   const status = useNotebook((s) => s.status);
@@ -195,7 +193,6 @@ export function NotebookView({ onRunCell, renderOutputs, renderFooter, banner, t
   } else {
     body = (
       <div className={styles.cells}>
-        {toolbar}
         {banner}
         {saveError ? (
           <div className={styles.banner} role="alert">

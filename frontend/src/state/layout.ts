@@ -12,8 +12,8 @@ export const SIDE_PANEL_MAX = 600;
 export const VARIABLES_MIN = 260;
 export const VARIABLES_MAX = 700;
 
-/** Cartões do Explorer, de cima para baixo. */
-export const EXPLORER_CARDS = ["notebooks", "files", "catalog"] as const;
+/** Cartões do Explorer, de cima para baixo (única fonte da ordem). */
+export const EXPLORER_CARDS = ["catalog", "notebooks", "files"] as const;
 export type ExplorerCard = (typeof EXPLORER_CARDS)[number];
 
 export const DEFAULT_CARD_WEIGHTS: Record<ExplorerCard, number> = { notebooks: 1, files: 1, catalog: 1 };

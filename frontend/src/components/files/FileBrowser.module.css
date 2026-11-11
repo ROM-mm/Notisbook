@@ -19,9 +19,10 @@
   gap: var(--space-2);
   margin-block: 0;
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--coral);
   color: var(--on-fill);
+  border-radius: var(--radius-control);
 }
 
 .tree {
@@ -64,7 +65,7 @@
 }
 
 .row:focus-visible {
-  outline: 3px solid var(--ink);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: -3px;
 }
 
@@ -74,7 +75,7 @@
 
 /* Notebook aberto na aba ativa: barra de 3px sem preenchimento. */
 .row[data-active] {
-  border-left-color: var(--ink);
+  border-left-color: var(--color-accent);
   background: var(--color-bg-subtle);
   font-weight: var(--font-weight-bold);
 }
@@ -82,7 +83,7 @@
 /* Seleção: fundo amarelo e barra de 3px à esquerda. */
 .row[data-selected],
 .row[data-selected][data-active] {
-  border-left-color: var(--on-fill);
+  border-left-color: var(--color-accent);
   background: var(--yellow);
   color: var(--on-fill);
 }

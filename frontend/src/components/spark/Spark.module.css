@@ -11,9 +11,10 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: 0 0 var(--space-5);
-  border: 3px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: 6px 6px 0 var(--shadow);
+  box-shadow: none;
+  border-radius: var(--radius-control);
 }
 
 /* O padding horizontal fica nos filhos: o cabeçalho vai de borda a borda. */
@@ -28,7 +29,7 @@
   gap: var(--space-3);
   min-height: 44px;
   padding: 0 var(--space-5);
-  border-bottom: 3px solid var(--ink);
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
 }
 
@@ -54,10 +55,11 @@
 
 .code {
   padding: 1px 5px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-code-bg);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+  border-radius: var(--radius-control);
 }
 
 .bad {
@@ -66,20 +68,22 @@
 
 .error {
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--coral);
   color: var(--on-fill);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
+  border-radius: var(--radius-control);
 }
 
 .notice,
 .hint {
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--peach);
   color: var(--on-fill);
   font-size: var(--font-size-sm);
+  border-radius: var(--radius-control);
 }
 
 /* Pré-requisitos */
@@ -132,10 +136,11 @@
   gap: 6px;
   height: 24px;
   padding: 0 var(--space-2);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-control);
 }
 
 .badgeOk {
@@ -178,9 +183,10 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: 0 0 var(--space-4);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: 4px 4px 0 var(--shadow);
+  box-shadow: none;
+  border-radius: var(--radius-control);
 }
 
 .job[data-status="running"] {
@@ -197,7 +203,7 @@
   gap: var(--space-3);
   min-height: 44px;
   padding: 0 var(--space-4);
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-subtle);
 }
 
@@ -233,8 +239,9 @@
 .bar {
   overflow: hidden;
   height: 12px;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
+  border-radius: var(--radius-control);
 }
 
 .barFill {
@@ -256,11 +263,12 @@
   overflow: auto;
   max-height: 240px;
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-code-bg);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-code);
+  border-radius: var(--radius-control);
 }
 
 .log:focus-visible {
@@ -289,6 +297,7 @@
   border: 2px solid currentColor;
   border-right-color: transparent;
   animation: spin 0.8s linear infinite;
+  border-radius: var(--radius-control);
 }
 
 @keyframes spin {
@@ -321,7 +330,7 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) 0;
-  border-top: 2px solid var(--ink);
+  border-top: 1px solid var(--color-border);
 }
 
 .row:first-child {
@@ -372,11 +381,12 @@
 
 .tag {
   padding: 1px 8px;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
+  border-radius: var(--radius-control);
 }
 
 .tagActive {
@@ -450,8 +460,9 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
+  border-radius: var(--radius-control);
 }
 
 .bannerOk {
@@ -487,7 +498,7 @@
   position: sticky;
   top: 0;
   padding: var(--space-2);
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 1px solid var(--color-border);
   background: var(--blue);
   color: var(--on-fill);
   font-family: var(--font-head);
@@ -500,7 +511,7 @@
 
 .pkgTable td {
   padding: var(--space-2);
-  border-top: 1px solid var(--ink);
+  border-top: 1px solid var(--color-border);
 }
 
 .pkgCheck {
@@ -577,11 +588,12 @@
   min-width: 0;
   height: 30px;
   padding: 0 10px;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--font-size-sm);
+  border-radius: var(--radius-control);
 }
 
 .input:focus {

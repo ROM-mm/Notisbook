@@ -1,7 +1,7 @@
 /*
- * Design tokens do Notisbook: Neo-Brutalism pastel (borda sólida, sombra sólida
- * sem blur, cantos retos). Os nomes --color-* são mantidos e remapeados para a
- * paleta nova; --ink/--shadow e os pastéis (--yellow, --blue...) são a base.
+ * Design tokens do Notisbook: tema limpo (bordas finas cinza, superfícies
+ * brancas, acento azul). Os nomes --color-* são a API principal; --ink,
+ * --yellow, --blue etc. são aliases legados remapeados para tons suaves.
  * Fontes empacotadas via @fontsource (main.tsx) — nada de CDN (CSP: default-src 'self').
  *
  * Tema: claro por padrão; escuro via `prefers-color-scheme: dark` (quando o
@@ -13,9 +13,9 @@
 
   /* Tipografia */
   --font-sans: "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --font-head: "Space Grotesk", "Public Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-display: "Archivo Black", "Space Grotesk", "Public Sans", sans-serif;
-  --font-script: "Pacifico", "Brush Script MT", cursive;
+  --font-head: var(--font-sans);
+  --font-display: var(--font-sans);
+  --font-script: var(--font-sans);
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-code: "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-size-xs: 11px;
@@ -56,55 +56,57 @@
   --transition-normal: 180ms ease;
 
   /* Cores (claro) */
-  --color-bg: #fefeee;
-  --color-bg-subtle: #f6f5df;
-  --color-bg-muted: #f6f5df;
-  --color-bg-hover: #f6f5df;
-  --color-bg-active: #fde68a;
+  --color-bg: #f7f8fa;
+  --color-bg-subtle: #f3f4f6;
+  --color-bg-muted: #f3f4f6;
+  --color-bg-hover: #f3f4f6;
+  --color-bg-active: #eff6ff;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-border: #000000;
-  --color-border-strong: #000000;
-  --color-text: #000000;
-  --color-text-muted: #4a443b;
-  --color-text-subtle: #7a7266;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
+  --color-text: #111827;
+  --color-text-muted: #6b7280;
+  --color-text-subtle: #9ca3af;
   --color-text-inverse: #ffffff;
-  --color-accent: #fde68a;
-  --color-accent-hover: #fcd95a;
-  --color-accent-subtle: rgba(253, 230, 138, 0.55);
-  --color-accent-text: #000000;
-  --color-focus-ring: #000000;
-  --color-success: #15803d;
-  --color-success-subtle: #bbf7d0;
-  --color-warning: #b45309;
-  --color-warning-subtle: #fed7aa;
-  --color-danger: #b91c1c;
-  --color-danger-subtle: #fecaca;
-  --color-code-bg: #f6f5df;
-  --color-overlay: rgba(0, 0, 0, 0.55);
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-subtle: #eff6ff;
+  --color-accent-text: #2563eb;
+  --color-focus-ring: #2563eb;
+  --color-success: #16a34a;
+  --color-success-subtle: #dcfce7;
+  --color-warning: #d97706;
+  --color-warning-subtle: #fef3c7;
+  --color-danger: #dc2626;
+  --color-danger-subtle: #fee2e2;
+  --color-code-bg: #f9fafb;
+  --color-overlay: rgba(17, 24, 39, 0.4);
 
-  /* Sombra do cartão de célula (alias de --shadow) */
-  --cell-shadow: var(--shadow);
-  --cell-shadow-active: var(--shadow);
+  /* Aliases legados do tema anterior, remapeados para o tema limpo */
+  --ink: #e5e7eb;
+  --shadow: rgba(17, 24, 39, 0.12);
+  --shadow-float: 0 8px 24px rgba(17, 24, 39, 0.12);
+  --on-fill: #111827;
+  --on-accent: #ffffff;
+  --hover: #f3f4f6;
+  --placeholder: #9ca3af;
+  --dots: none;
+  --yellow: #eff6ff;
+  --blue: #eff6ff;
+  --peach: #fef3c7;
+  --lav: #f3f4f6;
+  --pink: #f3f4f6;
+  --mint: #dcfce7;
+  --coral: #fee2e2;
+  --creamy: #f9fafb;
 
-  /* Marca (Spark Spiral): cor da sombra deslocada */
-  --brand-mark-shadow: #000000;
+  /* Raios: 6px em controles; abas e células ficam retas (0) */
+  --radius-control: 6px;
+  --radius-none: 0;
 
-  /* Linguagem Neo-Brutalism pastel: borda sólida, sombra sólida sem blur, cantos retos */
-  --ink: #000000;
-  --shadow: #000000;
-  --on-fill: #000000;
-  --hover: #f6f5df;
-  --placeholder: #7a7266;
-  --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Crect x='8' y='8' width='2' height='2' fill='%23000' fill-opacity='0.10'/%3E%3C/svg%3E");
-  --yellow: #fde68a;
-  --blue: #bfdbfe;
-  --peach: #fed7aa;
-  --lav: #ddd6fe;
-  --pink: #fbcfe8;
-  --mint: #bbf7d0;
-  --coral: #fecaca;
-  --creamy: #fff4c7;
+  /* Marca: sem sombra deslocada */
+  --brand-mark-shadow: transparent;
 
   /* Paleta de sintaxe */
   --sx-kw: #1f5fa8;
@@ -122,48 +124,49 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --color-bg: #2b2a31;
-    --color-bg-subtle: #3e3d46;
-    --color-bg-muted: #3e3d46;
-    --color-bg-hover: #46454e;
-    --color-bg-active: #e6d48e;
-    --color-surface: #35343c;
-    --color-surface-raised: #35343c;
-    --color-border: #cfc9bc;
-    --color-border-strong: #cfc9bc;
-    --color-text: #e8e4da;
-    --color-text-muted: #b3aea3;
-    --color-text-subtle: #8e897f;
-    --color-text-inverse: #2a2930;
-    --color-accent: #e6d48e;
-    --color-accent-hover: #efe0a3;
-    --color-accent-subtle: rgba(230, 212, 142, 0.2);
-    --color-accent-text: #e8e4da;
-    --color-focus-ring: #cfc9bc;
-    --color-success: #a9d3b6;
-    --color-success-subtle: rgba(169, 211, 182, 0.18);
-    --color-warning: #e2c09c;
-    --color-warning-subtle: rgba(226, 192, 156, 0.18);
-    --color-danger: #dfaeae;
-    --color-danger-subtle: rgba(223, 174, 174, 0.18);
-    --color-code-bg: #3e3d46;
-    --color-overlay: rgba(27, 26, 32, 0.6);
-    --brand-mark-shadow: #cfc9bc;
-
-    --ink: #cfc9bc;
-    --shadow: #1b1a20;
-    --on-fill: #2a2930;
-    --hover: #46454e;
-    --placeholder: #8e897f;
-    --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Crect x='8' y='8' width='2' height='2' fill='%23E8E4DA' fill-opacity='0.07'/%3E%3C/svg%3E");
-    --yellow: #e6d48e;
-    --blue: #a9c2e0;
-    --peach: #e2c09c;
-    --lav: #c3bce0;
-    --pink: #dfb8cd;
-    --mint: #a9d3b6;
-    --coral: #dfaeae;
-    --creamy: #e6ddb5;
+    --color-bg: #0f1115;
+    --color-bg-subtle: #14171c;
+    --color-bg-muted: #14171c;
+    --color-bg-hover: #1c2027;
+    --color-bg-active: #1e2a44;
+    --color-surface: #16181d;
+    --color-surface-raised: #1b1e24;
+    --color-border: #2a2e37;
+    --color-border-strong: #3a3f4a;
+    --color-text: #e5e7eb;
+    --color-text-muted: #9ca3af;
+    --color-text-subtle: #6b7280;
+    --color-text-inverse: #0f1115;
+    --color-accent: #3b82f6;
+    --color-accent-hover: #60a5fa;
+    --color-accent-subtle: #1e2a44;
+    --color-accent-text: #60a5fa;
+    --color-focus-ring: #60a5fa;
+    --color-success: #4ade80;
+    --color-success-subtle: rgba(74, 222, 128, 0.16);
+    --color-warning: #fbbf24;
+    --color-warning-subtle: rgba(251, 191, 36, 0.16);
+    --color-danger: #f87171;
+    --color-danger-subtle: rgba(248, 113, 113, 0.16);
+    --color-code-bg: #12141a;
+    --color-overlay: rgba(0, 0, 0, 0.6);
+    --ink: #2a2e37;
+    --shadow: rgba(0, 0, 0, 0.5);
+    --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
+    --on-fill: #e5e7eb;
+    --on-accent: #ffffff;
+    --hover: #1c2027;
+    --placeholder: #6b7280;
+    --dots: none;
+    --yellow: #1e2a44;
+    --blue: #1e2a44;
+    --peach: #3a2f14;
+    --lav: #1c2027;
+    --pink: #1c2027;
+    --mint: #13301f;
+    --coral: #3b1a1a;
+    --creamy: #14171c;
+    --brand-mark-shadow: transparent;
     --sx-kw: #569cd6;
     --sx-str: #ce9178;
     --sx-num: #b5cea8;
@@ -179,48 +182,49 @@
 /* Escuro forçado pelo toggle. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-bg: #2b2a31;
-  --color-bg-subtle: #3e3d46;
-  --color-bg-muted: #3e3d46;
-  --color-bg-hover: #46454e;
-  --color-bg-active: #e6d48e;
-  --color-surface: #35343c;
-  --color-surface-raised: #35343c;
-  --color-border: #cfc9bc;
-  --color-border-strong: #cfc9bc;
-  --color-text: #e8e4da;
-  --color-text-muted: #b3aea3;
-  --color-text-subtle: #8e897f;
-  --color-text-inverse: #2a2930;
-  --color-accent: #e6d48e;
-  --color-accent-hover: #efe0a3;
-  --color-accent-subtle: rgba(230, 212, 142, 0.2);
-  --color-accent-text: #e8e4da;
-  --color-focus-ring: #cfc9bc;
-  --color-success: #a9d3b6;
-  --color-success-subtle: rgba(169, 211, 182, 0.18);
-  --color-warning: #e2c09c;
-  --color-warning-subtle: rgba(226, 192, 156, 0.18);
-  --color-danger: #dfaeae;
-  --color-danger-subtle: rgba(223, 174, 174, 0.18);
-  --color-code-bg: #3e3d46;
-  --color-overlay: rgba(27, 26, 32, 0.6);
-  --brand-mark-shadow: #cfc9bc;
-
-  --ink: #cfc9bc;
-  --shadow: #1b1a20;
-  --on-fill: #2a2930;
-  --hover: #46454e;
-  --placeholder: #8e897f;
-  --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Crect x='8' y='8' width='2' height='2' fill='%23E8E4DA' fill-opacity='0.07'/%3E%3C/svg%3E");
-  --yellow: #e6d48e;
-  --blue: #a9c2e0;
-  --peach: #e2c09c;
-  --lav: #c3bce0;
-  --pink: #dfb8cd;
-  --mint: #a9d3b6;
-  --coral: #dfaeae;
-  --creamy: #e6ddb5;
+  --color-bg: #0f1115;
+  --color-bg-subtle: #14171c;
+  --color-bg-muted: #14171c;
+  --color-bg-hover: #1c2027;
+  --color-bg-active: #1e2a44;
+  --color-surface: #16181d;
+  --color-surface-raised: #1b1e24;
+  --color-border: #2a2e37;
+  --color-border-strong: #3a3f4a;
+  --color-text: #e5e7eb;
+  --color-text-muted: #9ca3af;
+  --color-text-subtle: #6b7280;
+  --color-text-inverse: #0f1115;
+  --color-accent: #3b82f6;
+  --color-accent-hover: #60a5fa;
+  --color-accent-subtle: #1e2a44;
+  --color-accent-text: #60a5fa;
+  --color-focus-ring: #60a5fa;
+  --color-success: #4ade80;
+  --color-success-subtle: rgba(74, 222, 128, 0.16);
+  --color-warning: #fbbf24;
+  --color-warning-subtle: rgba(251, 191, 36, 0.16);
+  --color-danger: #f87171;
+  --color-danger-subtle: rgba(248, 113, 113, 0.16);
+  --color-code-bg: #12141a;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --ink: #2a2e37;
+  --shadow: rgba(0, 0, 0, 0.5);
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --on-fill: #e5e7eb;
+  --on-accent: #ffffff;
+  --hover: #1c2027;
+  --placeholder: #6b7280;
+  --dots: none;
+  --yellow: #1e2a44;
+  --blue: #1e2a44;
+  --peach: #3a2f14;
+  --lav: #1c2027;
+  --pink: #1c2027;
+  --mint: #13301f;
+  --coral: #3b1a1a;
+  --creamy: #14171c;
+  --brand-mark-shadow: transparent;
   --sx-kw: #569cd6;
   --sx-str: #ce9178;
   --sx-num: #b5cea8;
@@ -235,5 +239,5 @@
 /* Claro forçado pelo toggle (explícito para vencer a media query). */
 :root[data-theme="light"] {
   color-scheme: light;
-  --brand-mark-shadow: #000000;
+  --brand-mark-shadow: transparent;
 }

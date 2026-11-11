@@ -1,4 +1,4 @@
-/* Faixa de marca (topbar amarela) de 56px, largura total, acima das abas. Só variáveis de tema. */
+/* Header de 56px, largura total, acima das abas. Só variáveis de tema. */
 
 .banner {
   position: relative;
@@ -8,48 +8,96 @@
   gap: var(--space-3);
   height: 56px;
   padding: 0 var(--space-4);
-  overflow: hidden;
-  border-bottom: 3px solid var(--ink);
-  background: var(--yellow);
-  color: var(--on-fill);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 
 .wordmark {
   font-family: var(--font-display);
-  font-size: 22px;
-  font-weight: 400;
-  letter-spacing: -0.03em;
+  font-size: 20px;
+  font-weight: var(--font-weight-bold);
+  letter-spacing: -0.02em;
   line-height: 1;
 }
 
 .separator {
   flex: none;
-  width: 2px;
+  width: 1px;
   height: 24px;
-  background: currentColor;
+  background: var(--color-border);
 }
 
 .tagline {
-  color: var(--on-fill);
+  color: var(--color-text-muted);
   font-family: var(--font-head);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
 }
 
-.flow {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 320px;
-  height: 100%;
-  opacity: 0.35;
-  color: var(--on-fill);
-  pointer-events: none;
+/* Menubar: o overflow do header não pode cortar os dropdowns absolutos, por isso é visible. */
+.menubar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
 }
 
-@media (max-width: 720px) {
-  .flow {
-    display: none;
-  }
+.menuButton {
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-head);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-control);
+}
+
+.menuButton:hover {
+  background: var(--color-bg-hover);
+}
+
+.actions {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.saveText {
+  margin-right: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.saveError {
+  color: var(--color-danger);
+}
+
+.toggle {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-control);
+}
+
+.toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.toggle[aria-pressed="true"] {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent-text);
 }

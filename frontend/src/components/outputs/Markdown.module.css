@@ -35,7 +35,7 @@
 
 .markdown h2 {
   padding-bottom: var(--space-1);
-  border-bottom: 2px solid var(--ink);
+  border-bottom: 1px solid var(--color-border);
   font-size: 24px;
 }
 
@@ -64,16 +64,13 @@
 }
 
 .markdown ul {
-  list-style: square;
+  list-style: disc;
 }
 
 .markdown a {
-  padding: 0 2px;
-  border-bottom: 2px solid var(--on-fill);
-  background: var(--blue);
-  color: var(--on-fill);
-  font-weight: var(--font-weight-bold);
-  text-decoration: none;
+  color: var(--color-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .markdown li + li {
@@ -82,18 +79,20 @@
 
 .markdown code {
   padding: 1px 5px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-code-bg);
   color: var(--color-text);
   font-size: 0.88em;
+  border-radius: var(--radius-control);
 }
 
 .markdown pre {
   padding: var(--space-3) var(--space-4);
   overflow-x: auto;
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   background: var(--color-code-bg);
   line-height: var(--line-height-code);
+  border-radius: var(--radius-control);
 }
 
 .markdown pre code {
@@ -104,33 +103,34 @@
 
 .markdown blockquote {
   padding: var(--space-2) var(--space-4);
-  border-left: 6px solid var(--ink);
-  background: var(--pink);
-  color: var(--on-fill);
+  border-left: 3px solid var(--color-border-strong);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
 }
 
 .markdown hr {
   margin: 1.5em 0;
   border: none;
-  border-top: 3px solid var(--ink);
+  border-top: 1px solid var(--color-border);
 }
 
 .markdown table {
-  border: 2px solid var(--ink);
+  border: 1px solid var(--color-border);
   border-collapse: collapse;
   font-size: var(--font-size-md);
+  border-radius: var(--radius-control);
 }
 
 .markdown th,
 .markdown td {
   padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--ink);
+  border: 1px solid var(--color-border);
   text-align: left;
 }
 
 .markdown th {
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-subtle);
+  color: var(--color-text);
   font-family: var(--font-head);
   font-weight: var(--font-weight-bold);
 }
