@@ -24,3 +24,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/notisbook"]
+# `_frontend` é gitignorado (cópia do build); sem `artifacts` o hatch o omitiria do wheel.
+artifacts = ["src/notisbook/_frontend"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/notisbook/_frontend"]

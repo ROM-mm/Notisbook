@@ -34,11 +34,14 @@ def ensure_home(settings:"Settings") -> None:
 
 
 def default_frontend_dist() -> Path:
-    """`$NOTISBOOK_FRONTEND_DIST` or `<repo>/frontend/dist` (this file lives in backend/src/notisbook)."""
+    """Built frontend: `$NOTISBOOK_FRONTEND_DIST`, else `<repo>/frontend/dist` if present, else the copy bundled in the package."""
     configured = os.environ.get("NOTISBOOK_FRONTEND_DIST")
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    repo_dist = Path(__file__).resolve().parents[3] / "frontend" / "dist"
+    if repo_dist.is_dir():
+        return repo_dist
+    return Path(__file__).resolve().parent / "_frontend"
 
 
 def default_pypi_url() -> str:
