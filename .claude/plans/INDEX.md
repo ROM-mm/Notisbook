@@ -1,7 +1,12 @@
-## 20261111_main_codigo-mais-vivo.md
-Criação: 2026-11-11 01:52:23 -0300   Finalização: —
-Problema: o código das células code parece apagado — fonte fina, paleta pastel e Python/SQL sem o destaque do padrão Databricks.
+## 20261111_main_botao-run-sem-sombra.md
+Criação: 2026-11-11 02:14:21 -0300   Finalização: —
+Problema: o botão ▶ da célula tem sombra e fica colado no seletor de linguagem.
 Resolução: — em andamento
+
+## 20261111_main_codigo-mais-vivo.md
+Criação: 2026-11-11 01:52:23 -0300   Finalização: 2026-11-11 02:10:09 -0300
+Problema: o código das células code parece apagado — fonte fina, paleta pastel e Python/SQL sem o destaque do padrão Databricks.
+Resolução: Fira Code só no editor (--font-code, 500/keywords 700, ligaduras), paleta saturada estilo Databricks claro/escuro e prefixos SQL dourados (dialeto com crase) — commit f3253d1.
 
 ## 20261111_main_distribuicao-homebrew.md
 Criação: 2026-11-11 01:00:47 -0300   Finalização: 2026-11-11 01:36:01 -0300
