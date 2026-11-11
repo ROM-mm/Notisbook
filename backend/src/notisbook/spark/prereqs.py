@@ -150,7 +150,25 @@ async def _home_major(home: str) -> int | None:
     return java_major(match.group(1)) if match else None
 
 
+_brew_prefix_cache: tuple[Path | None] | None = None
+_KNOWN_BREW_PREFIXES = (Path("/opt/homebrew"), Path("/usr/local"))
+
+
 async def _brew_prefix() -> Path | None:
+    """Homebrew prefix, resolved once per process: `$HOMEBREW_PREFIX`, known dirs, `brew --prefix` last."""
+    global _brew_prefix_cache
+    if _brew_prefix_cache is None:
+        _brew_prefix_cache = (await _resolve_brew_prefix(),)
+    return _brew_prefix_cache[0]
+
+
+async def _resolve_brew_prefix() -> Path | None:
+    configured = os.environ.get("HOMEBREW_PREFIX")
+    if configured:
+        return Path(configured)
+    for known in _KNOWN_BREW_PREFIXES:
+        if os.access(known / "bin" / "brew", os.X_OK):
+            return known
     brew = shutil.which("brew")
     if brew is None:
         return None
