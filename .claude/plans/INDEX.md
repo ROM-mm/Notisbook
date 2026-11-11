@@ -1,3 +1,8 @@
+## 20261111_main_redesign-visual-limpo.md
+Criação: 2026-11-11 16:45:58 -0300   Finalização: —
+Problema: o visual neo-brutalista do Notisbook (bordas pretas, sombras duras, Topbar própria) não agrada e desperdiça altura.
+Resolução: — em andamento
+
 ## 20261111_main_painel-unico-explorer.md
 Criação: 2026-11-11 15:05:04 -0300   Finalização: 2026-11-11 15:36:03 -0300
 Problema: a lateral usa um rail de ícones para alternar entre os painéis Data e Notebooks — feio e desperdiça tela.
