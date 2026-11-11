@@ -19,7 +19,7 @@ from .preferences import RootRejected, read_notebooks_root, validate_notebooks_r
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="notisbook")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--no-browser", action="store_true")
