@@ -1,5 +1,5 @@
 /**
- * Cabeçalho da célula (estilo terminal): seletor Python/SQL, ▶ e ■ à esquerda, título
+ * Cabeçalho da célula (estilo terminal): ▶, ■ e seletor de linguagem à esquerda, título
  * opcional (`metadata.title`) centralizado e menu ⋮ à direita (título, tipo, mover,
  * inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
  */
@@ -122,29 +122,6 @@ export function CellHeader({
   if (isCode && canRun) {
     left = (
       <>
-        <span className={styles.languageMenu}>
-          {languageLocked ? (
-            <button
-              type="button"
-              className={styles.languageLocked}
-              disabled
-              title="Language locked while the cell is queued or running"
-              aria-label="Cell language"
-              data-testid="cell-language"
-            >
-              {LANGUAGE_LABEL[language]}
-            </button>
-          ) : (
-            <Menu
-              trigger={LANGUAGE_LABEL[language]}
-              ariaLabel="Cell language"
-              title="Cell language"
-              variant="icon"
-              testId="cell-language"
-              items={languageItems}
-            />
-          )}
-        </span>
         <button
           type="button"
           className={styles.runBtn}
@@ -168,6 +145,29 @@ export function CellHeader({
         >
           <StopFilledIcon size={12} />
         </button>
+        <span className={styles.languageMenu}>
+          {languageLocked ? (
+            <button
+              type="button"
+              className={styles.languageLocked}
+              disabled
+              title="Language locked while the cell is queued or running"
+              aria-label="Cell language"
+              data-testid="cell-language"
+            >
+              {LANGUAGE_LABEL[language]}
+            </button>
+          ) : (
+            <Menu
+              trigger={LANGUAGE_LABEL[language]}
+              ariaLabel="Cell language"
+              title="Cell language"
+              variant="icon"
+              testId="cell-language"
+              items={languageItems}
+            />
+          )}
+        </span>
       </>
     );
   } else if (cell.cell_type === "markdown" && markdownEditing) {

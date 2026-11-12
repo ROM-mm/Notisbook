@@ -1,6 +1,6 @@
 /**
  * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`:
- * linguagem, ▶/■ e ações), faixa de fundo sem borda com o editor (em células
+ * ▶/■, linguagem e ações), faixa de fundo sem borda com o editor (em células
  * code, o "›" fica à esquerda dele; markdown é renderizado como texto) e slots.
  *
  * Slots (preenchidos pela NotebookView):
