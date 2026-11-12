@@ -30,6 +30,7 @@ import {
   SymlinkIcon,
 } from "../shell/icons";
 import deltaIconUrl from "../../../icons/delta.png";
+import parquetIconUrl from "../../../icons/parquet.png";
 import styles from "./DataPanel.module.css";
 
 type Row =
@@ -113,7 +114,8 @@ function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
     return <FolderIcon size={14} />;
   }
   if (entry.is_symlink) return <SymlinkIcon size={14} />;
-  if (ext === "parquet" || ext === "orc" || ext === "avro")
+  if (ext === "parquet") return <BrandIcon src={parquetIconUrl} />;
+  if (ext === "orc" || ext === "avro")
     return <FileParquetIcon size={14} />;
   if (ext === "csv" || ext === "tsv") return <FileCsvIcon size={14} />;
   if (ext === "json" || ext === "jsonl" || ext === "ndjson")
