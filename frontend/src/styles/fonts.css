@@ -1,7 +1,7 @@
-/* Monocode (SIL OFL 1.1) empacotada em TTF, sem CDN (CSP default-src 'self'). Não há itálico nem bold: o medium cobre 500-700 e o itálico é sintetizado pelo navegador. */
+/* Monocode (SIL OFL 1.1) empacotada em woff2, sem CDN (CSP default-src 'self'). Não há itálico nem bold: o medium cobre 500-700 e o itálico é sintetizado pelo navegador. */
 @font-face {
   font-family: "Monocode";
-  src: url("./fonts/monocode-regular.ttf") format("truetype");
+  src: url("./fonts/monocode-regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -9,7 +9,7 @@
 
 @font-face {
   font-family: "Monocode";
-  src: url("./fonts/monocode-medium.ttf") format("truetype");
+  src: url("./fonts/monocode-medium.woff2") format("woff2");
   font-weight: 500 700;
   font-style: normal;
   font-display: swap;
