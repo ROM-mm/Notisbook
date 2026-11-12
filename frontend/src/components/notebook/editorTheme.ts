@@ -58,7 +58,7 @@ const highlight = HighlightStyle.define([
   { tag: [t.definitionKeyword, t.self, t.null, t.bool], color: "var(--syntax-keyword)", fontWeight: "700" },
   { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)" },
   { tag: [t.number, t.integer, t.float], color: "var(--syntax-number)" },
-  { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)" },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontFamily: "var(--font-sans)" },
   { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syntax-function)" },
   { tag: [t.definition(t.variableName), t.definition(t.function(t.variableName))], color: "var(--syntax-definition)" },
   { tag: [t.className, t.typeName, t.namespace], color: "var(--syntax-type)" },

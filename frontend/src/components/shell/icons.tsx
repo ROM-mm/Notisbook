@@ -71,7 +71,7 @@ export const RefreshIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** Marca N-Block: monograma N com faísca; a sombra deslocada usa o token `--brand-mark-shadow`. */
+/** Marca N-Block monocromática: monograma N com faísca, em `--color-text` sobre `--color-bg` (invertida no escuro). A sombra deslocada usa `--brand-mark-shadow`. */
 export function BrandMark({ size = 32, ...rest }: IconProps) {
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" focusable="false" {...rest}>
@@ -81,19 +81,19 @@ export function BrandMark({ size = 32, ...rest }: IconProps) {
         y="6"
         width="48"
         height="48"
-        fill="#BBF7D0"
-        stroke="#000"
+        fill="var(--color-bg)"
+        stroke="var(--color-text)"
         strokeWidth="3.5"
         strokeLinejoin="miter"
         strokeLinecap="square"
       />
-      <rect x="15" y="16" width="8" height="30" fill="#000" />
-      <rect x="37" y="16" width="8" height="30" fill="#000" />
-      <polygon points="15,16 23,16 45,46 37,46" fill="#000" />
+      <rect x="15" y="16" width="8" height="30" fill="var(--color-text)" />
+      <rect x="37" y="16" width="8" height="30" fill="var(--color-text)" />
+      <polygon points="15,16 23,16 45,46 37,46" fill="var(--color-text)" />
       <polygon
         points="53.0,1.0 56.2,7.8 63.0,11.0 56.2,14.2 53.0,21.0 49.8,14.2 43.0,11.0 49.8,7.8"
-        fill="#FDE68A"
-        stroke="#000"
+        fill="var(--color-bg)"
+        stroke="var(--color-text)"
         strokeWidth="2.5"
         strokeLinejoin="miter"
       />

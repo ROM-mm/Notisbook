@@ -11,14 +11,7 @@ import "@fontsource/roboto/latin-700.css";
 import "@fontsource/roboto/latin-ext-700.css";
 import "@fontsource/roboto/latin-400-italic.css";
 import "@fontsource/roboto/latin-ext-400-italic.css";
-import "@fontsource/jetbrains-mono/latin-400.css";
-import "@fontsource/jetbrains-mono/latin-ext-400.css";
-import "@fontsource/jetbrains-mono/latin-500.css";
-import "@fontsource/jetbrains-mono/latin-ext-500.css";
-import "@fontsource/jetbrains-mono/latin-700.css";
-import "@fontsource/jetbrains-mono/latin-ext-700.css";
-import "@fontsource/jetbrains-mono/latin-400-italic.css";
-import "@fontsource/jetbrains-mono/latin-ext-400-italic.css";
+import "hack-font/build/web/hack-subset.css";
 import "./styles/tokens.css";
 import "./styles/global.css";
 

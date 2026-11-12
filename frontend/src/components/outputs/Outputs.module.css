@@ -1,4 +1,4 @@
-/* Saídas de célula no padrão terminal: texto mono solto; erro só em cor de erro do tema. O recuo e o espaçamento vêm do .outputBox da célula. */
+/* Saídas de célula no padrão terminal: texto solto em fonte sans (erros em mono); erro só em cor de erro do tema. O recuo e o espaçamento vêm do .outputBox da célula. */
 
 .area {
   display: flex;
@@ -13,8 +13,8 @@
 
 .pre {
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-family: var(--font-sans);
+  font-size: 13px;
   line-height: var(--line-height-code);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -53,6 +53,8 @@
 }
 
 .error .pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   white-space: pre;
   overflow-wrap: normal;
   color: inherit;
@@ -178,5 +180,7 @@
 }
 
 .errDetails .pre {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   margin-top: var(--space-1);
 }

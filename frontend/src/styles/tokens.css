@@ -17,8 +17,8 @@
   --font-head: var(--font-sans);
   --font-display: var(--font-sans);
   --font-script: var(--font-sans);
-  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-code: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "Hack", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-code: "Hack", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-size-xs: 11px;
   --font-size-sm: 12.5px;
   --font-size-md: 14px;
