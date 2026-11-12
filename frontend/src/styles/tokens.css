@@ -84,7 +84,7 @@
   --color-code-bg: #f4f4f2;
   --color-code-inline-bg: transparent;
   --color-code-border: var(--color-border);
-  --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro mantém o cinza anterior */
+  --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro usa o cinza das faixas (#181818), distinto do fundo da página */
   --color-overlay: rgba(28, 28, 26, 0.35);
   --color-cell-bg: #fbfbfb;
   --color-editor-selection: #d8d8d8;

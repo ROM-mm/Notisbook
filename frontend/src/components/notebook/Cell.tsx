@@ -1,6 +1,6 @@
 /**
- * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`: `[N]`
- * linguagem e ações), caixa de 1px com "›" e o editor (ou markdown
+ * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`:
+ * linguagem, ▶/■ e ações), caixa de 1px com "›" e o editor (ou markdown
  * renderizado como texto) e slots.
  *
  * Slots (preenchidos pela NotebookView):

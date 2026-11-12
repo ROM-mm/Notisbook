@@ -125,6 +125,7 @@
 .cell {
   position: relative;
   margin-bottom: var(--space-4);
+  /* Mesmo recuo de .addBar e .runStatus: alinha a coluna do conteúdo. */
   padding-left: var(--space-5);
   color: var(--color-text);
 }
@@ -135,7 +136,7 @@
   background: var(--color-cell-bg-active);
 }
 
-/* Em edição o "›" também assume a cor do texto. */
+/* Em edição o "›" assume a cor do texto (fora dela fica atenuado). */
 .cellEditing .prompt {
   color: var(--color-text);
 }

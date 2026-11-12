@@ -1,4 +1,4 @@
-/* Markdown renderizado como texto simples de terminal (células markdown; reutilizável por saídas text/markdown). */
+/* Markdown renderizado (células markdown e saídas text/markdown). */
 
 .markdown {
   color: var(--color-text);
