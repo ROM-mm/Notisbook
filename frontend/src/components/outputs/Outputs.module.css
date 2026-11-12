@@ -180,7 +180,5 @@
 }
 
 .errDetails .pre {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
   margin-top: var(--space-1);
 }

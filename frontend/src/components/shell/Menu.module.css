@@ -68,7 +68,6 @@
   border: none;
   background: transparent;
   color: var(--color-text);
-  font-family: var(--font-sans);
   font-size: var(--font-size-sm);
   text-align: left;
   white-space: nowrap;
@@ -97,11 +96,6 @@
 .danger:focus-visible:not(:disabled) {
   background: var(--color-danger-subtle);
   color: var(--color-danger);
-}
-
-.danger:focus-visible:not(:disabled) {
-  outline: 1px solid var(--color-focus-ring);
-  outline-offset: -1px;
 }
 
 .check {

@@ -18,8 +18,8 @@ img, svg { max-width: 100%; height: auto; }
 pre, code { font-family: var(--font-mono); font-size: 12.5px; }
 table { border-collapse: collapse; border-spacing: 0; font-variant-numeric: tabular-nums; }
 th, td { padding: 4px 10px; border: 0; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; white-space: nowrap; color: var(--color-text); }
-td { font-family: var(--font-sans); font-size: 13px; font-variant-numeric: tabular-nums; }
-thead th { background: var(--color-bg-panel); color: var(--color-text-muted); font-family: var(--font-sans); font-weight: 600; font-variant-numeric: tabular-nums; }
+td { font-family: var(--font-sans); font-size: 13px; }
+thead th { background: var(--color-bg-panel); color: var(--color-text-muted); font-family: var(--font-sans); font-weight: 600; }
 tbody tr:hover { background: var(--color-bg-hover); }
 a { color: var(--color-accent-text); }
 /* Alinhamento: tudo à esquerda, inclusive cabeçalho e colunas numéricas. O <style> do pandas (".dataframe thead th", 0,1,2) vem depois deste bloco e empata com ":host table th" (0,1,2); por isso o cabeçalho usa ":host table thead th" e ":host .dataframe thead th" (0,1,3), e th.num/td.num (0,2,2) vencem o ".nb-grid th.num" do kernel (0,2,1), sem !important. */
