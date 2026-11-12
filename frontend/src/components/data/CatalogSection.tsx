@@ -39,6 +39,7 @@ import { BrandIcon } from "./BrandIcon";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
+import hudiIconUrl from "../../../icons/hudi.png";
 import icebergIconUrl from "../../../icons/iceberg.png";
 import sparkIconUrl from "../../../icons/spark.png";
 
@@ -47,13 +48,16 @@ const INDENT_PX = 14;
 const REFRESH_DEBOUNCE_MS = 1500;
 const NOTICE_MS = 8000;
 const SPARK_CATALOG = "spark_catalog";
+/** Nó só de exibição das tabelas Hudi do `spark_catalog`: sem criar/excluir schema. */
+const HUDI_CATALOG = "hudi";
 const DEFAULT_SCHEMA = "default";
 
-const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg" };
+const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg", hudi: "Hudi" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
 const CATALOG_ICONS: Record<string, ReactNode> = {
   spark_catalog: <BrandIcon src={sparkIconUrl} />,
   iceberg: <BrandIcon src={icebergIconUrl} />,
+  hudi: <BrandIcon src={hudiIconUrl} />,
 };
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
 const CATALOG_ERRORS: Record<string, string> = {
@@ -351,6 +355,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
 
   /** Itens do menu de contexto; tabelas e colunas não têm menu. */
   function menuItems(row: Row): MenuItem[] | null {
+    if (row.catalog === HUDI_CATALOG) return null;
     if (row.kind === "catalog" && row.catalog) {
       const catalog = row.catalog;
       return [{ label: "Create Schema…", disabled: row.catalogError, onSelect: () => onCreate(catalog), testId: "catalog-create-schema" }];
@@ -569,9 +574,9 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   );
 }
 
-/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro. */
+/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (nunca o nó `hudi`). */
 function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
-  const ok = (catalogs ?? []).filter((c) => !c.error);
+  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== HUDI_CATALOG);
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 

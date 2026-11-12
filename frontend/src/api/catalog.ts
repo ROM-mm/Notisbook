@@ -4,7 +4,7 @@ import { ApiError, errorMessage, request } from "./http";
 export interface CatalogTable {
   name: string;
   namespace: string[];
-  /** `delta`, `parquet` ou `iceberg`. */
+  /** `delta`, `parquet`, `hudi` ou `iceberg`. */
   format: string;
   /** `MANAGED` ou `EXTERNAL`. */
   table_type: string;
