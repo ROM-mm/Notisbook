@@ -8,7 +8,7 @@
       <excludeFolder url="file://$MODULE_DIR$/.venv" />
       <excludeFolder url="file://$MODULE_DIR$/backend/.venv" />
     </content>
-    <orderEntry type="jdk" jdkName="~/Documents/projects/per/code/Notisbook/.venv" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="~/Documents/projects/per/code/Notisbook-app/.venv" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

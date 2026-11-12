@@ -1,7 +1,12 @@
-## 20261111_main_redesign-visual-limpo.md
-Criação: 2026-11-11 16:45:58 -0300   Finalização: —
-Problema: o visual neo-brutalista do Notisbook (bordas pretas, sombras duras, Topbar própria) não agrada e desperdiça altura.
+## 20261112_main_ui-estilo-terminal.md
+Criação: 2026-11-12 11:12:44 -0300   Finalização: —
+Problema: o visual atual não tem a cara de terminal limpo (estilo Cursor/Claude Code CLI) que o operador quer em toda a UI.
 Resolução: — em andamento
+
+## 20261111_main_redesign-visual-limpo.md
+Criação: 2026-11-11 16:45:58 -0300   Finalização: 2026-11-12 10:43:32 -0300
+Problema: o visual neo-brutalista do Notisbook (bordas pretas, sombras duras, Topbar própria) não agrada e desperdiça altura.
+Resolução: visual limpo (bordas finas, sem sombra dura, acento azul), Topbar extinta com menus no header e kernel na barra de abas, laterais divididas (Catalog à esquerda; Notebooks/Connections/Variables à direita), ▶ ■ na célula e ícones Spark/Iceberg oficiais — commits 2db2482, 8d9b0ec, 61bcdd6, 7decece, 2d57a76.
 
 ## 20261111_main_painel-unico-explorer.md
 Criação: 2026-11-11 15:05:04 -0300   Finalização: 2026-11-11 15:36:03 -0300
