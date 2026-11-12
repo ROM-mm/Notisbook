@@ -1,6 +1,6 @@
 /**
  * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`: `[N]`
- * linguagem e ações), caixa de 1px com "→" e o editor (ou markdown
+ * linguagem e ações), caixa de 1px com "›" e o editor (ou markdown
  * renderizado como texto) e slots.
  *
  * Slots (preenchidos pela NotebookView):
@@ -125,7 +125,7 @@ export const Cell = memo(function Cell({
           <div className={cell.cell_type === "code" ? styles.codeBox : styles.textBox}>
             {cell.cell_type === "code" ? (
               <span className={styles.prompt} aria-hidden="true">
-                →
+                ›
               </span>
             ) : null}
             <CodeEditor

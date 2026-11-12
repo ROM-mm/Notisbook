@@ -1,6 +1,6 @@
 /*
  * Editor de notebook, estilo terminal: cada célula é um bloco de prompt —
- * cabeçalho "linguagem ▶ ■", caixa de 1px com "→" e o código, status solto
+ * cabeçalho "linguagem ▶ ■", caixa de 1px com "›" e o código, status solto
  * e recuado embaixo. Sem cartão, raio ou sombra.
  */
 
@@ -120,8 +120,8 @@
   outline-offset: 1px;
 }
 
-/* Célula: bloco de prompt sem moldura. O recuo à esquerda abriga o "›" da
- * seleção; sem overflow:hidden porque os menus do cabeçalho são absolutos. */
+/* Célula: bloco de prompt sem moldura. Sem overflow:hidden porque os
+ * menus do cabeçalho são absolutos. */
 .cell {
   position: relative;
   margin-bottom: var(--space-4);
@@ -129,24 +129,13 @@
   color: var(--color-text);
 }
 
-/* Seleção (modo comando e edição): "›" na margem e faixa mais forte. */
-.cellActive::before {
-  content: "›";
-  position: absolute;
-  top: 2px;
-  left: 4px;
-  color: var(--color-text);
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-bold);
-  line-height: var(--line-height-normal);
-}
-
+/* Seleção (modo comando e edição): faixa de fundo mais escura. */
 .cellActive .codeBox,
 .cellActive .textBox {
   background: var(--color-cell-bg-active);
 }
 
-/* Em edição o "→" também assume a cor do texto. */
+/* Em edição o "›" também assume a cor do texto. */
 .cellEditing .prompt {
   color: var(--color-text);
 }
@@ -305,13 +294,13 @@
   min-width: 0;
 }
 
-/* Saída e status ficam soltos e recuados sob a caixa (alinhados ao código). */
+/* Saída solta sob a caixa, alinhada à borda esquerda do quadro de código. */
 .outputBox {
   margin-top: var(--space-2);
-  padding: 0 0 0 var(--space-5);
+  padding: 0;
 }
 
-/* Faixa de largura total sem contorno; o "→" fica à esquerda do editor. */
+/* Faixa de largura total sem contorno; o "›" fica à esquerda do editor. */
 .codeBox,
 .textBox {
   display: flex;
