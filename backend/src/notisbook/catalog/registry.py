@@ -38,16 +38,19 @@ def namespace_exists(conn: sqlite3.Connection, namespace: str) -> bool:
     return row is not None
 
 
-def create_namespace(conn: sqlite3.Connection, namespace: str) -> bool:
-    """Registra o schema em minúsculas (como o SessionCatalog); `False` se já existe. Dentro de transação."""
+def create_namespace(conn: sqlite3.Connection, namespace: str, display_catalog: str = SPARK_CATALOG) -> bool:
+    """Registra o schema em minúsculas (como o SessionCatalog); `False` se já existe. Dentro de transação.
+
+    `display_catalog` (`spark_catalog` ou `hudi`) é o nó onde o schema vazio aparece.
+    """
     key = namespace.lower()
     if namespace_exists(conn, key):
         return False
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     # Sem `location`: o hook cria a pasta (`CREATE DATABASE IF NOT EXISTS`) ao hidratar a sessão.
     conn.execute(
-        "INSERT INTO nb_namespaces (catalog_name, namespace, location, created_at) VALUES (?, ?, NULL, ?)",
-        (SPARK_CATALOG, key, stamp),
+        "INSERT INTO nb_namespaces (catalog_name, namespace, location, created_at, display_catalog) VALUES (?, ?, NULL, ?, ?)",
+        (SPARK_CATALOG, key, stamp, display_catalog),
     )
     _bump_generation(conn)
     return True
@@ -121,21 +124,36 @@ def _table_node(namespace: str, name: str, fmt: str, table_type: str, location: 
     }
 
 
+def _display_names(conn: sqlite3.Connection, hudi: bool) -> set[str]:
+    """Schemas exibidos no nó: só-Hudi no `hudi`, sem Hudi no `spark_catalog`, mistos nos dois, vazios pela origem."""
+    counts: dict[str, tuple[int, int]] = {
+        r[0]: (int(r[1]), int(r[2]))
+        for r in conn.execute(
+            "SELECT namespace, SUM(format = 'hudi'), SUM(format != 'hudi') FROM nb_tables WHERE catalog_name = ? GROUP BY namespace",
+            (SPARK_CATALOG,),
+        )
+    }
+    origins = {
+        r[0]: r[1]
+        for r in conn.execute("SELECT namespace, display_catalog FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,))
+    }
+    node = HUDI_CATALOG if hudi else SPARK_CATALOG
+    names = set()
+    for ns in {DEFAULT_DATABASE, *counts, *origins}:
+        n_hudi, n_other = counts.get(ns, (0, 0))
+        if (n_hudi if hudi else n_other) > 0 or (n_hudi + n_other == 0 and origins.get(ns, SPARK_CATALOG) == node):
+            names.add(ns)
+    return names
+
+
 def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False) -> tuple[list[dict[str, Any]], int]:
-    """Databases e o total de tabelas listadas: o `spark_catalog` sem as Hudi (sempre com `default`) ou, com `hudi`, só as Hudi.
+    """Databases do nó e o total de tabelas listadas: `spark_catalog` (sem as Hudi) ou, com `hudi`, só as Hudi.
 
     `max_total` é o que resta do teto global; databases após o teto voltam vazios e `truncated`.
-    O filtro de formato vale só para as tabelas: o `spark_catalog` mantém os databases que têm apenas tabelas Hudi
-    (a exclusão do schema as removeria), e o nó Hudi lista apenas os databases que têm tabela Hudi.
+    Cada schema é um só namespace do `spark_catalog`; a regra de exibição está em `_display_names`.
     """
     fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
-    names = set() if hudi else {DEFAULT_DATABASE}
-    if not hudi:
-        names.update(r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,)))
-    db_filter = fmt_filter if hudi else "1 = 1"
-    names.update(
-        r[0] for r in conn.execute(f"SELECT DISTINCT namespace FROM nb_tables WHERE catalog_name = ? AND {db_filter}", (SPARK_CATALOG,))
-    )
+    names = _display_names(conn, hudi)
     ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, n))
     used = 0
     databases: list[dict[str, Any]] = []

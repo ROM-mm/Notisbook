@@ -68,15 +68,18 @@ export interface SchemaRef {
   name: string;
 }
 
-/** 400 `invalid_catalog`/`invalid_name`/`reserved_name`, 409 `schema_exists`, 503 `catalog_busy`/`catalog_unavailable`. */
+/**
+ * `catalog` `hudi` cria o namespace no `spark_catalog` com origem de exibição no nó `hudi`.
+ * 400 `invalid_catalog`/`invalid_name`/`reserved_name`, 409 `schema_exists`, 503 `catalog_busy`/`catalog_unavailable`.
+ */
 export function createSchema(catalog: string, name: string): Promise<SchemaRef> {
   return request<SchemaRef>("/api/catalog/schemas", { method: "POST", body: { catalog, name } });
 }
 
 export interface SchemaPreview {
-  /** Tabelas listadas no nó (no `spark_catalog`, sem as Hudi). */
+  /** Tabelas não-Hudi do schema (Delta/Parquet no `spark_catalog`, Iceberg no `iceberg`). */
   tables: number;
-  /** Tabelas Hudi do schema, removidas junto; sempre 0 fora do `spark_catalog`. */
+  /** Tabelas Hudi do schema; no `spark_catalog` e no `hudi` a exclusão remove as duas contagens. Sempre 0 no `iceberg`. */
   hudi: number;
   views: number;
   managed: number;

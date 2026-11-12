@@ -48,7 +48,7 @@ const INDENT_PX = 14;
 const REFRESH_DEBOUNCE_MS = 1500;
 const NOTICE_MS = 8000;
 const SPARK_CATALOG = "spark_catalog";
-/** Nó só de exibição das tabelas Hudi do `spark_catalog`: sem criar/excluir schema. */
+/** Nó só de exibição das tabelas Hudi: os schemas são do `spark_catalog` (criar/excluir age sobre o namespace inteiro). */
 const HUDI_CATALOG = "hudi";
 const DEFAULT_SCHEMA = "default";
 
@@ -311,13 +311,18 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
       {preview ? (
         <>
           <p>
-            Delete schema <code>{schema}</code> and its {plural(preview.tables, "table", "tables")}?
+            Delete schema <code>{schema}</code> and its {plural(catalog === HUDI_CATALOG ? preview.hudi : preview.tables, "table", "tables")}?
           </p>
           <p>
             {plural(preview.managed, "managed table folder", "managed table folders")} will be deleted;{" "}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
-          {preview.hudi > 0 ? <p>{plural(preview.hudi, "Hudi table", "Hudi tables")} will also be removed.</p> : null}
+          {catalog !== HUDI_CATALOG && preview.hudi > 0 ? (
+            <p>{plural(preview.hudi, "Hudi table", "Hudi tables")} will also be removed.</p>
+          ) : null}
+          {catalog === HUDI_CATALOG && preview.tables > 0 ? (
+            <p>{plural(preview.tables, "non-Hudi table", "non-Hudi tables")} (Delta/Parquet) in this schema will also be removed.</p>
+          ) : null}
           {catalog === "iceberg" && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
         </>
       ) : error ? (
@@ -356,14 +361,13 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
 
   /** Itens do menu de contexto; tabelas e colunas não têm menu. */
   function menuItems(row: Row): MenuItem[] | null {
-    if (row.catalog === HUDI_CATALOG) return null;
     if (row.kind === "catalog" && row.catalog) {
       const catalog = row.catalog;
       return [{ label: "Create Schema…", disabled: row.catalogError, onSelect: () => onCreate(catalog), testId: "catalog-create-schema" }];
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
-      const isDefault = catalog === SPARK_CATALOG && schema.toLowerCase() === DEFAULT_SCHEMA;
+      const isDefault = (catalog === SPARK_CATALOG || catalog === HUDI_CATALOG) && schema.toLowerCase() === DEFAULT_SCHEMA;
       return [{ label: "Delete Schema…", danger: true, disabled: isDefault, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
     }
     return null;
@@ -386,7 +390,13 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
 
   function onDeleted(catalog: string, schema: string, res: SchemaDeletion) {
     const { forgetSchema, refresh } = useCatalog.getState();
-    forgetSchema(catalog, schema);
+    // Um schema do `spark_catalog` pode estar nos dois nós (misto); a exclusão vale para ambos.
+    if (catalog === SPARK_CATALOG || catalog === HUDI_CATALOG) {
+      forgetSchema(SPARK_CATALOG, schema);
+      forgetSchema(HUDI_CATALOG, schema);
+    } else {
+      forgetSchema(catalog, schema);
+    }
     refresh();
     setDeleting(null);
     setNotice(deletionNotice(schema, res));
@@ -575,10 +585,18 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   );
 }
 
-/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (nunca o nó `hudi`). */
+/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o nó `hudi` só pelo menu de contexto). */
 function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
   const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== HUDI_CATALOG);
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
+}
+
+/** Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós. */
+function existingSchemas(catalogs: CatalogNode[] | undefined, catalog: string): string[] {
+  const shared = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
+  return (catalogs ?? [])
+    .filter((c) => (shared ? c.name === SPARK_CATALOG || c.name === HUDI_CATALOG : c.name === catalog))
+    .flatMap((c) => c.databases.map((d) => d.name));
 }
 
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {
@@ -624,7 +642,7 @@ export function CatalogSection({ testId, collapsed, onToggle }: { testId?: strin
         <CreateSchemaDialog
           catalog={createIn}
           catalogLabel={CATALOG_LABELS[createIn] ?? createIn}
-          existing={data?.catalogs.find((c) => c.name === createIn)?.databases.map((d) => d.name) ?? []}
+          existing={existingSchemas(data?.catalogs, createIn)}
           onCreated={() => onCreated(createIn)}
           onClose={() => setCreateIn(null)}
         />

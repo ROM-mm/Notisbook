@@ -1,4 +1,4 @@
-"""Criar, pré-visualizar e excluir schemas (spark_catalog e iceberg) sem SparkSession.
+"""Criar, pré-visualizar e excluir schemas (spark_catalog, nó de exibição hudi e iceberg) sem SparkSession.
 
 Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das linhas -> COMMIT -> apaga as pastas
 MANAGED -> `rmdir` não recursivo da pasta do schema. Nenhum I/O de arquivo com o lock aberto, e o catálogo
@@ -25,10 +25,11 @@ from .store import catalog_db_path, connect, ensure_catalog_db
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 RESERVED_SPARK = {"global_temp"}
+# O nó `hudi` é só exibição: seus schemas são namespaces do `spark_catalog`, com a mesma criação e exclusão.
+_SPARK_NODES = (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
 
 _STATUS = {
     "invalid_catalog": 400,
-    "read_only_catalog": 400,
     "invalid_name": 400,
     "reserved_name": 400,
     "schema_not_found": 404,
@@ -48,9 +49,7 @@ class SchemaError(Exception):
 
 
 def validate(catalog: str, name: str) -> None:
-    if catalog == registry.HUDI_CATALOG:
-        raise SchemaError("read_only_catalog")  # nó de exibição: os schemas pertencem ao `spark_catalog`
-    if catalog not in (registry.SPARK_CATALOG, iceberg_jdbc.ICEBERG_CATALOG):
+    if catalog not in (*_SPARK_NODES, iceberg_jdbc.ICEBERG_CATALOG):
         raise SchemaError("invalid_catalog")
     if not NAME_RE.match(name):
         raise SchemaError("invalid_name")
@@ -168,9 +167,9 @@ def _rmdir_schema_folder(folder: Path, root: Path) -> bool:
 
 
 def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
-    """Cria o schema; `spark_catalog` grava em minúsculas. Levanta `SchemaError`, `sqlite3.Error`."""
+    """Cria o schema; `spark_catalog` e `hudi` gravam em minúsculas (`hudi` fixa a origem de exibição). Levanta `SchemaError`, `sqlite3.Error`."""
     validate(catalog, name)
-    if catalog == registry.SPARK_CATALOG:
+    if catalog in _SPARK_NODES:
         if name.lower() in RESERVED_SPARK:
             raise SchemaError("reserved_name")
         name = name.lower()
@@ -182,8 +181,11 @@ def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
             except iceberg_jdbc.UnsupportedIcebergSchema as exc:
                 raise SchemaError("unsupported_iceberg_catalog_schema") from exc
         with _immediate(conn):
-            module: Any = registry if catalog == registry.SPARK_CATALOG else iceberg_jdbc
-            if not module.create_namespace(conn, name):
+            if catalog in _SPARK_NODES:
+                created = registry.create_namespace(conn, name, catalog)
+            else:
+                created = iceberg_jdbc.create_namespace(conn, name)
+            if not created:
                 raise SchemaError("schema_exists")
     finally:
         conn.close()
@@ -204,7 +206,7 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         hudi = registry.namespace_hudi_count(conn, key)
     managed = sum(1 for r in rows if r[2] == "MANAGED")
     is_default = key == registry.DEFAULT_DATABASE
-    # `tables` exclui as Hudi (o que o nó lista); `managed`/`external` cobrem todas as linhas, pois a exclusão age sobre todas.
+    # `tables` = não-Hudi e `hudi` = Hudi; a exclusão age sobre todas, e `managed`/`external` cobrem todas as linhas.
     return {
         "tables": len(rows) - hudi,
         "hudi": hudi,
@@ -248,7 +250,7 @@ def preview_schema(home: Path, catalog: str, schema: str) -> dict[str, Any]:
     validate(catalog, schema)
     conn = _open_read(home)
     try:
-        if catalog == registry.SPARK_CATALOG:
+        if catalog in _SPARK_NODES:
             return _preview_spark(home, schema, conn)
         return _preview_iceberg(home, schema, conn)
     finally:
@@ -353,6 +355,6 @@ def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
 def delete_schema(home: Path, catalog: str, schema: str, etag: str) -> dict[str, Any]:
     """Exclui o schema em cascata (ordem no docstring do módulo). Levanta `SchemaError`, `sqlite3.Error`."""
     validate(catalog, schema)
-    if catalog == registry.SPARK_CATALOG:
+    if catalog in _SPARK_NODES:
         return _delete_spark(home, schema, etag)
     return _delete_iceberg(home, schema, etag)

@@ -159,7 +159,7 @@ async def delete_schema(home: Home, kernels: Kernels, catalog: Name, schema: Nam
         schemas.validate(catalog, schema)
     except schemas.SchemaError as exc:
         raise HTTPException(exc.status, exc.code) from exc
-    if catalog == registry.SPARK_CATALOG and schema.lower() == registry.DEFAULT_DATABASE:
+    if catalog in (registry.SPARK_CATALOG, registry.HUDI_CATALOG) and schema.lower() == registry.DEFAULT_DATABASE:
         raise HTTPException(409, "cannot_drop_default")
 
     async def reserved_delete() -> dict[str, Any]:

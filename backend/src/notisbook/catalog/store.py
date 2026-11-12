@@ -83,6 +83,12 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
         "ALTER TABLE nb_tables_v2 RENAME TO nb_tables",
         "CREATE INDEX IF NOT EXISTS nb_tables_location ON nb_tables(location)",
     ),
+    # Nó em que o schema aparece quando não tem tabelas (o nó `hudi` é só exibição). O `INSERT` do hook, que
+    # não cita a coluna, assume `spark_catalog`.
+    (
+        "ALTER TABLE nb_namespaces ADD COLUMN display_catalog TEXT NOT NULL DEFAULT 'spark_catalog' "
+        "CHECK (display_catalog IN ('spark_catalog','hudi'))",
+    ),
 )
 
 
