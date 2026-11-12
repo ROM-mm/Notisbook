@@ -17,8 +17,6 @@ const theme = EditorView.theme({
   },
   ".cm-content, .cm-gutters": {
     fontWeight: "500",
-    fontVariantLigatures: "contextual",
-    fontFeatureSettings: '"calt" 1',
   },
   // O `*` vence o span de `special(string)` do QuotedIdentifier, aninhado ou não.
   ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-qualifier)" },
@@ -39,6 +37,9 @@ const theme = EditorView.theme({
     color: "var(--color-text-subtle)",
     border: "none",
   },
+  // Moldura terminal: gutter e linha ativa sem fundo próprio (a caixa da célula dá a moldura).
+  ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
+  ".cm-activeLineGutter": { color: "var(--color-text)" },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 var(--space-3) 0 var(--space-2)", fontSize: "12px" },
   ".cm-line": { padding: "0" },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-text)" },

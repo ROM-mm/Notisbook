@@ -1,7 +1,8 @@
 /**
- * Layout raiz em coluna: header (marca, menus e toggles, 56px) e abas de
- * notebooks (com os controles do kernel) em largura total, e abaixo delas uma
- * linha com a lateral esquerda (⌘B), o conteúdo e a lateral direita (⌥⌘B).
+ * Layout raiz em coluna: header (nome, tagline, menus e toggles) e abas de
+ * notebooks (com os controles do kernel) em largura total, abaixo delas uma
+ * linha com a lateral esquerda (⌘B), o conteúdo e a lateral direita (⌥⌘B) e,
+ * no rodapé, a barra de atalhos (só exibição; os atalhos vivem nos listeners).
  *
  * Pontos de extensão:
  * - `entry`: aba ativa (ou null), repassada ao header e à barra de abas
@@ -18,9 +19,25 @@ import { Banner } from "./Banner";
 import { Explorer } from "./Explorer";
 import { ResizeHandle } from "./ResizeHandle";
 import { AboutDialog } from "./AboutDialog";
-import { ShortcutsDialog } from "./ShortcutsDialog";
+import { SHORTCUTS, ShortcutsDialog } from "./ShortcutsDialog";
 import { SidePanel } from "./SidePanel";
 import { TabBar } from "./TabBar";
+
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+
+// Atalhos do rodapé: seleção declarada (pelo texto de tecla) dentro de SHORTCUTS.
+const FOOTER_KEYS = ["Shift+Enter", "⌘S / Ctrl+S", "Esc", "⌘. / Ctrl+.", "⌘B / Ctrl+B", "⌥⌘B / Ctrl+Alt+B"];
+const FOOTER_SHORTCUTS = FOOTER_KEYS.map((k) => {
+  const found = SHORTCUTS.find(([keys]) => keys === k);
+  if (!found && import.meta.env.DEV) console.warn(`Atalho do rodapé ausente em SHORTCUTS: ${k}`);
+  return found;
+}).filter((s): s is (typeof SHORTCUTS)[number] => s !== undefined);
+
+// Teclas no formato "variante Mac / variante demais": exibe só a da plataforma atual.
+function platformKeys(keys: string): string {
+  const [mac = keys, other] = keys.split(" / ");
+  return other !== undefined && mac.includes("⌘") ? (IS_MAC ? mac : other) : keys;
+}
 
 export function AppShell({ entry, children }: { entry: NotebookEntry | null; children: ReactNode }) {
   const leftOpen = useWorkspace((s) => s.leftOpen);
@@ -93,6 +110,14 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
           </>
         ) : null}
       </div>
+      <footer className={styles.shortcutBar} aria-label="Keyboard shortcuts" data-testid="shortcut-bar">
+        {FOOTER_SHORTCUTS.map(([keys, what]) => (
+          <span key={keys}>
+            <kbd>{platformKeys(keys)}</kbd>
+            {what}
+          </span>
+        ))}
+      </footer>
       <ShortcutsDialog />
       <AboutDialog />
     </div>

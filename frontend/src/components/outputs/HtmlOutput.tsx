@@ -17,15 +17,17 @@ const SHADOW_CSS = `
 img, svg { max-width: 100%; height: auto; }
 pre, code { font-family: var(--font-mono); font-size: 12.5px; }
 table { border-collapse: collapse; border-spacing: 0; font-variant-numeric: tabular-nums; }
-th, td { padding: 5px 10px; border: 0; border-bottom: 1px solid var(--color-border); text-align: right; vertical-align: top; white-space: nowrap; color: var(--color-text); }
+th, td { padding: 4px 10px; border: 0; border-bottom: 1px solid var(--color-border); text-align: left; vertical-align: top; white-space: nowrap; color: var(--color-text); }
 td { font-family: var(--font-mono); font-size: 12.5px; }
-thead th { background: var(--color-bg-subtle); color: var(--color-text-muted); font-family: var(--font-head); font-weight: 600; }
+thead th { background: var(--color-bg-panel); color: var(--color-text-muted); font-family: var(--font-mono); font-weight: 600; }
 tbody tr:hover { background: var(--color-bg-hover); }
 a { color: var(--color-accent-text); }
-/* Grade de DataFrame: rolagem nos dois eixos; a moldura vai no contêiner e o cabeçalho opaco fixo separa via box-shadow (border-collapse não acompanha o sticky). O seletor do cabeçalho (0,1,3) vence o <style> do kernel (0,1,2), que vem depois. */
-.nb-grid { max-height: 640px; overflow: auto; border: 1px solid var(--color-border); border-radius: var(--radius-control); }
-.nb-grid table { border: 0; }
-.nb-grid > table > thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-subtle); box-shadow: inset 0 -1px 0 var(--color-border); border-bottom: 0; }
+/* Alinhamento: tudo à esquerda, inclusive cabeçalho e colunas numéricas. O <style> do pandas (".dataframe thead th", 0,1,2) vem depois deste bloco e empata com ":host table th" (0,1,2); por isso o cabeçalho usa ":host table thead th" e ":host .dataframe thead th" (0,1,3), e th.num/td.num (0,2,2) vencem o ".nb-grid th.num" do kernel (0,2,1), sem !important. */
+:host table th, :host table td, :host table thead th, :host .dataframe thead th, :host table th.num, :host table td.num { text-align: left; }
+/* Grade de DataFrame: rolagem nos dois eixos; a moldura vai no contêiner. A tabela usa border-collapse: separate para o cabeçalho sticky ter caixa e borda próprias (no modo collapse a borda é da tabela e o cabeçalho fixo se desloca sobre a 1ª linha); o box-shadow mantém a linha sob o cabeçalho. O seletor do cabeçalho (0,1,3) vence o <style> do kernel (0,1,2), que vem depois. */
+.nb-grid { max-height: 640px; overflow: auto; border: 1px solid var(--color-border); border-radius: 0; }
+.nb-grid table { border: 0; border-collapse: separate; border-spacing: 0; }
+.nb-grid > table > thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-panel); box-shadow: inset 0 -1px 0 var(--color-border); border-bottom: 0; }
 /* Rodapé fixo na base/esquerda da área rolável; fundo opaco e opacity:1 (o kernel põe opacity .7, que deixaria as linhas transparecerem); seletor composto vence o <style> do kernel, que vem depois. */
 .nb-grid .nb-grid-footer { position: sticky; bottom: 0; left: 0; z-index: 2; opacity: 1; color: var(--color-text-muted); background: var(--color-bg); }
 `;

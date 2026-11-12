@@ -5,7 +5,7 @@ import dlg from "../../styles/dialog.module.css";
 import styles from "./AppShell.module.css";
 import { CloseIcon } from "./icons";
 
-const SHORTCUTS: [string, string][] = [
+export const SHORTCUTS: [string, string][] = [
   ["⌘S / Ctrl+S", "Save the notebook"],
   ["Shift+Enter", "Run the cell and advance"],
   ["⌘Enter / Ctrl+Enter", "Run the cell and stay"],

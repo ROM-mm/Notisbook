@@ -1,11 +1,9 @@
-/* Saídas de célula: alinhadas ao bloco de código; erro em moldura 3px com etiqueta coral. */
+/* Saídas de célula no padrão terminal: texto mono solto; erro só em cor de erro do tema. O recuo e o espaçamento vêm do .outputBox da célula. */
 
 .area {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-top: var(--space-2);
-  padding: 0 var(--space-2);
   font-size: 13px;
 }
 
@@ -30,8 +28,7 @@
 
 .stderr {
   display: inline;
-  background: var(--coral);
-  color: var(--on-fill);
+  color: var(--color-danger);
 }
 
 .more {
@@ -47,21 +44,18 @@
 }
 
 .more:hover {
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-hover);
 }
 
 .error {
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
   overflow-x: auto;
-  border-radius: var(--radius-control);
+  color: var(--color-danger);
 }
 
 .error .pre {
   white-space: pre;
   overflow-wrap: normal;
+  color: inherit;
 }
 
 /* Host do Shadow DOM: contém posicionamento fixo/absoluto da saída. */
@@ -140,20 +134,18 @@
 }
 
 .errName {
-  padding: 0 3px;
-  background: var(--coral);
-  color: var(--on-fill);
+  color: var(--color-danger);
   font-weight: var(--font-weight-bold);
 }
 
+.errName::before {
+  content: "✗ ";
+}
+
 .errChip {
-  padding: 0 var(--space-1);
-  border: 1px solid var(--color-border);
-  background: var(--coral);
-  color: var(--on-fill);
+  color: var(--color-danger);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  border-radius: var(--radius-control);
 }
 
 .errMsg,
@@ -179,7 +171,7 @@
 }
 
 .errDetails summary {
-  color: var(--color-text);
+  color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
   cursor: pointer;

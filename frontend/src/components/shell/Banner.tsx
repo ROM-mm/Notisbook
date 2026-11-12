@@ -1,5 +1,5 @@
 /**
- * Header do shell: marca, menubar e, à direita, estado de salvamento e os
+ * Header do shell: nome com a tagline abaixo, menubar e, à direita, estado de salvamento e os
  * toggles das laterais esquerda (⌘B) e direita (⌥⌘B) e modo foco (⌘.). Recebe a aba
  * ativa para os menus e o estado de salvamento.
  */
@@ -69,7 +69,7 @@ export function Banner({ entry }: { entry: NotebookEntry | null }) {
       <BrandMark size={32} />
       <div className={styles.brandText}>
         <span className={styles.wordmark}>notisbook</span>
-        <span className={styles.tagline}>Explore. Code. Transform.</span>
+        <span className={styles.tagline}>explore. code. transform.</span>
       </div>
       <span className={styles.separator} aria-hidden="true" />
       <MenuBar entry={entry} />

@@ -1,4 +1,4 @@
-/* Layout em coluna: header e abas (largura total), depois linha com lateral esquerda | conteúdo | lateral direita. */
+/* Layout em coluna: header e abas (largura total), linha com lateral esquerda | conteúdo | lateral direita e barra de atalhos no rodapé. */
 
 .shell {
   display: flex;
@@ -38,14 +38,12 @@
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
-  color: var(--color-text);
-  border-radius: var(--radius-control);
+  color: var(--color-text-muted);
 }
 
 .iconBtn:hover:not(:disabled) {
-  border-color: var(--color-border-strong);
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
 .iconBtn:disabled {
@@ -66,11 +64,10 @@
   display: flex;
   flex: none;
   align-items: stretch;
-  height: 40px;
+  height: 36px;
   padding: 0 var(--space-3);
-  /* Linha de 1px como sombra interna: a aba ativa a cobre sem ser cortada pelo overflow. */
-  box-shadow: inset 0 -1px 0 var(--color-border);
-  background: var(--color-bg-subtle);
+  /* Linha de 1px como fundo: a aba ativa a cobre com a sua própria linha. */
+  background: linear-gradient(var(--color-border), var(--color-border)) bottom / 100% 1px no-repeat var(--color-bg);
 }
 
 /* O tablist rola na horizontal dentro da faixa; "+" e os controles do kernel ficam fora dele. */
@@ -78,8 +75,7 @@
   display: flex;
   flex: 0 1 auto;
   min-width: 0;
-  align-items: flex-end;
-  gap: 2px;
+  align-items: stretch;
   overflow-x: auto;
 }
 
@@ -88,28 +84,17 @@
   flex: none;
   align-items: center;
   max-width: 240px;
-  height: 32px;
-  border: 1px solid var(--color-border);
-  border-bottom: none;
-  border-radius: 0;
-  background: var(--color-bg-subtle);
+  border-right: 1px solid var(--color-border);
   color: var(--color-text-muted);
-  font-weight: var(--font-weight-medium);
 }
 
 .tab:hover {
   background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
 .tab[data-active] {
-  /* 1px mais alta que as demais, alinhada embaixo: cobre a linha da faixa. */
-  position: relative;
-  height: 33px;
-  border: 1px solid var(--color-border);
-  border-bottom: none;
-  border-radius: 0;
-  background: var(--color-surface);
-  box-shadow: inset 0 2px 0 var(--color-accent);
+  background: linear-gradient(var(--color-text), var(--color-text)) bottom / 100% 1px no-repeat var(--color-bg);
   color: var(--color-text);
 }
 
@@ -134,8 +119,8 @@
 
 .tabDirty {
   flex: none;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   background: currentColor;
 }
 
@@ -147,16 +132,14 @@
   height: 20px;
   margin-right: var(--space-1);
   padding: 0;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
-  color: var(--color-text-muted);
-  border-radius: var(--radius-control);
+  color: var(--color-text-subtle);
 }
 
 .tabClose:hover {
-  border-color: var(--color-border-strong);
-  background: var(--coral);
-  color: var(--on-fill);
+  background: var(--color-bg-active);
+  color: var(--color-text);
 }
 
 .tabAdd {
@@ -180,17 +163,10 @@
 
 .sysResources {
   flex-shrink: 0;
-  padding: 2px var(--space-3);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: none;
-  color: var(--color-text);
-  font-family: var(--font-head);
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  border-radius: var(--radius-control);
 }
 
 /* Some antes de o seletor de ambiente começar a encolher. */
@@ -198,6 +174,28 @@
   .sysResources {
     display: none;
   }
+}
+
+/* Barra de atalhos no rodapé: só exibe os atalhos já existentes (ver AppShell.tsx). */
+.shortcutBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-4);
+  height: 28px;
+  padding: 0 var(--space-4);
+  overflow: hidden;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.shortcutBar kbd {
+  margin-right: var(--space-1);
+  color: var(--color-text);
+  font-size: inherit;
 }
 
 /* Diálogo de atalhos */
@@ -238,20 +236,18 @@
 
 .homeHero {
   margin: var(--space-4) 0 0;
-  font-family: var(--font-script);
   font-size: clamp(40px, 7vw, 72px);
   font-weight: var(--font-weight-regular);
   line-height: 1.5;
 }
 
-/* Marca-texto: faixa sólida atrás do texto, deslocada e inclinada; o texto usa
-   --on-fill para manter contraste sobre o amarelo nos dois temas. */
+/* Marca-texto: faixa neutra atrás do texto, deslocada e inclinada. */
 .homeMark {
   position: relative;
   z-index: 0;
   display: inline-block;
   padding: 0 0.15em;
-  color: var(--on-fill);
+  color: var(--color-text);
 }
 
 .homeMark::before {
@@ -259,7 +255,7 @@
   position: absolute;
   z-index: -1;
   inset: 0 -0.1em;
-  background: var(--yellow);
+  background: var(--color-bg-active);
   transform: translate(0.06em, 0.04em) skewX(-6deg);
 }
 
@@ -287,9 +283,8 @@
   gap: var(--space-2);
   min-width: 72px;
   color: var(--color-text);
-  font-family: var(--font-head);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
 }
 
 .homeActions {
@@ -335,6 +330,6 @@
 
 .aboutLink:hover,
 .aboutLink:focus-visible {
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-active);
+  color: var(--color-text);
 }

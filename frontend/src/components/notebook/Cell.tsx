@@ -1,11 +1,11 @@
 /**
- * Uma célula do notebook (padrão Databricks): cartão com borda sutil e
- * fundo levemente acinzentado; cabeçalho (`CellHeader`: ▶, "N: Título", ⋮),
- * corpo (CodeMirror ou markdown renderizado) e slots.
+ * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`: `[N]`
+ * linguagem e ações), caixa de 1px com "→" e o editor (ou markdown
+ * renderizado como texto) e slots.
  *
  * Slots (preenchidos pela NotebookView):
- * - `outputs`: área de saídas abaixo do editor (renderizadores em components/outputs).
- * - `footer`: rodapé de execução por célula (status, duração `data-testid="cell-duration"`).
+ * - `footer`: status do run, logo abaixo da caixa (`data-testid="cell-duration"`).
+ * - `outputs`: saídas abaixo do status (renderizadores em components/outputs).
  */
 import { memo, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, type EditorCell } from "../../state/notebook";
@@ -123,6 +123,11 @@ export const Cell = memo(function Cell({
       <div className={styles.cellBody}>
         {showEditor ? (
           <div className={cell.cell_type === "code" ? styles.codeBox : styles.textBox}>
+            {cell.cell_type === "code" ? (
+              <span className={styles.prompt} aria-hidden="true">
+                →
+              </span>
+            ) : null}
             <CodeEditor
               key={`${cell.cell_type}:${languageOf(cell)}`}
               value={cell.source}
@@ -155,8 +160,8 @@ export const Cell = memo(function Cell({
           </div>
         )}
 
-        {hasOutputs && <div className={styles.outputBox}>{outputs}</div>}
         {footer}
+        {hasOutputs && <div className={styles.outputBox}>{outputs}</div>}
       </div>
     </div>
   );

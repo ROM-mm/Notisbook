@@ -1,7 +1,8 @@
 /**
- * Cabeçalho da célula (padrão Databricks): ▶, ■ e seletor Python/SQL à esquerda, título
- * opcional (`metadata.title`) centralizado e menu ⋮ à direita (título, tipo, mover,
- * inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
+ * Cabeçalho da célula (estilo terminal): `[N]` (execution_count; `[ ]` sem execução),
+ * seletor Python/SQL, ▶ e ■ à esquerda, título opcional (`metadata.title`) centralizado
+ * e menu ⋮ à direita (título, tipo, mover, inserir, excluir). O ■ chama o interrupt do
+ * kernel, que é global à sessão.
  */
 import { useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
@@ -122,29 +123,6 @@ export function CellHeader({
   if (isCode && canRun) {
     left = (
       <>
-        <button
-          type="button"
-          className={styles.runBtn}
-          onClick={onRun}
-          onMouseDown={(e) => e.preventDefault()}
-          title="Run cell (Shift+Enter)"
-          aria-label="Run cell"
-          data-testid="cell-run"
-        >
-          <PlayFilledIcon size={12} />
-        </button>
-        <button
-          type="button"
-          className={`${styles.runBtn} ${styles.stopBtn}`}
-          onClick={() => kernelStore.getState().interrupt()}
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!running}
-          title="Interrupt kernel"
-          aria-label="Interrupt kernel"
-          data-testid="cell-stop"
-        >
-          <StopFilledIcon size={12} />
-        </button>
         <span className={styles.languageMenu}>
           {languageLocked ? (
             <button
@@ -168,6 +146,29 @@ export function CellHeader({
             />
           )}
         </span>
+        <button
+          type="button"
+          className={styles.runBtn}
+          onClick={onRun}
+          onMouseDown={(e) => e.preventDefault()}
+          title="Run cell (Shift+Enter)"
+          aria-label="Run cell"
+          data-testid="cell-run"
+        >
+          <PlayFilledIcon size={12} />
+        </button>
+        <button
+          type="button"
+          className={`${styles.runBtn} ${styles.stopBtn}`}
+          onClick={() => kernelStore.getState().interrupt()}
+          onMouseDown={(e) => e.preventDefault()}
+          disabled={!running}
+          title="Interrupt kernel"
+          aria-label="Interrupt kernel"
+          data-testid="cell-stop"
+        >
+          <StopFilledIcon size={12} />
+        </button>
       </>
     );
   } else if (cell.cell_type === "markdown" && markdownEditing) {
@@ -187,7 +188,14 @@ export function CellHeader({
 
   return (
     <div className={styles.cellHeader} data-cell-type={isCode ? language : "markdown"}>
-      <div className={styles.headerLeft}>{left}</div>
+      <div className={styles.headerLeft}>
+        {isCode ? (
+          <span className={styles.cellIndex} data-testid="cell-index">
+            [{cell.execution_count ?? " "}]
+          </span>
+        ) : null}
+        {left}
+      </div>
       <div className={styles.headerCenter}>
         {titleEditing ? (
           <span className={styles.titleEditRow}>

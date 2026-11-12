@@ -11,10 +11,8 @@
   flex-direction: column;
   gap: var(--space-3);
   padding: 0 0 var(--space-5);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: none;
-  border-radius: var(--radius-control);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 /* O padding horizontal fica nos filhos: o cabeçalho vai de borda a borda. */
@@ -30,13 +28,13 @@
   min-height: 44px;
   padding: 0 var(--space-5);
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-panel);
 }
 
 .blockTitle {
-  font-family: var(--font-head);
+  font-family: var(--font-sans);
   font-size: var(--font-size-md);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
 }
 
 .text {
@@ -59,7 +57,6 @@
   background: var(--color-code-bg);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
-  border-radius: var(--radius-control);
 }
 
 .bad {
@@ -69,21 +66,19 @@
 .error {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
-  background: var(--coral);
-  color: var(--on-fill);
+  background: var(--color-danger-subtle);
+  color: var(--color-text);
   font-size: var(--font-size-sm);
   overflow-wrap: anywhere;
-  border-radius: var(--radius-control);
 }
 
 .notice,
 .hint {
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
-  background: var(--peach);
-  color: var(--on-fill);
+  background: var(--color-warning-subtle);
+  color: var(--color-text);
   font-size: var(--font-size-sm);
-  border-radius: var(--radius-control);
 }
 
 /* Pré-requisitos */
@@ -139,18 +134,17 @@
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  border-radius: var(--radius-control);
+  font-weight: var(--font-weight-medium);
 }
 
 .badgeOk {
-  background: var(--mint);
-  color: var(--on-fill);
+  background: var(--color-success-subtle);
+  color: var(--color-text);
 }
 
 .badgeBad {
-  background: var(--coral);
-  color: var(--on-fill);
+  background: var(--color-danger-subtle);
+  color: var(--color-text);
 }
 
 /* Instalar */
@@ -183,14 +177,12 @@
   flex-direction: column;
   gap: var(--space-2);
   padding: 0 0 var(--space-4);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: none;
-  border-radius: var(--radius-control);
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .job[data-status="running"] {
-  background: var(--creamy);
+  background: var(--color-bg-subtle);
 }
 
 .job > :not(.jobHead) {
@@ -204,12 +196,12 @@
   min-height: 44px;
   padding: 0 var(--space-4);
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-subtle);
+  background: var(--color-bg-panel);
 }
 
 .jobTitle {
-  font-family: var(--font-head);
-  font-weight: var(--font-weight-bold);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-medium);
 }
 
 .jobStatus {
@@ -241,22 +233,21 @@
   height: 12px;
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  border-radius: var(--radius-control);
 }
 
 .barFill {
   height: 100%;
-  background: var(--blue);
+  background: var(--color-text);
   transition: width var(--transition-normal);
 }
 
 .bar_succeeded {
-  background: var(--mint);
+  background: var(--color-success-subtle);
 }
 
 .bar_failed,
 .bar_lost {
-  background: var(--coral);
+  background: var(--color-danger-subtle);
 }
 
 .log {
@@ -264,11 +255,10 @@
   max-height: 240px;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
-  background: var(--color-code-bg);
+  background: var(--color-bg-panel);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   line-height: var(--line-height-code);
-  border-radius: var(--radius-control);
 }
 
 .log:focus-visible {
@@ -296,8 +286,8 @@
   height: 10px;
   border: 2px solid currentColor;
   border-right-color: transparent;
+  border-radius: 50%;
   animation: spin 0.8s linear infinite;
-  border-radius: var(--radius-control);
 }
 
 @keyframes spin {
@@ -385,13 +375,12 @@
   background: var(--color-surface);
   color: var(--color-text);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  border-radius: var(--radius-control);
+  font-weight: var(--font-weight-medium);
 }
 
 .tagActive {
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-active);
+  color: var(--color-text);
 }
 
 .rowAction {
@@ -399,14 +388,14 @@
 }
 
 .dangerBtn:not(:disabled) {
-  background: var(--coral);
-  color: var(--on-fill);
+  background: var(--color-danger-subtle);
+  color: var(--color-text);
 }
 
 /* :global(.btn) repetido eleva a especificidade acima de .neo :global(.btn):hover,
    independente da ordem de carga das folhas. */
 .dangerBtn:global(.btn):global(.btn):hover:not(:disabled) {
-  background: var(--coral);
+  background: var(--color-danger-subtle);
 }
 
 /* Config do ambiente (diálogos de libs) */
@@ -462,17 +451,16 @@
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
   font-size: var(--font-size-sm);
-  border-radius: var(--radius-control);
 }
 
 .bannerOk {
-  background: var(--mint);
-  color: var(--on-fill);
+  background: var(--color-success-subtle);
+  color: var(--color-text);
 }
 
 .bannerBad {
-  background: var(--coral);
-  color: var(--on-fill);
+  background: var(--color-danger-subtle);
+  color: var(--color-text);
 }
 
 .bannerText {
@@ -499,12 +487,12 @@
   top: 0;
   padding: var(--space-2);
   border-bottom: 1px solid var(--color-border);
-  background: var(--blue);
-  color: var(--on-fill);
-  font-family: var(--font-head);
+  background: var(--color-bg-panel);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: 0.04em;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
   text-align: left;
   text-transform: uppercase;
 }
@@ -533,8 +521,8 @@
 }
 
 .tagNew {
-  background: var(--mint);
-  color: var(--on-fill);
+  background: var(--color-success-subtle);
+  color: var(--color-text);
 }
 
 .barIndeterminate {
@@ -578,9 +566,9 @@
 
 .colLabel {
   color: var(--color-text-muted);
-  font-family: var(--font-head);
+  font-family: var(--font-sans);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
   text-transform: uppercase;
 }
 
@@ -593,7 +581,6 @@
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--font-size-sm);
-  border-radius: var(--radius-control);
 }
 
 .input:focus {

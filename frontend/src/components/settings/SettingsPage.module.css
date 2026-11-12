@@ -1,8 +1,7 @@
 .page {
   composes: neo from "../../styles/dialog.module.css";
   min-height: 100%;
-  /* Fundo pontilhado de borda a borda; o padding mantém a coluna central
-     com a largura máxima de antes. */
+  /* O padding mantém a coluna central limitada por --content-max-width. */
   padding: var(--space-8) max(var(--space-6), calc((100% - var(--content-max-width)) / 2 + var(--space-6))) var(--space-16);
   background-color: var(--color-bg);
 }
@@ -20,7 +19,7 @@
 }
 
 .title {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-size: var(--font-size-2xl);
   font-weight: var(--font-weight-regular);
   letter-spacing: var(--letter-spacing-tight);

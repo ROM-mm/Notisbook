@@ -1,4 +1,7 @@
-/* Header de 56px, largura total, acima das abas. Só variáveis de tema. */
+/**
+ * Header de terminal: nome e tagline empilhados, menubar em texto e toggles
+ * discretos, com linha de 1px embaixo. Só variáveis de tema.
+ */
 
 .banner {
   position: relative;
@@ -6,28 +9,33 @@
   flex: none;
   align-items: center;
   gap: var(--space-3);
-  height: 56px;
+  height: var(--header-height);
   padding: 0 var(--space-4);
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  background: var(--color-bg);
   color: var(--color-text);
 }
 
-/* Nome e slogan empilhados; cabem nos 56px do header. */
+/* Nome na 1ª linha e tagline abaixo. */
 .brandText {
   display: flex;
   flex: none;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .wordmark {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: var(--font-weight-bold);
-  letter-spacing: -0.02em;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   line-height: 1;
+}
+
+.tagline {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .separator {
@@ -35,15 +43,6 @@
   width: 1px;
   height: 24px;
   background: var(--color-border);
-}
-
-.tagline {
-  color: var(--color-text-muted);
-  font-family: var(--font-head);
-  font-size: var(--font-size-xs, 11px);
-  font-weight: var(--font-weight-medium);
-  line-height: 1;
-  white-space: nowrap;
 }
 
 /* Menubar: o overflow do header não pode cortar os dropdowns absolutos, por isso é visible. */
@@ -60,10 +59,7 @@
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text);
-  font-family: var(--font-head);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-medium);
-  border-radius: var(--radius-control);
 }
 
 .menuButton:hover {
@@ -99,7 +95,6 @@
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text-muted);
-  border-radius: var(--radius-control);
 }
 
 .toggle:hover {
@@ -108,6 +103,6 @@
 }
 
 .toggle[aria-pressed="true"] {
-  background: var(--color-accent-subtle);
-  color: var(--color-accent-text);
+  background: var(--color-bg-active);
+  color: var(--color-text);
 }

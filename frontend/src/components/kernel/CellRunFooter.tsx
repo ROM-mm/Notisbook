@@ -1,13 +1,12 @@
 /**
- * Rodapé de execução por célula (discreto à la Databricks): status,
- * `execution_count` e duração medida no frontend (envio do `execute` →
- * `execute_reply`) em `[data-testid="cell-duration"]`, formato `1.02 s`.
+ * Status de execução por célula, solto sob a caixa de código: `✓ 1.02 s`,
+ * `✗ Error`, etc. A duração (medida no frontend, envio do `execute` →
+ * `execute_reply`) fica em `[data-testid="cell-duration"]`.
  */
 import { memo, useEffect, useState } from "react";
 import { type CellRun, formatDuration } from "../../state/kernel";
 import { useKernel } from "../../state/notebookContext";
-import { CheckSmallIcon, CrossSmallIcon } from "./icons";
-import styles from "./Kernel.module.css";
+import styles from "../notebook/Notebook.module.css";
 
 function Elapsed({ startedAt }: { startedAt: number }) {
   const [, tick] = useState(0);
@@ -30,33 +29,50 @@ const LABEL: Record<CellRun["status"], string> = {
   aborted: "Cancelled",
 };
 
+const GLYPH: Record<CellRun["status"], string> = {
+  queued: "…",
+  running: "…",
+  ok: "✓",
+  error: "✗",
+  aborted: "✗",
+};
+
+const STATUS_CLASS: Record<CellRun["status"], string | undefined> = {
+  queued: styles.runQueued,
+  running: styles.runRunning,
+  ok: styles.runOk,
+  error: styles.runError,
+  aborted: styles.runAborted,
+};
+
 export const CellRunFooter = memo(function CellRunFooter({ cellId }: { cellId: string }) {
   const run = useKernel((s) => s.runs[cellId]);
   if (!run) return null;
   const { status } = run;
+  // Com sucesso e duração conhecida, o tempo substitui o rótulo ("✓ 1.02 s").
+  const durationAsMain = status === "ok" && run.durationMs !== null;
 
   return (
-    <div className={`${styles.footer} ${styles[`f_${status}`]}`} data-testid="cell-footer" data-status={status}>
-      <span className={styles.footerStatus}>
-        {status === "running" || status === "queued" ? <span className={styles.spinner} aria-hidden="true" /> : null}
-        {status === "ok" ? <CheckSmallIcon /> : null}
-        {status === "error" ? <CrossSmallIcon /> : null}
-        {LABEL[status]}
+    <div className={`${styles.runStatus} ${STATUS_CLASS[status]}`} data-testid="cell-footer" data-status={status}>
+      <span className={styles.runMain}>
+        <span className={styles.runGlyph} aria-hidden="true">
+          {GLYPH[status]}
+        </span>
+        {durationAsMain ? <span data-testid="cell-duration">{formatDuration(run.durationMs ?? 0)}</span> : LABEL[status]}
       </span>
-      {run.executionCount !== null ? <span className={styles.sep}>[{run.executionCount}]</span> : null}
       {status === "running" && run.startedAt !== null ? (
-        <span className={styles.sep}>
+        <span className={styles.runSep}>
           <Elapsed startedAt={run.startedAt} />
         </span>
       ) : null}
-      {run.durationMs !== null ? (
-        <span className={styles.sep}>
+      {!durationAsMain && run.durationMs !== null ? (
+        <span className={styles.runSep}>
           <span data-testid="cell-duration">{formatDuration(run.durationMs)}</span>
         </span>
       ) : null}
-      {run.finishedAt !== null ? <span className={styles.sep}>at {timeOfDay(run.finishedAt)}</span> : null}
+      {run.finishedAt !== null ? <span className={styles.runSep}>at {timeOfDay(run.finishedAt)}</span> : null}
       {run.note ? (
-        <span className={`${styles.sep} ${styles.note}`} data-testid="cell-note">
+        <span className={`${styles.runSep} ${styles.runNote}`} data-testid="cell-note">
           {run.note}
         </span>
       ) : null}

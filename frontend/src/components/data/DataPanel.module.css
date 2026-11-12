@@ -1,8 +1,8 @@
 /* Estilos compartilhados dos cartões do Explorer (Notebooks, Files, Catalog) e
    dos diálogos de dados. Layout do painel: shell/Explorer.module.css. */
 
-/* Cartão: divide a altura do painel; só o corpo (.tree) rola. O overflow da
-   seção é um recuo para estados altos (ex.: seletor aberto). */
+/* Seção: divide a altura do painel, sem borda (a divisória é a linha do Explorer);
+   só o corpo (.tree) rola. O overflow é um recuo para estados altos (ex.: seletor aberto). */
 .section {
   display: flex;
   flex: 1 1 0;
@@ -12,10 +12,7 @@
   padding: 0 0 var(--space-3);
   overflow-x: hidden;
   overflow-y: auto;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: none;
-  border-radius: var(--radius-control);
+  background: var(--color-bg);
 }
 
 /* Recolhido: só o cabeçalho, sem o respiro do corpo. */
@@ -38,10 +35,8 @@
   align-items: center;
   gap: var(--space-2);
   color: var(--color-text);
-  font-family: var(--font-head);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
-  letter-spacing: normal;
+  font-weight: var(--font-weight-medium);
 }
 
 .titleToggle {
@@ -79,13 +74,11 @@
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-6) var(--space-2);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-subtle);
+  border: 1px dashed var(--color-border-strong);
+  background: transparent;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  font-style: italic;
   text-align: center;
-  border-radius: var(--radius-control);
 }
 
 .emptyIcons {
@@ -112,12 +105,12 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 38px;
+  min-height: 32px;
   padding: 0 var(--space-2) 0 var(--space-3);
-  background: var(--color-surface);
+  background: var(--color-bg);
 }
 
-/* Botões de ícone do cabeçalho: compactos, sem sombra do .btn (a especificidade
+/* Botões de ícone do cabeçalho: compactos e sem borda (a especificidade
    precisa superar `.btn-ghost:hover:not(:disabled)` global). */
 .sectionActions :global(.btn.btn-ghost) {
   width: 26px;
@@ -126,14 +119,12 @@
   padding: 0;
   border-color: transparent;
   background: transparent;
-  box-shadow: none;
-  color: var(--color-text);
+  color: var(--color-text-muted);
 }
 
 .sectionActions :global(.btn.btn-ghost):hover:not(:disabled) {
-  border-color: var(--color-border-strong);
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
 .sectionActions {
@@ -178,13 +169,13 @@
   gap: var(--space-1);
   padding-top: 1px;
   padding-bottom: 1px;
-  border-left: 3px solid transparent;
+  border-left: 2px solid transparent;
   cursor: default;
   white-space: nowrap;
 }
 
 .treeRow:hover {
-  background: var(--hover);
+  background: var(--color-bg-hover);
 }
 
 .treeRow:focus-visible {
@@ -192,16 +183,15 @@
   outline-offset: -3px;
 }
 
-/* Seleção: fundo amarelo e barra de 3px à esquerda. */
+/* Seleção: fundo neutro e barra de 2px na cor do texto. */
 .treeRow[aria-selected="true"] {
-  border-left-color: var(--color-accent);
-  background: var(--yellow);
-  color: var(--on-fill);
-  font-weight: var(--font-weight-bold);
+  border-left-color: var(--color-text);
+  background: var(--color-bg-active);
+  color: var(--color-text);
 }
 
 .treeRow[aria-selected="true"] :is(.chevron, .treeIcon, .treeDetail, .treeMore) {
-  color: var(--on-fill);
+  color: var(--color-text);
 }
 
 .chevron {
@@ -238,7 +228,6 @@
 .treeMore {
   color: var(--color-text);
   font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-bold);
 }
 
 .treeStatus {
@@ -314,18 +303,17 @@
 .dialogError {
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  background: var(--coral);
-  color: var(--on-fill);
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-subtle);
+  color: var(--color-text);
   font-size: var(--font-size-sm);
-  border-radius: var(--radius-control);
 }
 
 dialog .confirmDanger:global(.btn),
 dialog .confirmDanger:global(.btn):hover:not(:disabled) {
-  border-color: var(--color-border-strong);
-  background: var(--coral);
-  color: var(--on-fill);
+  border-color: var(--color-danger);
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
 }
 
 .catalogNotice {
@@ -349,7 +337,7 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   padding: 0 var(--space-1);
   color: var(--color-text);
   font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
 }
 
 .connectionName {

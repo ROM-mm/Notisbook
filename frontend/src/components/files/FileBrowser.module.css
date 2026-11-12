@@ -3,8 +3,7 @@
 .muted,
 .empty {
   padding: var(--space-3) var(--space-4);
-  color: var(--color-text-muted);
-  font-style: italic;
+  color: var(--color-text-subtle);
 }
 
 .notice {
@@ -20,9 +19,8 @@
   margin-block: 0;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-border);
-  background: var(--coral);
-  color: var(--on-fill);
-  border-radius: var(--radius-control);
+  background: var(--color-danger-subtle);
+  color: var(--color-text);
 }
 
 .tree {
@@ -70,30 +68,30 @@
 }
 
 .row:hover {
-  background: var(--hover);
+  background: var(--color-bg-hover);
 }
 
 /* Notebook aberto na aba ativa: barra de 3px sem preenchimento. */
 .row[data-active] {
   border-left-color: var(--color-accent);
   background: var(--color-bg-subtle);
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
 }
 
-/* Seleção: fundo amarelo e barra de 3px à esquerda. */
+/* Seleção: fundo neutro ativo e barra de 3px à esquerda. */
 .row[data-selected],
 .row[data-selected][data-active] {
   border-left-color: var(--color-accent);
-  background: var(--yellow);
-  color: var(--on-fill);
+  background: var(--color-bg-active);
+  color: var(--color-text);
 }
 
 .row[data-selected] :is(.chevron, .iconDir, .iconNotebook, .iconFile, .nameText) {
-  color: var(--on-fill);
+  color: var(--color-text);
 }
 
 .row[data-open] .treeName {
-  font-weight: var(--font-weight-bold);
+  font-weight: var(--font-weight-medium);
 }
 
 .iconDir {
@@ -127,8 +125,6 @@
 .nameText {
   color: var(--color-text-muted);
 }
-
-
 
 
 .nameField {
