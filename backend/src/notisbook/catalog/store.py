@@ -56,6 +56,33 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
         "CREATE TABLE IF NOT EXISTS nb_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         "INSERT OR IGNORE INTO nb_meta (key, value) VALUES ('generation', '0')",
     ),
+    # O SQLite não altera CHECK: recria `nb_tables` para aceitar `hudi` e acrescentar `hudi_instant`.
+    (
+        """CREATE TABLE nb_tables_v2 (
+  catalog_name   TEXT NOT NULL CHECK (catalog_name = 'spark_catalog'),
+  namespace      TEXT NOT NULL,
+  table_name     TEXT NOT NULL,
+  format         TEXT NOT NULL CHECK (format IN ('delta','parquet','hudi')),
+  location       TEXT NOT NULL,
+  table_type     TEXT NOT NULL CHECK (table_type IN ('MANAGED','EXTERNAL')),
+  columns_json   TEXT NOT NULL,
+  partition_cols TEXT NOT NULL DEFAULT '[]',
+  options_json   TEXT NOT NULL DEFAULT '{}',
+  delta_version  INTEGER,
+  description    TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL,
+  hudi_instant   TEXT,
+  PRIMARY KEY (catalog_name, namespace, table_name))""",
+        """INSERT INTO nb_tables_v2 (catalog_name, namespace, table_name, format, location, table_type,
+  columns_json, partition_cols, options_json, delta_version, description, created_at, updated_at)
+  SELECT catalog_name, namespace, table_name, format, location, table_type,
+  columns_json, partition_cols, options_json, delta_version, description, created_at, updated_at
+  FROM nb_tables""",
+        "DROP TABLE nb_tables",
+        "ALTER TABLE nb_tables_v2 RENAME TO nb_tables",
+        "CREATE INDEX IF NOT EXISTS nb_tables_location ON nb_tables(location)",
+    ),
 )
 
 
