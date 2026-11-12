@@ -104,7 +104,7 @@
   border: 0;
   background: transparent;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-regular);
   text-transform: lowercase;
@@ -357,7 +357,7 @@
   margin-top: var(--space-2);
   padding-left: var(--space-5);
   color: var(--color-text-subtle);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
 }
