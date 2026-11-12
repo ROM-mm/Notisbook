@@ -1,29 +1,4 @@
-/* Painel direito: cabeçalho de 44px alinhado ao do painel lateral esquerdo. */
-
-.panel {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  min-height: 0;
-  background: var(--color-bg);
-}
-
-.header {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: var(--space-2);
-  height: 44px;
-  padding: 0 var(--space-2) 0 var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg);
-}
-
-.title {
-  font-family: var(--font-head);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-}
+/* Conteúdo do cartão Variables; moldura e cabeçalho vêm de data/DataPanel.module.css. */
 
 .badge {
   padding: 0 var(--space-2);
@@ -35,13 +10,6 @@
   border-radius: var(--radius-control);
 }
 
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-
 .stale {
   padding: 0 var(--space-2);
   border: 1px solid var(--color-border);
@@ -49,46 +17,6 @@
   color: var(--on-fill);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-bold);
-  border-radius: var(--radius-control);
-}
-
-.iconBtn {
-  display: inline-grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-text);
-  border-radius: var(--radius-control);
-}
-
-.iconBtn:hover:not(:disabled) {
-  border-color: var(--color-border-strong);
-  background: var(--yellow);
-  color: var(--on-fill);
-}
-
-.iconBtn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-.body {
-  flex: 1;
-  min-height: 0;
-  padding: 12px 16px 16px 12px;
-  overflow: auto;
-  background-color: var(--color-bg);
-}
-
-/* Altura acompanha o conteúdo; o padding do .body preserva a sombra ao rolar. */
-.card {
-  padding: var(--space-1) 0;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  box-shadow: none;
   border-radius: var(--radius-control);
 }
 

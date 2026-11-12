@@ -1,18 +1,18 @@
 /**
  * Layout raiz em coluna: header (marca, menus e toggles, 56px) e abas de
  * notebooks (com os controles do kernel) em largura total, e abaixo delas uma
- * linha com o painel Explorer recolhível (⌘B) e o conteúdo.
+ * linha com a lateral esquerda (⌘B), o conteúdo e a lateral direita (⌥⌘B).
  *
  * Pontos de extensão:
  * - `entry`: aba ativa (ou null), repassada ao header e à barra de abas
  *   (seletor de ambiente em `components/kernel/KernelSelector.tsx`).
- * - Explorer: `Explorer` empilha os cartões Catalog, Notebooks e Connections; um novo
- *   cartão entra em `state/layout.ts` (EXPLORER_CARDS) e em `Explorer.tsx`.
+ * - Laterais: `Explorer` empilha os cartões de uma lateral; a composição e a
+ *   ordem vêm de `state/layout.ts` (LEFT_CARDS/RIGHT_CARDS) e os cartões
+ *   concretos são mapeados em `Explorer.tsx`.
  */
-import { useEffect, useRef, type CSSProperties, type ReactNode } from "react";
-import { DEFAULT_SIDE_PANEL_WIDTH, useLayout } from "../../state/layout";
+import { useEffect, useRef, type ReactNode } from "react";
+import { DEFAULT_RIGHT_PANEL_WIDTH, DEFAULT_SIDE_PANEL_WIDTH, useLayout } from "../../state/layout";
 import { type NotebookEntry, useWorkspace } from "../../state/workspace";
-import { VariablesPanel } from "../variables/VariablesPanel";
 import styles from "./AppShell.module.css";
 import { Banner } from "./Banner";
 import { Explorer } from "./Explorer";
@@ -23,27 +23,33 @@ import { SidePanel } from "./SidePanel";
 import { TabBar } from "./TabBar";
 
 export function AppShell({ entry, children }: { entry: NotebookEntry | null; children: ReactNode }) {
-  const rightPanel = useWorkspace((s) => s.rightPanel);
-  const explorerOpen = useWorkspace((s) => s.explorerOpen);
+  const leftOpen = useWorkspace((s) => s.leftOpen);
+  const rightOpen = useWorkspace((s) => s.rightOpen);
   const focusMode = useWorkspace((s) => s.focusMode);
-  const sidePanelWidth = useLayout((s) => s.sidePanelWidth);
-  const setSidePanelWidth = useLayout((s) => s.setSidePanelWidth);
-  const baseWidth = useRef(sidePanelWidth);
-  const sideOpen = !focusMode && explorerOpen;
+  const leftWidth = useLayout((s) => s.sidePanelWidth);
+  const rightWidth = useLayout((s) => s.rightPanelWidth);
+  const setLeftWidth = useLayout((s) => s.setSidePanelWidth);
+  const setRightWidth = useLayout((s) => s.setRightPanelWidth);
+  const baseWidth = useRef(0);
+  const showLeft = !focusMode && leftOpen;
+  const showRight = !focusMode && rightOpen;
 
-  // Listener global (também com foco no editor/inputs): Cmd/Ctrl+. (modo foco) e Cmd/Ctrl+B (Explorer).
+  // Listener global (também com foco no editor/inputs): Cmd/Ctrl+. (modo foco),
+  // Cmd/Ctrl+B (lateral esquerda) e Alt+Cmd/Ctrl+B (lateral direita).
   useEffect(() => {
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     const onKeyDown = (e: KeyboardEvent) => {
       const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-      if (!mod || e.altKey || e.shiftKey) return;
-      const key = e.key.toLowerCase();
-      if (key !== "." && key !== "b") return;
+      if (!mod || e.shiftKey) return;
+      // Com Alt, e.key de "B" pode vir como "∫" no macOS: nesse caso vale a tecla física.
+      const isB = e.key.toLowerCase() === "b" || (e.altKey && e.code === "KeyB");
+      const isDot = e.key === ".";
+      if (e.altKey ? !isB : !isB && !isDot) return;
       e.preventDefault();
       if (e.repeat) return;
       const ws = useWorkspace.getState();
-      if (key === ".") ws.toggleFocusMode();
-      else ws.toggleExplorer();
+      if (isB) (e.altKey ? ws.toggleRight : ws.toggleLeft)();
+      else ws.toggleFocusMode();
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
@@ -52,25 +58,40 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
     <div className={styles.shell}>
       <Banner entry={entry} />
       <TabBar entry={entry} />
-      <div className={styles.body} style={{ "--panel-width": `${sidePanelWidth}px` } as CSSProperties}>
-        {sideOpen ? (
-          <SidePanel title="Explorer">
-            <Explorer />
-          </SidePanel>
-        ) : null}
-        {sideOpen ? (
-          <ResizeHandle
-            orientation="vertical"
-            label="Resize side panel"
-            onDragStart={() => {
-              baseWidth.current = useLayout.getState().sidePanelWidth;
-            }}
-            onDrag={(d) => setSidePanelWidth(Math.min(baseWidth.current + d, window.innerWidth / 2))}
-            onReset={() => setSidePanelWidth(DEFAULT_SIDE_PANEL_WIDTH)}
-          />
+      <div className={styles.body}>
+        {showLeft ? (
+          <>
+            <SidePanel side="left" label="Left panel" width={leftWidth}>
+              <Explorer side="left" />
+            </SidePanel>
+            <ResizeHandle
+              orientation="vertical"
+              label="Resize left panel"
+              onDragStart={() => {
+                baseWidth.current = useLayout.getState().sidePanelWidth;
+              }}
+              onDrag={(d) => setLeftWidth(Math.min(baseWidth.current + d, window.innerWidth / 2))}
+              onReset={() => setLeftWidth(DEFAULT_SIDE_PANEL_WIDTH)}
+            />
+          </>
         ) : null}
         <main className={styles.content}>{children}</main>
-        {!focusMode && rightPanel === "variables" ? <VariablesPanel /> : null}
+        {showRight ? (
+          <>
+            <ResizeHandle
+              orientation="vertical"
+              label="Resize right panel"
+              onDragStart={() => {
+                baseWidth.current = useLayout.getState().rightPanelWidth;
+              }}
+              onDrag={(d) => setRightWidth(Math.min(baseWidth.current - d, window.innerWidth / 2))}
+              onReset={() => setRightWidth(DEFAULT_RIGHT_PANEL_WIDTH)}
+            />
+            <SidePanel side="right" label="Right panel" width={rightWidth}>
+              <Explorer side="right" />
+            </SidePanel>
+          </>
+        ) : null}
       </div>
       <ShortcutsDialog />
       <AboutDialog />

@@ -29,11 +29,9 @@ import {
   DatabaseIcon,
   ExternalTableIcon,
   FolderIcon,
-  IcebergCatalogIcon,
   PlusIcon,
   RefreshIcon,
   SearchIcon,
-  SparkIcon,
   TableIcon,
 } from "../shell/icons";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
@@ -42,6 +40,8 @@ import type { MenuItem } from "../shell/Menu";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
+import icebergIconUrl from "../../../icons/iceberg.png";
+import sparkIconUrl from "../../../icons/spark.png";
 
 const INDENT_PX = 14;
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
@@ -52,9 +52,12 @@ const DEFAULT_SCHEMA = "default";
 
 const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
+const brandIcon = (src: string): ReactNode => (
+  <img className={styles.brandIcon} src={src} alt="" aria-hidden="true" width={14} height={14} draggable={false} />
+);
 const CATALOG_ICONS: Record<string, ReactNode> = {
-  spark_catalog: <SparkIcon size={14} />,
-  iceberg: <IcebergCatalogIcon size={14} />,
+  spark_catalog: brandIcon(sparkIconUrl),
+  iceberg: brandIcon(icebergIconUrl),
 };
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
 const CATALOG_ERRORS: Record<string, string> = {
@@ -216,7 +219,7 @@ function buildItems(
       size: visible.length,
       label: CATALOG_LABELS[c.name] ?? c.name,
       detail: c.error ? "error" : undefined,
-      icon: CATALOG_ICONS[c.name] ?? <FolderIcon size={14} />,
+      icon: (Object.hasOwn(CATALOG_ICONS, c.name) ? CATALOG_ICONS[c.name] : null) ?? <FolderIcon size={14} />,
       expandable: true,
       open: cOpen,
       forced: cForced,

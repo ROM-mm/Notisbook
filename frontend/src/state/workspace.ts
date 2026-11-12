@@ -1,5 +1,5 @@
 /**
- * Workspace: notebooks abertos em abas, painel lateral e diálogos.
+ * Workspace: notebooks abertos em abas, laterais e diálogos.
  *
  * Modelo multi-notebook: cada aba é um `NotebookEntry` com seu próprio store
  * de notebook (`createNotebookStore`) e sua própria sessão de kernel
@@ -27,8 +27,6 @@ export interface NotebookEntry {
   /** Estado de view não reativo preservado entre trocas de aba. */
   view: { scrollTop: number };
 }
-
-export type RightPanel = "variables";
 
 export const UNSAVED_MESSAGE = "This notebook has unsaved changes. Close anyway?";
 
@@ -63,12 +61,12 @@ async function start(entry: NotebookEntry): Promise<void> {
 interface WorkspaceState {
   /** Paths dos notebooks abertos, na ordem das abas. */
   tabs: string[];
-  /** Explorer (painel lateral único) aberto; começa fechado. */
-  explorerOpen: boolean;
-  /** Modo foco: oculta Explorer e Variables sem alterar `explorerOpen`/`rightPanel`. */
+  /** Lateral esquerda (Catalog) aberta; começa fechada. */
+  leftOpen: boolean;
+  /** Lateral direita (Notebooks, Connections, Variables) aberta; começa fechada. */
+  rightOpen: boolean;
+  /** Modo foco: oculta as duas laterais sem alterar `leftOpen`/`rightOpen`. */
   focusMode: boolean;
-  /** Painel direito (independente do lateral); null = recolhido. */
-  rightPanel: RightPanel | null;
   /** Raiz dos notebooks (null até carregar; só carrega depois de `bootstrapAuth()`). */
   root: NotebooksRoot | null;
   shortcutsOpen: boolean;
@@ -80,12 +78,12 @@ interface WorkspaceState {
   reload: (path: string) => void;
   /** Fecha a aba (pede confirmação se houver alterações). Devolve `false` se cancelado. */
   closeTab: (path: string) => boolean;
-  /** Abrir sai do modo foco; em modo foco, alternar sempre reexibe o Explorer. */
-  toggleExplorer: () => void;
-  setExplorerOpen: (open: boolean) => void;
+  /** Abrir sai do modo foco; em modo foco, alternar sempre reexibe a lateral. */
+  toggleLeft: () => void;
+  setLeftOpen: (open: boolean) => void;
+  toggleRight: () => void;
+  setRightOpen: (open: boolean) => void;
   toggleFocusMode: () => void;
-  toggleRightPanel: (panel: RightPanel) => void;
-  setRightPanel: (panel: RightPanel | null) => void;
   /** Busca a raiz uma vez; semeia a geração só se ainda desconhecida (não mascara troca feita noutra janela). */
   loadRoot: () => Promise<void>;
   /** Adota a raiz devolvida pelo PUT. */
@@ -96,9 +94,9 @@ interface WorkspaceState {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   tabs: [],
-  explorerOpen: false,
+  leftOpen: false,
+  rightOpen: false,
   focusMode: false,
-  rightPanel: null,
   root: null,
   shortcutsOpen: false,
   aboutOpen: false,
@@ -142,18 +140,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     return true;
   },
 
-  toggleExplorer: () =>
-    set((s) => (s.focusMode || !s.explorerOpen ? { explorerOpen: true, focusMode: false } : { explorerOpen: false })),
-  setExplorerOpen: (open) => set(open ? { explorerOpen: true, focusMode: false } : { explorerOpen: false }),
+  toggleLeft: () => set((s) => (s.focusMode || !s.leftOpen ? { leftOpen: true, focusMode: false } : { leftOpen: false })),
+  setLeftOpen: (open) => set(open ? { leftOpen: true, focusMode: false } : { leftOpen: false }),
+  toggleRight: () =>
+    set((s) => (s.focusMode || !s.rightOpen ? { rightOpen: true, focusMode: false } : { rightOpen: false })),
+  setRightOpen: (open) => set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false }),
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
-  toggleRightPanel: (panel) =>
-    set((s) => {
-      // Em modo foco o painel aberto está oculto: o clique deve reexibi-lo, não fechá-lo.
-      if (s.focusMode && s.rightPanel === panel) return { rightPanel: panel, focusMode: false };
-      const next = s.rightPanel === panel ? null : panel;
-      return next ? { rightPanel: next, focusMode: false } : { rightPanel: next };
-    }),
-  setRightPanel: (rightPanel) => set(rightPanel ? { rightPanel, focusMode: false } : { rightPanel }),
   loadRoot: async () => {
     if (get().root) return;
     const root = await getNotebooksRoot();
@@ -192,7 +184,7 @@ export async function createUntitledNotebook(dir: string): Promise<string> {
   const tree = useNotebookTree.getState();
   if (dir === "" || tree.dirs[dir]?.status === "loading") void tree.reload(dir);
   tree.expandTo(dir);
-  useWorkspace.getState().setExplorerOpen(true);
+  useWorkspace.getState().setRightOpen(true);
   openNotebook(path);
   return path;
 }

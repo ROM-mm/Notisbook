@@ -1,8 +1,6 @@
-/* Layout em coluna: header e abas (largura total), depois linha com Explorer | conteúdo. */
+/* Layout em coluna: header e abas (largura total), depois linha com lateral esquerda | conteúdo | lateral direita. */
 
 .shell {
-  --panel-width: 288px;
-
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -15,40 +13,15 @@
   min-height: 0;
 }
 
-/* Painel lateral */
+/* Laterais: a largura vem do estado (inline). */
 .panel {
   composes: neo from "../../styles/dialog.module.css";
   display: flex;
   flex: none;
   flex-direction: column;
-  width: var(--panel-width);
   min-height: 0;
   background: var(--color-bg);
   color: var(--color-text);
-}
-
-.panelHeader {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  height: 44px;
-  padding: 0 var(--space-2) 0 var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg);
-}
-
-.panelTitle {
-  font-family: var(--font-head);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-bold);
-}
-
-.panelActions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
 }
 
 .panelBody {

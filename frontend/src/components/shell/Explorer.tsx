@@ -1,28 +1,31 @@
 /**
- * Corpo do painel Explorer: cartões Catalog, Notebooks e Connections (chave
- * `files`) empilhados nessa ordem, cada um com seu próprio scroll e recolhível.
- * Alças horizontais entre cartões abertos e adjacentes ajustam só os dois
- * vizinhos (mín. 120px); duplo clique restaura os pesos 1/1/1. Cartão recolhido
- * não participa do redimensionamento.
+ * Pilha de cartões de uma lateral (composição em `LEFT_CARDS`/`RIGHT_CARDS`),
+ * cada cartão com seu próprio scroll e recolhível. Alças horizontais entre
+ * cartões abertos e adjacentes ajustam só os dois vizinhos (mín. 120px); duplo
+ * clique restaura os pesos iniciais. Cartão recolhido não participa do
+ * redimensionamento.
  */
 import { Fragment, useRef, type ReactNode } from "react";
-import { EXPLORER_CARDS, useLayout, type ExplorerCard } from "../../state/layout";
+import { CARDS_BY_SIDE, useLayout, type PanelCard, type PanelSide } from "../../state/layout";
 import { CatalogSection } from "../data/CatalogSection";
 import { FilesSection } from "../data/FilesSection";
 import { FileBrowser } from "../files/FileBrowser";
+import { VariablesPanel } from "../variables/VariablesPanel";
 import styles from "./Explorer.module.css";
 import { ResizeHandle } from "./ResizeHandle";
 
 // Altura mínima (px) de cada cartão durante o arraste.
 const MIN_CARD_HEIGHT = 120;
 
-const GRIP_LABELS: Record<ExplorerCard, string> = {
-  catalog: "Resize catalog and notebooks sections",
+const GRIP_LABELS: Record<PanelCard, string> = {
+  catalog: "",
   notebooks: "Resize notebooks and connections sections",
-  files: "",
+  files: "Resize connections and variables sections",
+  variables: "",
 };
 
-export function Explorer() {
+export function Explorer({ side }: { side: PanelSide }) {
+  const cards = CARDS_BY_SIDE[side];
   const weights = useLayout((s) => s.cardWeights);
   const collapsed = useLayout((s) => s.cardCollapsed);
   const setWeights = useLayout((s) => s.setCardWeights);
@@ -33,17 +36,17 @@ export function Explorer() {
   const base = useRef({ above: 0, below: 0, sum: 0 });
 
   // O flex-grow é normalizado para somar 1 entre os abertos: com pesos < 1 o flex não preencheria o painel.
-  const openTotal = EXPLORER_CARDS.reduce((acc, c) => (collapsed[c] ? acc : acc + weights[c]), 0);
+  const openTotal = cards.reduce((acc, c) => (collapsed[c] ? acc : acc + weights[c]), 0);
 
-  const slotHeight = (card: ExplorerCard) =>
+  const slotHeight = (card: PanelCard) =>
     panelRef.current?.querySelector(`[data-card="${card}"]`)?.getBoundingClientRect().height ?? 0;
 
-  const dragStart = (above: ExplorerCard, below: ExplorerCard) => {
+  const dragStart = (above: PanelCard, below: PanelCard) => {
     const { cardWeights } = useLayout.getState();
     base.current = { above: slotHeight(above), below: slotHeight(below), sum: cardWeights[above] + cardWeights[below] };
   };
 
-  const drag = (above: ExplorerCard, below: ExplorerCard, delta: number) => {
+  const drag = (above: PanelCard, below: PanelCard, delta: number) => {
     const { above: hA, below: hB, sum } = base.current;
     const total = hA + hB;
     if (total <= 0) return;
@@ -53,7 +56,8 @@ export function Explorer() {
     setWeights({ [above]: weightAbove, [below]: sum - weightAbove });
   };
 
-  const sections: Record<ExplorerCard, ReactNode> = {
+  const sections: Record<PanelCard, ReactNode> = {
+    variables: <VariablesPanel collapsed={collapsed.variables} onToggle={() => toggle("variables")} />,
     notebooks: <FileBrowser collapsed={collapsed.notebooks} onToggle={() => toggle("notebooks")} onExpand={() => expand("notebooks")} />,
     files: <FilesSection collapsed={collapsed.files} onToggle={() => toggle("files")} onExpand={() => expand("files")} />,
     catalog: <CatalogSection testId="data-catalog" collapsed={collapsed.catalog} onToggle={() => toggle("catalog")} />,
@@ -61,8 +65,8 @@ export function Explorer() {
 
   return (
     <div className={styles.panel} ref={panelRef}>
-      {EXPLORER_CARDS.map((card, i) => {
-        const below = EXPLORER_CARDS[i + 1];
+      {cards.map((card, i) => {
+        const below = cards[i + 1];
         const resizable = below !== undefined && !collapsed[card] && !collapsed[below];
         return (
           <Fragment key={card}>

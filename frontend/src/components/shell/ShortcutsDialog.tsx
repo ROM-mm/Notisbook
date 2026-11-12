@@ -16,7 +16,8 @@ const SHORTCUTS: [string, string][] = [
   ["M / Y", "Convert to markdown / code"],
   ["D D", "Delete the cell"],
   ["⌘. / Ctrl+.", "Toggle focus mode"],
-  ["⌘B / Ctrl+B", "Toggle Explorer"],
+  ["⌘B / Ctrl+B", "Toggle left panel"],
+  ["⌥⌘B / Ctrl+Alt+B", "Toggle right panel"],
 ];
 
 export function ShortcutsDialog() {

@@ -1,13 +1,13 @@
 /**
  * Header do shell: marca, menubar e, à direita, estado de salvamento e os
- * toggles de Explorer (⌘B), painel direito e modo foco (⌘.). Recebe a aba
+ * toggles das laterais esquerda (⌘B) e direita (⌥⌘B) e modo foco (⌘.). Recebe a aba
  * ativa para os menus e o estado de salvamento.
  */
 import { NotebookProvider, useNotebook } from "../../state/notebookContext";
 import type { NotebookEntry } from "../../state/workspace";
 import { useWorkspace } from "../../state/workspace";
 import styles from "./Banner.module.css";
-import { BrandMark, FocusIcon, FolderIcon, VariablesIcon } from "./icons";
+import { BrandMark, FocusIcon, PanelLeftIcon, PanelRightIcon } from "./icons";
 import { MenuBar } from "./MenuBar";
 import { SystemResources } from "./SystemResources";
 
@@ -26,38 +26,21 @@ function SaveState() {
   );
 }
 
-function ExplorerToggle() {
-  const open = useWorkspace((s) => s.explorerOpen && !s.focusMode);
-  const toggle = useWorkspace((s) => s.toggleExplorer);
+function PanelToggle({ side }: { side: "left" | "right" }) {
+  const open = useWorkspace((s) => (side === "left" ? s.leftOpen : s.rightOpen) && !s.focusMode);
+  const toggle = useWorkspace((s) => (side === "left" ? s.toggleLeft : s.toggleRight));
+  const left = side === "left";
   return (
     <button
       type="button"
       className={styles.toggle}
-      data-testid="toggle-explorer"
-      title="Explorer (⌘B)"
-      aria-label="Explorer"
+      data-testid={`toggle-${side}-panel`}
+      title={left ? "Left panel (⌘B)" : "Right panel (⌥⌘B)"}
+      aria-label={left ? "Left panel" : "Right panel"}
       aria-pressed={open}
       onClick={toggle}
     >
-      <FolderIcon size={16} />
-    </button>
-  );
-}
-
-function VariablesToggle() {
-  const open = useWorkspace((s) => s.rightPanel === "variables" && !s.focusMode);
-  const toggle = useWorkspace((s) => s.toggleRightPanel);
-  return (
-    <button
-      type="button"
-      className={styles.toggle}
-      data-testid="toggle-variables"
-      title="Variables"
-      aria-label="Variables"
-      aria-pressed={open}
-      onClick={() => toggle("variables")}
-    >
-      <VariablesIcon size={16} />
+      {left ? <PanelLeftIcon size={16} /> : <PanelRightIcon size={16} />}
     </button>
   );
 }
@@ -95,8 +78,8 @@ export function Banner({ entry }: { entry: NotebookEntry | null }) {
             <SaveState />
           </NotebookProvider>
         ) : null}
-        <ExplorerToggle />
-        <VariablesToggle />
+        <PanelToggle side="left" />
+        <PanelToggle side="right" />
         <FocusToggle />
       </div>
     </header>

@@ -228,6 +228,14 @@
   color: var(--color-text-muted);
 }
 
+.brandIcon {
+  display: block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  object-fit: contain;
+}
+
 .treeName {
   overflow: hidden;
   text-overflow: ellipsis;

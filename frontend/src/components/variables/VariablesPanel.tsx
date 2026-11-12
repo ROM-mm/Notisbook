@@ -1,12 +1,12 @@
 /**
- * Painel Variables (direita do conteúdo): variáveis do kernel do notebook
- * ativo em árvore plana ARIA. Só monta com o painel aberto, e é a montagem
- * que liga as leituras: sem painel aberto nenhuma requisição é feita.
+ * Cartão Variables (3º da lateral direita): variáveis do kernel do notebook
+ * ativo em árvore plana ARIA. As leituras só ocorrem com a lateral visível e o
+ * cartão expandido (o corpo é desmontado recolhido); fora disso o store solta a
+ * sessão e nenhuma requisição é feita.
  */
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, type KeyboardEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
 import type { VariableChild, VariableItem, VariablePathStep } from "../../api/types";
-import { DEFAULT_VARIABLES_WIDTH, useLayout } from "../../state/layout";
 import { activeNotebookPath, useRouter } from "../../state/router";
 import {
   CHILDREN_PAGE,
@@ -17,8 +17,9 @@ import {
   type ChildrenState,
 } from "../../state/variables";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
-import { ResizeHandle } from "../shell/ResizeHandle";
-import { ChevronRightIcon, CloseIcon, RefreshIcon } from "../shell/icons";
+import { CardTitle } from "../data/CardTitle";
+import cardStyles from "../data/DataPanel.module.css";
+import { ChevronRightIcon, RefreshIcon, VariablesIcon } from "../shell/icons";
 import styles from "./VariablesPanel.module.css";
 
 const INDENT_PX = 14;
@@ -160,8 +161,13 @@ function RowView({ row, expanded }: { row: Row; expanded: Record<string, true> }
 
 const DEAD_HINT = "Run the notebook again to reconnect the kernel.";
 
-function ActiveVariables({ entry }: { entry: NotebookEntry }) {
-  const open = useWorkspace((s) => s.rightPanel === "variables");
+interface CardProps {
+  collapsed: boolean;
+  onToggle: () => void;
+}
+
+function ActiveVariables({ entry, collapsed, onToggle }: CardProps & { entry: NotebookEntry }) {
+  const open = !collapsed;
   const sessionId = useStore(entry.kernel, (s) => s.sessionId);
   const kernelState = useStore(entry.kernel, (s) => s.kernelState);
   const loading = useVariables((s) => s.loading);
@@ -230,13 +236,13 @@ function ActiveVariables({ entry }: { entry: NotebookEntry }) {
   }
 
   return (
-    <>
-      <header className={styles.header}>
-        <h2 className={styles.title}>Variables</h2>
-        {data?.executionCount !== undefined && live ? (
-          <span className={styles.badge} title="Execution count at the last read">after [{data.executionCount}]</span>
-        ) : null}
-        <div className={styles.actions}>
+    <CardFrame collapsed={collapsed}>
+      <div className={cardStyles.sectionHeader}>
+        <CardTitle id="variables-title" icon={<VariablesIcon size={14} />} label="Variables" collapsed={collapsed} onToggle={onToggle} />
+        <div className={cardStyles.sectionActions}>
+          {data?.executionCount !== undefined && live ? (
+            <span className={styles.badge} title="Execution count at the last read">after [{data.executionCount}]</span>
+          ) : null}
           {data?.stale && live ? (
             <span className={styles.stale} role="status" title={kernelState === "idle" ? "Read in progress; showing the last read." : "The kernel is busy; showing the last read."}>
               stale
@@ -244,7 +250,7 @@ function ActiveVariables({ entry }: { entry: NotebookEntry }) {
           ) : null}
           <button
             type="button"
-            className={styles.iconBtn}
+            className="btn btn-ghost"
             data-testid="variables-refresh"
             aria-label="Refresh variables"
             title="Refresh"
@@ -253,62 +259,40 @@ function ActiveVariables({ entry }: { entry: NotebookEntry }) {
           >
             <RefreshIcon size={14} />
           </button>
-          <CloseButton />
         </div>
-      </header>
-      <div className={styles.body}>
-        <div className={styles.card}>{body}</div>
       </div>
-    </>
+      {collapsed ? null : <div className={cardStyles.tree}>{body}</div>}
+    </CardFrame>
   );
 }
 
-function CloseButton() {
-  const setRightPanel = useWorkspace((s) => s.setRightPanel);
+function CardFrame({ collapsed, children }: { collapsed: boolean; children: ReactNode }) {
   return (
-    <button type="button" className={styles.iconBtn} data-testid="variables-close" aria-label="Close variables" title="Close" onClick={() => setRightPanel(null)}>
-      <CloseIcon size={14} />
-    </button>
+    <section
+      className={`${cardStyles.section} ${collapsed ? cardStyles.sectionCollapsed : ""}`}
+      aria-labelledby="variables-title"
+      data-testid="variables-panel"
+    >
+      {children}
+    </section>
   );
 }
 
-export function VariablesPanel() {
+export function VariablesPanel({ collapsed, onToggle }: CardProps) {
   const path = useRouter((s) => activeNotebookPath(s.route));
   useWorkspace((s) => s.tabs);
   const entry = path ? getEntry(path) : undefined;
-  const width = useLayout((s) => s.variablesWidth);
-  const setWidth = useLayout((s) => s.setVariablesWidth);
-  const baseWidth = useRef(width);
+  if (entry) return <ActiveVariables key={entry.path} entry={entry} collapsed={collapsed} onToggle={onToggle} />;
   return (
-    <>
-      <ResizeHandle
-        orientation="vertical"
-        label="Resize variables panel"
-        onDragStart={() => {
-          baseWidth.current = useLayout.getState().variablesWidth;
-        }}
-        onDrag={(d) => setWidth(Math.min(baseWidth.current - d, window.innerWidth / 2))}
-        onReset={() => setWidth(DEFAULT_VARIABLES_WIDTH)}
-      />
-      <section className={styles.panel} style={{ width }} aria-label="Variables" data-testid="variables-panel">
-        {entry ? (
-          <ActiveVariables key={entry.path} entry={entry} />
-        ) : (
-          <>
-            <header className={styles.header}>
-              <h2 className={styles.title}>Variables</h2>
-              <div className={styles.actions}>
-                <CloseButton />
-              </div>
-            </header>
-            <div className={styles.body}>
-              <div className={styles.card}>
-                <Empty title="No active notebook" hint="Open a notebook to see its variables." />
-              </div>
-            </div>
-          </>
-        )}
-      </section>
-    </>
+    <CardFrame collapsed={collapsed}>
+      <div className={cardStyles.sectionHeader}>
+        <CardTitle id="variables-title" icon={<VariablesIcon size={14} />} label="Variables" collapsed={collapsed} onToggle={onToggle} />
+      </div>
+      {collapsed ? null : (
+        <div className={cardStyles.tree}>
+          <Empty title="No active notebook" hint="Open a notebook to see its variables." />
+        </div>
+      )}
+    </CardFrame>
   );
 }

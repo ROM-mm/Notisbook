@@ -1,28 +1,18 @@
-/** Painel lateral recolhível (Explorer): título + X. */
+/** Moldura de uma lateral (esquerda ou direita): largura própria e corpo com os cartões. */
 import type { ReactNode } from "react";
-import { useWorkspace } from "../../state/workspace";
+import type { PanelSide } from "../../state/layout";
 import styles from "./AppShell.module.css";
-import { CloseIcon } from "./icons";
 
-export function SidePanel({ title, children, actions }: { title: string; children: ReactNode; actions?: ReactNode }) {
-  const setExplorerOpen = useWorkspace((s) => s.setExplorerOpen);
+interface SidePanelProps {
+  side: PanelSide;
+  label: string;
+  width: number;
+  children: ReactNode;
+}
+
+export function SidePanel({ side, label, width, children }: SidePanelProps) {
   return (
-    <section className={styles.panel} aria-label={title} data-testid="side-panel">
-      <header className={styles.panelHeader}>
-        <h2 className={styles.panelTitle}>{title}</h2>
-        <div className={styles.panelActions}>
-          {actions}
-          <button
-            type="button"
-            className={styles.iconBtn}
-            aria-label="Close panel"
-            title="Close panel"
-            onClick={() => setExplorerOpen(false)}
-          >
-            <CloseIcon size={14} />
-          </button>
-        </div>
-      </header>
+    <section className={styles.panel} style={{ width }} aria-label={label} data-testid={`side-panel-${side}`}>
       <div className={styles.panelBody}>{children}</div>
     </section>
   );

@@ -109,11 +109,18 @@ function viewItems(): MenuItem[] {
   const themes = THEMES.map((t) => ({ label: t.label, checked: pref === t.pref, onSelect: () => setPref(t.pref), testId: `menu-view-${t.pref}` }));
   return [
     {
-      label: "Explorer",
+      label: "Left panel",
       shortcut: "⌘B",
-      checked: useWorkspace.getState().explorerOpen,
-      onSelect: () => useWorkspace.getState().toggleExplorer(),
-      testId: "menu-view-explorer",
+      checked: useWorkspace.getState().leftOpen,
+      onSelect: () => useWorkspace.getState().toggleLeft(),
+      testId: "menu-view-left-panel",
+    },
+    {
+      label: "Right panel",
+      shortcut: "⌥⌘B",
+      checked: useWorkspace.getState().rightOpen,
+      onSelect: () => useWorkspace.getState().toggleRight(),
+      testId: "menu-view-right-panel",
     },
     {
       label: "Focus mode",
