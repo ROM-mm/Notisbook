@@ -4,8 +4,9 @@ Installed by the same silent execute as the renderer. It hooks `SparkSession.Bui
 and `SparkSession.stop` through a `sys.meta_path` finder (no pyspark import by the module itself),
 hydrates the session from the `nb_*` registry inside `getOrCreate`, reconciles creations, changes,
 renames and drops after every cell (`post_run_cell`) and picks up other kernels' writes before a
-cell (`pre_run_cell`, by `nb_meta.generation`). Only Delta/Parquet tables of `spark_catalog` are
-registered; the backend owns the schema and Iceberg lives in its own JDBC catalog.
+cell (`pre_run_cell`, by `nb_meta.generation`). Only Delta/Parquet/Hudi tables of `spark_catalog` are
+registered (Hudi advances are detected by the latest completed timeline instant); the backend owns
+the schema and Iceberg lives in its own JDBC catalog.
 
 The config reaches the kernel as JSON literals (the kernel reads no env vars). Hook errors never
 reach the user's cell: they are kept in `STATE["errors"]` and warned once, briefly, on stderr.
@@ -32,7 +33,7 @@ DB_PATH = CONFIG["db_path"]
 MANAGED_ROOT = CONFIG["managed_root"]
 ICEBERG_WAREHOUSE = CONFIG["iceberg_warehouse"]
 WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session")
-SUPPORTED = ("delta", "parquet")
+SUPPORTED = ("delta", "parquet", "hudi")
 DEFAULT_DB = "default"
 CATALOG = "spark_catalog"
 # Cells that may change a table's schema/location without a new Delta commit (DDL words, never `.drop(`).
@@ -41,6 +42,7 @@ DEEP_RE = re.compile(
     r"|saveAsTable|insertInto)\b", re.I)
 RENAME_RE = re.compile(r"\bRENAME\b", re.I)
 LOG_RE = re.compile(r"^(\d{20})\.json$")
+HUDI_INSTANT_RE = re.compile(r"^(\d+)_(\d+)\.(?:commit|deltacommit)$")
 OUTDATED = "This Spark environment predates the persistent catalog; reinstall Spark %s from the Spark versions panel."
 MAX_ERRORS = 50
 STATE = {}
@@ -129,6 +131,19 @@ def delta_advanced(location, version):
     return os.path.exists(os.path.join(base, "_delta_log", "%020d.json" % (version + 1)))
 
 
+def hudi_instant(location):
+    """Latest completed instant of the Hudi timeline (`.requested`/`.inflight` and dotfiles never match)."""
+    base = local_path(location)
+    if not base:
+        return None
+    try:
+        names = os.listdir(os.path.join(base, ".hoodie", "timeline"))
+    except OSError:
+        return None
+    instants = [m.group(1) for m in map(HUDI_INSTANT_RE.match, names) if m]
+    return max(instants, key=int) if instants else None
+
+
 __MANAGED_HELPERS__
 
 
@@ -171,12 +186,13 @@ def read_registry():
     try:
         gen = read_generation(conn)
         rows = {}
-        for db, name, fmt, loc, typ, cols, parts, dv in conn.execute(
-            "SELECT namespace, table_name, format, location, table_type, columns_json, partition_cols, delta_version "
+        for db, name, fmt, loc, typ, cols, parts, dv, hi in conn.execute(
+            "SELECT namespace, table_name, format, location, table_type, columns_json, partition_cols, delta_version, "
+            "hudi_instant "
             "FROM nb_tables WHERE catalog_name = 'spark_catalog'"
         ):
             rows[(db, name)] = {"fmt": fmt, "loc": loc, "type": typ, "cols": json.loads(cols),
-                                "parts": json.loads(parts), "dv": dv}
+                                "parts": json.loads(parts), "dv": dv, "hi": hi}
         namespaces = {r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = 'spark_catalog'")}
     finally:
         conn.close()
@@ -294,8 +310,8 @@ def read_columns(session, db, name):
     ]
 
 
-def delta_columns(session, key, parts):
-    # The table schema (latest snapshot), not the catalog copy, which can lag behind other kernels' commits.
+def table_columns(session, key, parts):
+    # The table schema (latest snapshot/commit), not the catalog copy, which can lag behind other kernels' commits.
     fields = session.table(ident(*key)).schema.fields
     return [
         {"name": f.name, "data_type": f.dataType.simpleString(), "nullable": bool(f.nullable),
@@ -333,7 +349,8 @@ def describe_new(session, key, table):
     fmt = info["provider"]
     parts = [c["name"] for c in info["columns"] if c["is_partition"]]
     return {"fmt": fmt, "loc": loc, "type": table.tableType, "cols": info["columns"], "parts": parts,
-            "dv": delta_version(loc) if fmt == "delta" else None, "description": table.description}
+            "dv": delta_version(loc) if fmt == "delta" else None,
+            "hi": hudi_instant(loc) if fmt == "hudi" else None, "description": table.description}
 
 
 def hydrate(session, skey, rows, namespaces, listing=None):
@@ -372,7 +389,7 @@ def hydrate(session, skey, rows, namespaces, listing=None):
 
 
 def refresh_hydrated(session, skey, keys):
-    """Update registry schemas that drifted from the real table (Delta by log version, Parquet by schema)."""
+    """Update registry schemas that drifted from the real table (Delta by log version, Hudi by instant, Parquet by schema)."""
     known = STATE["known"][skey]
     changes = []
     for key in keys:
@@ -478,16 +495,20 @@ def sync_registry(session, skey):
 def refresh_table(session, key, rec, deep):
     """Changed fields of a known table, or None. `deep` rereads location/format/schema from Spark."""
     fmt, loc, cols, parts, dv = rec["fmt"], rec["loc"], rec["cols"], rec["parts"], rec["dv"]
+    hi = rec.get("hi")  # absent in records carried over from a hook version that predates Hudi
     if deep:
         info = read_info(session, *key)
         if info["provider"] in SUPPORTED:
             fmt, loc, cols = info["provider"], norm_loc(info["location"]), info["columns"]
             parts = [c["name"] for c in cols if c["is_partition"]]
     if fmt == "delta" and (deep or delta_advanced(loc, dv)):
-        cols = delta_columns(session, key, parts)
+        cols = table_columns(session, key, parts)
         dv = delta_version(loc)
-    new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv}
-    return None if all(new[f] == rec[f] for f in new) else new
+    if fmt == "hudi" and (deep or hudi_instant(loc) != hi):
+        cols = table_columns(session, key, parts)
+        hi = hudi_instant(loc)
+    new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
+    return None if all(new[f] == rec.get(f) for f in new) else new
 
 
 def match_renames(vanished, appeared, known, raw_cell):
@@ -531,10 +552,10 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
             if row is None:
                 conn.execute(
                     "INSERT INTO nb_tables (catalog_name, namespace, table_name, format, location, table_type, "
-                    "columns_json, partition_cols, options_json, delta_version, description, created_at, updated_at) "
-                    "VALUES ('spark_catalog', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?)",
+                    "columns_json, partition_cols, options_json, delta_version, hudi_instant, description, created_at, updated_at) "
+                    "VALUES ('spark_catalog', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
                     (*key, info["fmt"], info["loc"], info["type"], json.dumps(info["cols"]), json.dumps(info["parts"]),
-                     info["dv"], info.get("description"), stamp, stamp))
+                     info["dv"], info["hi"], info.get("description"), stamp, stamp))
                 changed = True
                 adopted.append(key)
             elif row[0] == info["loc"]:
@@ -548,10 +569,10 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
                 typ = "EXTERNAL"
             cur = conn.execute(
                 "UPDATE nb_tables SET format = ?, location = ?, table_type = ?, columns_json = ?, partition_cols = ?, "
-                "delta_version = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' AND namespace = ? "
-                "AND table_name = ? AND location = ?",
+                "delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
+                "AND namespace = ? AND table_name = ? AND location = ?",
                 (change["fmt"], change["loc"], typ, json.dumps(change["cols"]), json.dumps(change["parts"]),
-                 change["dv"], stamp, *key, rec["loc"]))
+                 change["dv"], change["hi"], stamp, *key, rec["loc"]))
             if cur.rowcount:
                 changed = True
                 updated_ok.append((key, {**change, "type": typ}))
@@ -560,10 +581,10 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
             try:
                 cur = conn.execute(
                     "UPDATE nb_tables SET namespace = ?, table_name = ?, format = ?, location = ?, columns_json = ?, "
-                    "partition_cols = ?, delta_version = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
+                    "partition_cols = ?, delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
                     "AND namespace = ? AND table_name = ? AND location = ?",
                     (*new, info["fmt"], info["loc"], json.dumps(info["cols"]), json.dumps(info["parts"]), info["dv"],
-                     stamp, *old, rec["loc"]))
+                     info["hi"], stamp, *old, rec["loc"]))
             except sqlite3.IntegrityError:
                 conflicts.append(new)
                 continue
@@ -604,7 +625,7 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
         known[key].update(change)
     for old, new, info in renamed_ok:
         rec = known.pop(old)
-        known[new] = {**rec, **{f: info[f] for f in ("fmt", "loc", "cols", "parts", "dv")}}
+        known[new] = {**rec, **{f: info[f] for f in ("fmt", "loc", "cols", "parts", "dv", "hi")}}
     for key in dropped_ok:
         known.pop(key, None)
     known_dbs |= set(new_dbs)
