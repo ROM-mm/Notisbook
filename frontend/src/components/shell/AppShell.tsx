@@ -19,12 +19,13 @@ import { Banner } from "./Banner";
 import { Explorer } from "./Explorer";
 import { ResizeHandle } from "./ResizeHandle";
 import { AboutDialog } from "./AboutDialog";
+import { isMac } from "./platform";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SHORTCUTS } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
 import { TabBar } from "./TabBar";
 
-const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+const IS_MAC = isMac();
 
 // Atalhos do rodapé: seleção declarada (pelo texto de tecla) dentro de SHORTCUTS.
 const FOOTER_KEYS = ["Shift+Enter", "⌘S / Ctrl+S", "Esc", "⌘. / Ctrl+.", "⌘B / Ctrl+B", "⌥⌘B / Ctrl+Alt+B"];
@@ -55,9 +56,8 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
   // Listener global (também com foco no editor/inputs): Cmd/Ctrl+. (modo foco),
   // Cmd/Ctrl+B (lateral esquerda) e Alt+Cmd/Ctrl+B (lateral direita).
   useEffect(() => {
-    const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     const onKeyDown = (e: KeyboardEvent) => {
-      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      const mod = IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
       if (!mod || e.shiftKey) return;
       // Com Alt, e.key de "B" pode vir como "∫" no macOS: nesse caso vale a tecla física.
       const isB = e.key.toLowerCase() === "b" || (e.altKey && e.code === "KeyB");
