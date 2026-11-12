@@ -50,13 +50,11 @@ const theme = EditorView.theme({
     opacity: "0.4",
   },
   // Com `drawSelection` a camada de seleção também pinta sem foco; só o editor
-  // focado usa o token. Espelha `&light`/`&dark` do tema base para igualar a
-  // especificidade (este tema é aplicado depois e vence).
-  "&light .cm-selectionBackground, &dark .cm-selectionBackground": {
-    background: "transparent",
-  },
-  "&light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, &dark.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
-    backgroundColor: "var(--color-editor-selection)",
+  // focado usa o token. `EditorView.theme` só aceita `&` (os escopos claro/escuro
+  // existem apenas em `baseTheme`); a especificidade iguala a do tema base e
+  // este tema, montado depois, vence.
+  "& .cm-selectionBackground": { background: "transparent" },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
     background: "var(--color-editor-selection)",
   },
   ".cm-placeholder": { color: "var(--color-text-subtle)", fontStyle: "normal" },
