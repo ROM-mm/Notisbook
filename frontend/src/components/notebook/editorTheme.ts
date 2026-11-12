@@ -25,8 +25,13 @@ const theme = EditorView.theme({
   },
   ".cm-content": {
     fontFamily: "var(--font-code)",
+    fontWeight: "500",
+    // Sobrescreve o antialiased global só no código: traço mais encorpado no macOS.
+    WebkitFontSmoothing: "auto",
+    MozOsxFontSmoothing: "auto",
     padding: "0",
     caretColor: "transparent",
+    color: "var(--sx-text, var(--color-text))",
   },
   ".cm-gutters": {
     fontFamily: "var(--font-code)",
@@ -68,7 +73,7 @@ const theme = EditorView.theme({
 const highlight = HighlightStyle.define([
   { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syntax-keyword)", fontWeight: "700" },
   { tag: [t.definitionKeyword, t.self, t.null, t.bool], color: "var(--syntax-keyword)", fontWeight: "700" },
-  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)" },
+  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)", fontStyle: "var(--sx-str-style)" },
   { tag: [t.number, t.integer, t.float], color: "var(--syntax-number)" },
   { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontFamily: "var(--font-sans)", fontStyle: "italic" },
   { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syntax-function)" },
@@ -78,8 +83,13 @@ const highlight = HighlightStyle.define([
   { tag: [t.meta, t.annotation, t.processingInstruction], color: "var(--syntax-meta)" },
   { tag: t.propertyName, color: "var(--syntax-property)" },
   // markdown
-  { tag: t.heading, color: "var(--syntax-heading)", fontWeight: "600" },
-  { tag: t.strong, fontWeight: "600" },
+  {
+    tag: t.heading,
+    color: "var(--syntax-heading)",
+    fontFamily: "var(--font-sans)",
+    fontWeight: "600",
+  },
+  { tag: t.strong, fontFamily: "var(--font-sans)", fontWeight: "600" },
   { tag: t.emphasis, fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },
   { tag: [t.link, t.url], color: "var(--syntax-link)" },
