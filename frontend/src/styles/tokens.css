@@ -110,9 +110,9 @@
   --brand-mark-shadow: transparent;
 
   /* Paleta de sintaxe */
-  --sx-kw: #000088;
-  --sx-str: #095e09;
-  --sx-num: #000088;
+  --sx-kw: #0033b3;
+  --sx-str: #067d17;
+  --sx-num: #0033b3;
   --sx-com: #737373;
   --sx-fn: #000000;
   --sx-type: #000000;
