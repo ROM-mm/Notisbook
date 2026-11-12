@@ -69,6 +69,7 @@
   --color-text: #1c1c1a;
   --color-text-muted: #6b6b66;
   --color-text-subtle: #8f8f89;
+  --color-prompt-active: var(--color-text); /* "›" da célula selecionada; anulada (initial) nos blocos escuros, que mantêm o tom atenuado */
   --color-text-inverse: #fbfbfa;
   --color-accent: #1c1c1a;
   --color-accent-hover: #000000;
@@ -84,7 +85,7 @@
   --color-code-bg: #f4f4f2;
   --color-code-inline-bg: transparent;
   --color-code-border: var(--color-border);
-  --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro usa o cinza das faixas (#181818), distinto do fundo da página */
+  --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro usa o cinza das faixas, distinto do fundo da página */
   --color-overlay: rgba(28, 28, 26, 0.35);
   --color-cell-bg: #fbfbfb;
   --color-cell-bg-active: #f6f6f6;
@@ -138,6 +139,7 @@
     --color-text: #d8dce0;
     --color-text-muted: #949ca3;
     --color-text-subtle: #778089;
+    --color-prompt-active: initial;
     --color-text-inverse: #0f1216;
     --color-accent: #1289ec;
     --color-accent-hover: #4aa8f5;
@@ -199,6 +201,7 @@
   --color-text: #d8dce0;
   --color-text-muted: #949ca3;
   --color-text-subtle: #778089;
+  --color-prompt-active: initial;
   --color-text-inverse: #0f1216;
   --color-accent: #1289ec;
   --color-accent-hover: #4aa8f5;

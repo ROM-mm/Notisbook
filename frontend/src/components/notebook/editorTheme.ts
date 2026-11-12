@@ -90,7 +90,7 @@ const highlight = HighlightStyle.define([
     fontWeight: "600",
   },
   { tag: t.strong, fontFamily: "var(--font-sans)", fontWeight: "600" },
-  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.emphasis, fontFamily: "var(--font-sans)", fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },
   { tag: [t.link, t.url], color: "var(--syntax-link)" },
   { tag: t.monospace, color: "var(--syntax-string)" },

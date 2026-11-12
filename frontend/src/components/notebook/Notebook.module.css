@@ -136,6 +136,12 @@
   background: var(--color-cell-bg-active);
 }
 
+/* Célula selecionada: "›" na cor do texto quando --color-prompt-active
+ * existe (tema claro); sem ela mantém a cor atenuada de .prompt. */
+.cellActive .prompt {
+  color: var(--color-prompt-active, var(--color-text-muted));
+}
+
 /* Em edição o "›" assume a cor do texto (fora dela fica atenuado). */
 .cellEditing .prompt {
   color: var(--color-text);
