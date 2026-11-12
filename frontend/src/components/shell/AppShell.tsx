@@ -19,7 +19,8 @@ import { Banner } from "./Banner";
 import { Explorer } from "./Explorer";
 import { ResizeHandle } from "./ResizeHandle";
 import { AboutDialog } from "./AboutDialog";
-import { SHORTCUTS, ShortcutsDialog } from "./ShortcutsDialog";
+import { ShortcutsDialog } from "./ShortcutsDialog";
+import { SHORTCUTS } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
 import { TabBar } from "./TabBar";
 
