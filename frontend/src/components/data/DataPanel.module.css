@@ -214,8 +214,8 @@
 
 .brandIcon {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: var(--brand-size, 14px);
+  height: var(--brand-size, 14px);
   flex: none;
   object-fit: contain;
   filter: grayscale(1);

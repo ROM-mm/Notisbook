@@ -8,11 +8,15 @@
  * - "notebook" → aba do notebook (abre se preciso) com components/kernel/NotebookPage
  * - "settings" → components/settings/SettingsPage ("Ambientes Spark")
  */
-import { type ComponentType, lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { bootstrapAuth, errorMessage } from "./api";
 import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
-import { DeltaIcon, FileParquetIcon, HudiIcon, IcebergIcon } from "./components/shell/icons";
+import { BrandIcon } from "./components/data/BrandIcon";
+import deltaIconUrl from "../icons/delta.png";
+import hudiIconUrl from "../icons/hudi.png";
+import icebergIconUrl from "../icons/iceberg.png";
+import parquetIconUrl from "../icons/parquet.png";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { getTargetDir, useNotebookTree } from "./state/notebookTree";
@@ -69,11 +73,11 @@ export function App() {
   }
 }
 
-const FORMATS: { name: string; Icon: ComponentType<{ size?: number }> }[] = [
-  { name: "Iceberg", Icon: IcebergIcon },
-  { name: "Delta", Icon: DeltaIcon },
-  { name: "Hudi", Icon: HudiIcon },
-  { name: "Parquet", Icon: FileParquetIcon },
+const FORMATS: { name: string; src: string }[] = [
+  { name: "Iceberg", src: icebergIconUrl },
+  { name: "Delta", src: deltaIconUrl },
+  { name: "Hudi", src: hudiIconUrl },
+  { name: "Parquet", src: parquetIconUrl },
 ];
 
 function Home() {
@@ -86,9 +90,9 @@ function Home() {
       </h2>
       <p className={shellStyles.homeSub}>Iceberg, Delta, Hudi &amp; Parquet — on your laptop.</p>
       <ul className={shellStyles.homeFormats} aria-label="Supported table formats">
-        {FORMATS.map(({ name, Icon }) => (
+        {FORMATS.map(({ name, src }) => (
           <li key={name} className={shellStyles.homeFormat}>
-            <Icon size={32} />
+            <BrandIcon src={src} size={32} />
             <span>{name}</span>
           </li>
         ))}
