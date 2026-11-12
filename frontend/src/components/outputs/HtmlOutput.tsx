@@ -26,6 +26,11 @@ a { color: var(--color-accent-text); }
 :host table th, :host table td, :host table thead th, :host .dataframe thead th, :host table th.num, :host table td.num { text-align: left; }
 /* Grade de DataFrame: rolagem nos dois eixos; a moldura vai no contêiner. A tabela usa border-collapse: separate para o cabeçalho sticky ter caixa e borda próprias (no modo collapse a borda é da tabela e o cabeçalho fixo se desloca sobre a 1ª linha); o box-shadow mantém a linha sob o cabeçalho. O seletor do cabeçalho (0,1,3) vence o <style> do kernel (0,1,2), que vem depois. */
 .nb-grid { max-height: 640px; overflow: auto; border: 1px solid var(--color-border); border-radius: 0; }
+/* Esconde só a barra vertical (width: 0); a rolagem por roda/trackpad segue ativa e a horizontal mantém altura de 8px. Pseudo-elementos WebKit/Blink: o Firefox continua exibindo as duas barras. Não usar scrollbar-width: none, que oculta ambas. */
+.nb-grid::-webkit-scrollbar { width: 0; height: 8px; background: transparent; }
+.nb-grid::-webkit-scrollbar-track, .nb-grid::-webkit-scrollbar-corner { background: transparent; }
+.nb-grid::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 0; }
+.nb-grid::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }
 .nb-grid table { border: 0; border-collapse: separate; border-spacing: 0; }
 .nb-grid > table > thead th { position: sticky; top: 0; z-index: 1; background: var(--color-bg-panel); box-shadow: inset 0 -1px 0 var(--color-border); border-bottom: 0; }
 /* Rodapé fixo na base/esquerda da área rolável; fundo opaco e opacity:1 (o kernel põe opacity .7, que deixaria as linhas transparecerem); seletor composto vence o <style> do kernel, que vem depois. */
