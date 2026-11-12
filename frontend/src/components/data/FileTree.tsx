@@ -22,7 +22,6 @@ import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import {
   ChevronRightIcon,
-  DeltaIcon,
   FileCsvIcon,
   FileIcon,
   FileJsonIcon,
@@ -30,6 +29,7 @@ import {
   FolderIcon,
   SymlinkIcon,
 } from "../shell/icons";
+import deltaIconUrl from "../../../icons/delta.png";
 import styles from "./DataPanel.module.css";
 
 type Row =
@@ -99,11 +99,16 @@ function extension(name: string): string {
   return i > 0 ? name.slice(i + 1).toLowerCase() : "";
 }
 
+/** Logo de marca em P&B (filtro em `.brandIcon`), no mesmo padrão dos ícones do catálogo. */
+function BrandIcon({ src }: { src: string }): ReactNode {
+  return <img className={styles.brandIcon} src={src} alt="" aria-hidden="true" width={14} height={14} draggable={false} />;
+}
+
 function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
   const ext = extension(entry.name);
   if (entry.is_dir) {
     if (entry.name === "_delta_log" || ext === "delta")
-      return <DeltaIcon size={14} />;
+      return <BrandIcon src={deltaIconUrl} />;
     if (entry.is_symlink) return <SymlinkIcon size={14} />;
     return <FolderIcon size={14} />;
   }
@@ -113,7 +118,7 @@ function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
   if (ext === "csv" || ext === "tsv") return <FileCsvIcon size={14} />;
   if (ext === "json" || ext === "jsonl" || ext === "ndjson")
     return <FileJsonIcon size={14} />;
-  if (ext === "delta") return <DeltaIcon size={14} />;
+  if (ext === "delta") return <BrandIcon src={deltaIconUrl} />;
   return <FileIcon size={14} />;
 }
 
