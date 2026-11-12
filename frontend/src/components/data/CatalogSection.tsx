@@ -4,7 +4,6 @@
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
  * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
- * A busca filtra só os nós já carregados, no cliente.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -31,7 +30,6 @@ import {
   FolderIcon,
   PlusIcon,
   RefreshIcon,
-  SearchIcon,
   TableIcon,
 } from "../shell/icons";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
@@ -84,10 +82,8 @@ interface Row {
   icon: ReactNode;
   /** Expansível (catálogo, banco e tabela). */
   expandable: boolean;
-  /** Aberto na tela: expandido no estado ou forçado aberto por um resultado de busca abaixo. */
+  /** Aberto na tela (expandido no estado do store). */
   open: boolean;
-  /** Aberto só pela busca (fora de `expanded`): abrir/fechar é local e não grava no store. */
-  forced?: boolean;
   /** Tabela cujos arquivos não existem mais. */
   unavailable?: boolean;
   table?: ColumnsQuery;
@@ -173,41 +169,16 @@ function tableRows(
   });
 }
 
-/** Busca por nome, sem diferenciar caixa; `q` já vem em minúsculas e aparado. */
-const matches = (q: string, ...names: string[]) => names.some((n) => n.toLowerCase().includes(q));
-
-/**
- * Árvore plana. Com `q` não vazio, mostra só os nós cujo nome casa e seus
- * ancestrais; ancestrais de um resultado abrem mesmo sem estar expandidos no
- * store, salvo os fechados localmente em `closed`. Um catálogo ou schema que casa mantém os filhos como estão.
- */
+/** Árvore plana: catálogo → schema → tabela → colunas, abrindo conforme `expanded` do store. */
 function buildItems(
   catalogs: CatalogNode[],
   s: { expanded: Record<string, true>; columns: Record<string, ColumnsState> },
-  q: string,
-  closed: ReadonlySet<string>,
 ): Item[] {
   const out: Item[] = [];
-  const searching = q !== "";
-  const visible = searching
-    ? catalogs.flatMap((c) => {
-        const catalogHit = matches(q, c.name, CATALOG_LABELS[c.name] ?? c.name);
-        const databases = c.databases.flatMap((d) => {
-          const tables = d.tables.filter((t) => matches(q, t.name));
-          const schemaHit = matches(q, d.name);
-          if (!catalogHit && !schemaHit && tables.length === 0) return [];
-          return [{ db: d, tables: schemaHit || catalogHit ? d.tables : tables, forceOpen: tables.length > 0 }];
-        });
-        if (!catalogHit && databases.length === 0) return [];
-        const shown = catalogHit ? c.databases.map((d) => databases.find((x) => x.db === d) ?? { db: d, tables: d.tables, forceOpen: false }) : databases;
-        return [{ c, databases: shown, forceOpen: databases.some((x) => x.forceOpen || matches(q, x.db.name)) }];
-      })
-    : catalogs.map((c) => ({ c, databases: c.databases.map((d) => ({ db: d, tables: d.tables, forceOpen: false })), forceOpen: false }));
 
-  visible.forEach(({ c, databases, forceOpen }, ci) => {
+  catalogs.forEach((c, ci) => {
     const ckey = `c:${c.name}`;
-    const cForced = forceOpen && !s.expanded[ckey];
-    const cOpen = Boolean(s.expanded[ckey]) || (cForced && !closed.has(ckey));
+    const cOpen = Boolean(s.expanded[ckey]);
     out.push({
       key: ckey,
       kind: "catalog",
@@ -216,23 +187,22 @@ function buildItems(
       parent: null,
       level: 1,
       pos: ci + 1,
-      size: visible.length,
+      size: catalogs.length,
       label: CATALOG_LABELS[c.name] ?? c.name,
       detail: c.error ? "error" : undefined,
       icon: (Object.hasOwn(CATALOG_ICONS, c.name) ? CATALOG_ICONS[c.name] : null) ?? <FolderIcon size={14} />,
       expandable: true,
       open: cOpen,
-      forced: cForced,
     });
     if (!cOpen) return;
     if (c.error) {
       out.push({ status: true, key: `error:${ckey}`, level: 2, text: CATALOG_ERRORS[c.error] ?? "Catalog could not be read.", error: true });
     }
-    databases.forEach(({ db: d, tables, forceOpen: dForce }, di) => {
+    c.databases.forEach((d, di) => {
+      const tables = d.tables;
       const dkey = schemaKey(c.name, d.name);
-      const dForced = dForce && !s.expanded[dkey];
-      const dOpen = Boolean(s.expanded[dkey]) || (dForced && !closed.has(dkey));
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen, forced: dForced });
+      const dOpen = Boolean(s.expanded[dkey]);
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
         tableRows(c.name, tables, dkey, 3, d.name, s, out);
@@ -365,10 +335,9 @@ interface MenuState {
   origin: HTMLElement | null;
 }
 
-function CatalogTree({ items, onCreate, onToggleForced }: { items: Item[]; onCreate: (catalog: string) => void; onToggleForced: (key: string) => void }) {
+function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: string) => void }) {
   const { toggle: storeToggle, expand: storeExpand, collapse } = useCatalog.getState();
-  // Linhas abertas só pela busca alternam localmente; as demais gravam no store.
-  const toggle = (row: Row) => (row.forced ? onToggleForced(row.key) : storeToggle(row.key, row.table));
+  const toggle = (row: Row) => storeToggle(row.key, row.table);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -440,10 +409,7 @@ function CatalogTree({ items, onCreate, onToggleForced }: { items: Item[]; onCre
         break;
       case "ArrowRight":
         if (row.expandable) {
-          if (!row.open) {
-            if (row.forced) onToggleForced(row.key);
-            else storeExpand(row.key, row.table);
-          }
+          if (!row.open) storeExpand(row.key, row.table);
           else {
             const next = nav[index + 1];
             if (next && next.level > row.level) focusRow(next.key);
@@ -451,10 +417,8 @@ function CatalogTree({ items, onCreate, onToggleForced }: { items: Item[]; onCre
         }
         break;
       case "ArrowLeft":
-        if (row.expandable && row.open) {
-          if (row.forced) onToggleForced(row.key);
-          else collapse(row.key);
-        } else focusRow(row.parent);
+        if (row.expandable && row.open) collapse(row.key);
+        else focusRow(row.parent);
         break;
       case "ContextMenu":
         openMenuAtRow(row);
@@ -567,7 +531,7 @@ function CatalogTitle({ collapsed, onToggle }: { collapsed: boolean; onToggle: (
 }
 
 /** Corpo do cartão: só monta expandido, então recolher também para a leitura no foco da janela e o refresh por idle. */
-function CatalogBody({ query, onCreate }: { query: string; onCreate: (catalog: string) => void }) {
+function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   const path = useRouter((s) => activeNotebookPath(s.route));
   useWorkspace((s) => s.tabs);
   const entry = path ? getEntry(path) : undefined;
@@ -575,19 +539,6 @@ function CatalogBody({ query, onCreate }: { query: string; onCreate: (catalog: s
   const error = useCatalog((s) => s.error);
   const expanded = useCatalog((s) => s.expanded);
   const columns = useCatalog((s) => s.columns);
-  // Nós abertos só pela busca que o usuário fechou; vale apenas enquanto a busca durar.
-  const [searchClosed, setSearchClosed] = useState<ReadonlySet<string>>(new Set());
-  useEffect(() => setSearchClosed(new Set()), [query]);
-  const toggleForced = useCallback(
-    (key: string) =>
-      setSearchClosed((prev) => {
-        const next = new Set(prev);
-        if (!next.delete(key)) next.add(key);
-        return next;
-      }),
-    [],
-  );
-
   // O painel só monta depois de `bootstrapAuth()` "ok": a primeira leitura é segura aqui.
   useEffect(() => {
     useCatalog.getState().refresh();
@@ -596,7 +547,7 @@ function CatalogBody({ query, onCreate }: { query: string; onCreate: (catalog: s
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const items = data ? buildItems(data.catalogs, { expanded, columns }, query, searchClosed) : [];
+  const items = data ? buildItems(data.catalogs, { expanded, columns }) : [];
 
   let body: ReactNode;
   if (!data) {
@@ -607,7 +558,7 @@ function CatalogBody({ query, onCreate }: { query: string; onCreate: (catalog: s
     body = (
       <div className={styles.tree}>
         {error ? <p className={`${styles.treeStatus} ${styles.treeError}`} role="alert">{error}</p> : null}
-        {items.length === 0 ? <p className={styles.hint}>No matches.</p> : <CatalogTree items={items} onCreate={onCreate} onToggleForced={toggleForced} />}
+        <CatalogTree items={items} onCreate={onCreate} />
       </div>
     );
   }
@@ -630,7 +581,6 @@ export function CatalogSection({ testId, collapsed, onToggle }: { testId?: strin
   const loading = useCatalog((s) => s.loading);
   const refresh = useCatalog((s) => s.refresh);
   const data = useCatalog((s) => s.data);
-  const [query, setQuery] = useState("");
   const [createIn, setCreateIn] = useState<string | null>(null);
   const createTarget = defaultCreateTarget(data?.catalogs);
 
@@ -665,23 +615,7 @@ export function CatalogSection({ testId, collapsed, onToggle }: { testId?: strin
           </button>
         </div>
       </div>
-      {collapsed ? null : (
-        <>
-          <div className={styles.searchField}>
-            <SearchIcon size={14} className={styles.searchIcon} />
-            <input
-              type="search"
-              className={`input ${styles.searchInput}`}
-              data-testid="catalog-search"
-              placeholder="Search catalog…"
-              aria-label="Search catalog"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-          </div>
-          <CatalogBody query={query.trim().toLowerCase()} onCreate={setCreateIn} />
-        </>
-      )}
+      {collapsed ? null : <CatalogBody onCreate={setCreateIn} />}
       {createIn ? (
         <CreateSchemaDialog
           catalog={createIn}

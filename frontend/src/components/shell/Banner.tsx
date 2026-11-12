@@ -67,8 +67,10 @@ export function Banner({ entry }: { entry: NotebookEntry | null }) {
   return (
     <header className={styles.banner} aria-label="Notisbook">
       <BrandMark size={32} />
-      <span className={styles.wordmark}>notisbook</span>
-      <span className={styles.tagline}>Explore. Code. Transform.</span>
+      <div className={styles.brandText}>
+        <span className={styles.wordmark}>notisbook</span>
+        <span className={styles.tagline}>Explore. Code. Transform.</span>
+      </div>
       <span className={styles.separator} aria-hidden="true" />
       <MenuBar entry={entry} />
       <div className={styles.actions}>

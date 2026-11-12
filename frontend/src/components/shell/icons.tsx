@@ -64,13 +64,6 @@ export const ChevronRightIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const SearchIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M10 10m-7 0a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
-    <path d="M21 21l-6 -6" />
-  </Svg>
-);
-
 export const RefreshIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4" />

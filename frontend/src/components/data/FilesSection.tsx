@@ -1,4 +1,4 @@
-/** Cartão Connections do Explorer: a pasta local escolhida como conexão (nome + caminho) e sua árvore; corpo desmontado quando recolhido. */
+/** Cartão Connections do Explorer: a pasta local escolhida como conexão (ícone + nome, caminho no tooltip) e sua árvore; corpo desmontado quando recolhido. */
 import { useState } from "react";
 import { basename } from "../../lib/paths";
 import { chooseDirectory } from "../../api/files";
@@ -103,7 +103,6 @@ export function FilesSection({ collapsed, onToggle, onExpand }: { collapsed: boo
             <div className={styles.connection} title={root}>
               <FolderIcon size={14} />
               <span className={styles.connectionName}>{basename(root) || root}</span>
-              <span className={styles.connectionPath}>{root}</span>
             </div>
             <div className={styles.tree}>
               <FileTree root={root} />
