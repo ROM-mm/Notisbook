@@ -317,6 +317,7 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
             {plural(preview.managed, "managed table folder", "managed table folders")} will be deleted;{" "}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
+          {preview.hudi > 0 ? <p>{plural(preview.hudi, "Hudi table", "Hudi tables")} will also be removed.</p> : null}
           {catalog === "iceberg" && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
         </>
       ) : error ? (

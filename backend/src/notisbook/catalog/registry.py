@@ -63,6 +63,15 @@ def namespace_tables(conn: sqlite3.Connection, namespace: str) -> list[tuple[str
     return [(r[0], r[1], r[2]) for r in rows]
 
 
+def namespace_hudi_count(conn: sqlite3.Connection, namespace: str) -> int:
+    """Quantas tabelas do schema são Hudi (o nó `spark_catalog` não as lista, mas a exclusão do schema as remove)."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM nb_tables WHERE catalog_name = ? AND lower(namespace) = ? AND format = 'hudi'",
+        (SPARK_CATALOG, namespace.lower()),
+    ).fetchone()
+    return int(row[0])
+
+
 def all_table_locations(conn: sqlite3.Connection) -> list[str]:
     """Locations de todas as tabelas do registro (para checar se uma pasta ainda é usada)."""
     return [r[0] for r in conn.execute("SELECT location FROM nb_tables WHERE catalog_name = ?", (SPARK_CATALOG,))]
@@ -116,14 +125,16 @@ def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False)
     """Databases e o total de tabelas listadas: o `spark_catalog` sem as Hudi (sempre com `default`) ou, com `hudi`, só as Hudi.
 
     `max_total` é o que resta do teto global; databases após o teto voltam vazios e `truncated`.
-    O nó Hudi lista apenas os databases que têm tabela Hudi.
+    O filtro de formato vale só para as tabelas: o `spark_catalog` mantém os databases que têm apenas tabelas Hudi
+    (a exclusão do schema as removeria), e o nó Hudi lista apenas os databases que têm tabela Hudi.
     """
     fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
     names = set() if hudi else {DEFAULT_DATABASE}
     if not hudi:
         names.update(r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,)))
+    db_filter = fmt_filter if hudi else "1 = 1"
     names.update(
-        r[0] for r in conn.execute(f"SELECT DISTINCT namespace FROM nb_tables WHERE catalog_name = ? AND {fmt_filter}", (SPARK_CATALOG,))
+        r[0] for r in conn.execute(f"SELECT DISTINCT namespace FROM nb_tables WHERE catalog_name = ? AND {db_filter}", (SPARK_CATALOG,))
     )
     ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, n))
     used = 0

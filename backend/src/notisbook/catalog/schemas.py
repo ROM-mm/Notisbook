@@ -196,14 +196,18 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         if key != registry.DEFAULT_DATABASE:
             raise SchemaError("schema_not_found")
         rows: list[tuple[str, str, str]] = []
+        hudi = 0
     else:
         if not registry.namespace_exists(conn, key):
             raise SchemaError("schema_not_found")
         rows = registry.namespace_tables(conn, key)
+        hudi = registry.namespace_hudi_count(conn, key)
     managed = sum(1 for r in rows if r[2] == "MANAGED")
     is_default = key == registry.DEFAULT_DATABASE
+    # `tables` exclui as Hudi (o que o nó lista); `managed`/`external` cobrem todas as linhas, pois a exclusão age sobre todas.
     return {
-        "tables": len(rows),
+        "tables": len(rows) - hudi,
+        "hudi": hudi,
         "views": 0,
         "managed": managed,
         "external": len(rows) - managed,
@@ -229,6 +233,7 @@ def _preview_iceberg(home: Path, schema: str, conn: sqlite3.Connection | None) -
     children = iceberg_jdbc.has_child_namespaces(conn, schema)
     return {
         "tables": len(tables),
+        "hudi": 0,
         "views": len(entries) - len(tables),
         "managed": managed,
         "external": len(tables) - managed,

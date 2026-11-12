@@ -42,7 +42,8 @@ DEEP_RE = re.compile(
     r"|saveAsTable|insertInto)\b", re.I)
 RENAME_RE = re.compile(r"\bRENAME\b", re.I)
 LOG_RE = re.compile(r"^(\d{20})\.json$")
-HUDI_INSTANT_RE = re.compile(r"^(\d+)_(\d+)\.(?:commit|deltacommit)$")
+HUDI_INSTANT_RE = re.compile(r"^(\d+)_(\d+)\.(?:commit|deltacommit|replacecommit)$")
+HUDI_V1_INSTANT_RE = re.compile(r"^(\d+)\.(?:commit|deltacommit|replacecommit)$")
 OUTDATED = "This Spark environment predates the persistent catalog; reinstall Spark %s from the Spark versions panel."
 MAX_ERRORS = 50
 STATE = {}
@@ -132,16 +133,32 @@ def delta_advanced(location, version):
 
 
 def hudi_instant(location):
-    """Latest completed instant of the Hudi timeline (`.requested`/`.inflight` and dotfiles never match)."""
+    """Marker of the latest completed Hudi instant, or None (`.requested`/`.inflight` and dotfiles never match).
+
+    Layout v2 (`.hoodie/timeline/<req>_<comp>.<action>`): ordered by completion time, so a commit that finishes
+    out of order still moves the marker; returns `<req>_<comp>`. Layout v1 (no `timeline/` folder, Hudi 0.x):
+    `.hoodie/<ts>.<action>`, returns `<ts>`.
+    """
     base = local_path(location)
     if not base:
         return None
+    hoodie = os.path.join(base, ".hoodie")
     try:
-        names = os.listdir(os.path.join(base, ".hoodie", "timeline"))
+        names = os.listdir(os.path.join(hoodie, "timeline"))
+    except FileNotFoundError:
+        try:
+            names = os.listdir(hoodie)
+        except OSError:
+            return None
+        legacy = [m.group(1) for m in map(HUDI_V1_INSTANT_RE.match, names) if m]
+        return max(legacy, key=int) if legacy else None
     except OSError:
         return None
-    instants = [m.group(1) for m in map(HUDI_INSTANT_RE.match, names) if m]
-    return max(instants, key=int) if instants else None
+    done = [m.groups() for m in map(HUDI_INSTANT_RE.match, names) if m]
+    if not done:
+        return None
+    req, comp = max(done, key=lambda g: (int(g[1]), int(g[0])))
+    return "%s_%s" % (req, comp)
 
 
 __MANAGED_HELPERS__
@@ -504,9 +521,10 @@ def refresh_table(session, key, rec, deep):
     if fmt == "delta" and (deep or delta_advanced(loc, dv)):
         cols = table_columns(session, key, parts)
         dv = delta_version(loc)
-    if fmt == "hudi" and (deep or hudi_instant(loc) != hi):
+    cur = hudi_instant(loc) if fmt == "hudi" else None  # read before the schema: a commit in between is seen next time
+    if fmt == "hudi" and (deep or cur != hi):
         cols = table_columns(session, key, parts)
-        hi = hudi_instant(loc)
+        hi = cur
     new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
     return None if all(new[f] == rec.get(f) for f in new) else new
 

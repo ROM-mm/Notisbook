@@ -74,7 +74,10 @@ export function createSchema(catalog: string, name: string): Promise<SchemaRef> 
 }
 
 export interface SchemaPreview {
+  /** Tabelas listadas no nó (no `spark_catalog`, sem as Hudi). */
   tables: number;
+  /** Tabelas Hudi do schema, removidas junto; sempre 0 fora do `spark_catalog`. */
+  hudi: number;
   views: number;
   managed: number;
   external: number;
