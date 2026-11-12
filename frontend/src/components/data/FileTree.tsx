@@ -31,6 +31,7 @@ import {
 } from "../shell/icons";
 import deltaIconUrl from "../../../icons/delta.png";
 import parquetIconUrl from "../../../icons/parquet.png";
+import { BrandIcon } from "./BrandIcon";
 import styles from "./DataPanel.module.css";
 
 type Row =
@@ -98,11 +99,6 @@ function relativeToRoot(root: string, path: string): string {
 function extension(name: string): string {
   const i = name.lastIndexOf(".");
   return i > 0 ? name.slice(i + 1).toLowerCase() : "";
-}
-
-/** Logo de marca em P&B (filtro em `.brandIcon`), no mesmo padrão dos ícones do catálogo. */
-function BrandIcon({ src }: { src: string }): ReactNode {
-  return <img className={styles.brandIcon} src={src} alt="" aria-hidden="true" width={14} height={14} draggable={false} />;
 }
 
 function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {

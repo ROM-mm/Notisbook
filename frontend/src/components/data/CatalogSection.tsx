@@ -35,6 +35,7 @@ import {
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
+import { BrandIcon } from "./BrandIcon";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
@@ -50,12 +51,9 @@ const DEFAULT_SCHEMA = "default";
 
 const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
-const brandIcon = (src: string): ReactNode => (
-  <img className={styles.brandIcon} src={src} alt="" aria-hidden="true" width={14} height={14} draggable={false} />
-);
 const CATALOG_ICONS: Record<string, ReactNode> = {
-  spark_catalog: brandIcon(sparkIconUrl),
-  iceberg: brandIcon(icebergIconUrl),
+  spark_catalog: <BrandIcon src={sparkIconUrl} />,
+  iceberg: <BrandIcon src={icebergIconUrl} />,
 };
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
 const CATALOG_ERRORS: Record<string, string> = {
