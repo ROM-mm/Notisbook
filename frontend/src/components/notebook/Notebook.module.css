@@ -158,8 +158,8 @@
   gap: var(--space-2);
   height: 28px;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
 }
 
 .headerLeft {
@@ -216,8 +216,8 @@
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
 }
 
@@ -267,8 +267,8 @@
   outline: none;
   background: var(--color-surface);
   color: var(--color-text);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
 }
 
 /* Seletor de linguagem à esquerda de ▶ e ■: reaproveita o botão do Menu, alargado para caber o texto. */
@@ -281,8 +281,8 @@
   border: 0;
   background: transparent;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
   font-weight: var(--font-weight-regular);
   text-transform: lowercase;
 }
