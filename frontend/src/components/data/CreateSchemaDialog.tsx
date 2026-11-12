@@ -23,6 +23,7 @@ const FORMAT_HINT = "Use letters, digits and underscores, starting with a letter
 
 export function CreateSchemaDialog({ catalog, catalogLabel, existing, onCreated, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const titleId = useId();
   const fieldId = useId();
   const [name, setName] = useState("");
@@ -32,6 +33,8 @@ export function CreateSchemaDialog({ catalog, catalogLabel, existing, onCreated,
   useEffect(() => {
     const d = ref.current;
     if (d && !d.open) d.showModal();
+    // showModal() move o foco para o primeiro focável (botão fechar); o foco no campo vem depois.
+    inputRef.current?.focus();
   }, []);
 
   const trimmed = name.trim();
@@ -84,9 +87,9 @@ export function CreateSchemaDialog({ catalog, catalogLabel, existing, onCreated,
             </label>
             <input
               id={fieldId}
+              ref={inputRef}
               className={`input ${message ? styles.dialogInvalid : ""}`}
               value={name}
-              autoFocus
               spellCheck={false}
               autoComplete="off"
               aria-invalid={message ? true : undefined}
