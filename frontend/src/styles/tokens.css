@@ -87,7 +87,7 @@
   --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro usa o cinza das faixas (#181818), distinto do fundo da página */
   --color-overlay: rgba(28, 28, 26, 0.35);
   --color-cell-bg: #fbfbfb;
-  --color-cell-bg-active: #eeeeee;
+  --color-cell-bg-active: #f6f6f6;
   --color-editor-selection: #d8d8d8;
 
   /* Aliases legados do tema anterior, remapeados para o tema limpo */
