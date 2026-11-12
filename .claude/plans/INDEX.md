@@ -1,7 +1,12 @@
-## 20261112_main_limpeza-pendencias-terminal.md
-Criação: 2026-11-12 13:50:19 -0300   Finalização: —
-Problema: os reviews do estilo terminal deixaram nits, comentários desatualizados e alguns problemas visuais pendentes.
+## 20261112_main_cabecalho-e-icones-delta-parquet.md
+Criação: 2026-11-12 14:39:24 -0300   Finalização: —
+Problema: o cabeçalho da célula mostra a linguagem antes dos botões e a árvore de arquivos não usa os ícones Delta/Parquet do projeto.
 Resolução: — em andamento
+
+## 20261112_main_limpeza-pendencias-terminal.md
+Criação: 2026-11-12 13:50:19 -0300   Finalização: 2026-11-12 14:22:07 -0300
+Problema: os reviews do estilo terminal deixaram nits, comentários desatualizados e alguns problemas visuais pendentes.
+Resolução: pendências do estilo terminal resolvidas (comentários, CSS repetido, tokens, SHORTCUTS/isMac, contraste, stderr, ícone, fontes reais) + cursor em bloco no editor, seleção só no foco e grid sem barra vertical — commits 22617ba..581393b
 
 ## 20261112_main_ui-estilo-terminal.md
 Criação: 2026-11-12 11:12:44 -0300   Finalização: 2026-11-12 13:45:12 -0300
