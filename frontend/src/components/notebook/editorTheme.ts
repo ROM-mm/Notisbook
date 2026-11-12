@@ -60,7 +60,6 @@ const theme = EditorView.theme({
     outline: "1px solid var(--color-focus-ring)",
   },
   "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--color-danger-subtle)" },
-  ".cm-content ::selection, .cm-line::selection": { backgroundColor: "var(--color-editor-selection)" },
 });
 
 const highlight = HighlightStyle.define([
