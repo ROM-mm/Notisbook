@@ -87,8 +87,8 @@
   --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro usa o cinza das faixas (#181818), distinto do fundo da página */
   --color-overlay: rgba(28, 28, 26, 0.35);
   --color-cell-bg: #fbfbfb;
-  --color-editor-selection: #d8d8d8;
   --color-cell-bg-active: #f8f8f8;
+  --color-editor-selection: #d8d8d8;
 
   /* Aliases legados do tema anterior, remapeados para o tema limpo */
   --shadow-float: none;
@@ -155,8 +155,8 @@
     --color-bg-panel: #181818;
     --color-overlay: rgba(0, 0, 0, 0.6);
     --color-cell-bg: #24242a;
-    --color-editor-selection: #464651;
     --color-cell-bg-active: #2d2d34;
+    --color-editor-selection: #464651;
     --shadow-float: none;
     --on-fill: #e6e6e6;
     --on-accent: #141414;
@@ -214,8 +214,8 @@
   --color-bg-panel: #181818;
   --color-overlay: rgba(0, 0, 0, 0.6);
   --color-cell-bg: #24242a;
-  --color-editor-selection: #464651;
   --color-cell-bg-active: #2d2d34;
+  --color-editor-selection: #464651;
   --shadow-float: none;
   --on-fill: #e6e6e6;
   --on-accent: #141414;

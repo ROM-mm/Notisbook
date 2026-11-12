@@ -27,7 +27,7 @@
   font-family: inherit;
   font-size: 1em;
   font-weight: var(--font-weight-bold);
-  line-height: 1.25;
+  line-height: var(--line-height-tight);
 }
 
 .markdown h1 {
@@ -115,7 +115,6 @@
 }
 
 .markdown pre code {
-  font-family: var(--font-mono);
   font-size: inherit;
   padding: 0;
   border: none;
