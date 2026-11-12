@@ -1,7 +1,12 @@
-## 20261112_main_ui-estilo-terminal.md
-Criação: 2026-11-12 11:12:44 -0300   Finalização: —
-Problema: o visual atual não tem a cara de terminal limpo (estilo Cursor/Claude Code CLI) que o operador quer em toda a UI.
+## 20261112_main_limpeza-pendencias-terminal.md
+Criação: 2026-11-12 13:50:19 -0300   Finalização: —
+Problema: os reviews do estilo terminal deixaram nits, comentários desatualizados e alguns problemas visuais pendentes.
 Resolução: — em andamento
+
+## 20261112_main_ui-estilo-terminal.md
+Criação: 2026-11-12 11:12:44 -0300   Finalização: 2026-11-12 13:45:12 -0300
+Problema: o visual atual não tem a cara de terminal limpo (estilo Cursor/Claude Code CLI) que o operador quer em toda a UI.
+Resolução: UI inteira restilizada em terminal claro (fundo branco, faixas cinza sem borda, Roboto na UI/saídas/markdown, Hack no código, ícones P&B, prompt › na célula, output alinhado, títulos markdown com hierarquia) — commits 6c5627e..8bad903
 
 ## 20261111_main_redesign-visual-limpo.md
 Criação: 2026-11-11 16:45:58 -0300   Finalização: 2026-11-12 10:43:32 -0300
