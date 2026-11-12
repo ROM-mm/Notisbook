@@ -13,7 +13,7 @@ import { python } from "@codemirror/lang-python";
 import { SQLDialect, sql } from "@codemirror/lang-sql";
 import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
 import { EditorState, type Extension, Prec } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, placeholder as placeholderExt } from "@codemirror/view";
+import { EditorView, drawSelection, keymap, lineNumbers, placeholder as placeholderExt } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import { notebookEditorTheme, sqlQualifierHighlight } from "./editorTheme";
 
@@ -101,6 +101,7 @@ export function CodeEditor({ value, language, focused, placeholder, ariaLabel, .
         extensions: [
           notebookKeys,
           lineNumbers(),
+          drawSelection({ drawRangeCursor: false }),
           history(),
           indentOnInput(),
           bracketMatching(),

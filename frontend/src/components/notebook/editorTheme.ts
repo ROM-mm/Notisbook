@@ -26,7 +26,7 @@ const theme = EditorView.theme({
   ".cm-content": {
     fontFamily: "var(--font-code)",
     padding: "0",
-    caretColor: "var(--color-text)",
+    caretColor: "transparent",
   },
   ".cm-gutters": {
     fontFamily: "var(--font-code)",
@@ -39,7 +39,21 @@ const theme = EditorView.theme({
   ".cm-activeLineGutter": { color: "var(--color-text)" },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 var(--space-3) 0 var(--space-2)", fontSize: "12px" },
   ".cm-line": { padding: "0" },
-  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--color-text)" },
+  ".cm-dropCursor": { borderLeftColor: "var(--color-text)" },
+  // Cursor de bloco (1ch) desenhado pelo `drawSelection`; translúcido porque a
+  // camada fica acima do texto e o caractere sob o bloco precisa continuar legível.
+  ".cm-cursor": {
+    borderLeft: "none",
+    marginLeft: "0",
+    width: "1ch",
+    backgroundColor: "var(--color-text)",
+    opacity: "0.4",
+  },
+  // Com `drawSelection` a seleção deixa de ser a nativa; mantém o token existente.
+  ".cm-selectionBackground, &light.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
+    backgroundColor: "var(--color-editor-selection)",
+    background: "var(--color-editor-selection)",
+  },
   ".cm-placeholder": { color: "var(--color-text-subtle)", fontStyle: "normal" },
   "&.cm-focused .cm-matchingBracket": {
     backgroundColor: "var(--color-accent-subtle)",
