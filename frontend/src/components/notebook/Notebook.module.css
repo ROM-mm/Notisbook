@@ -1,6 +1,6 @@
 /*
  * Editor de notebook, estilo terminal: cada célula é um bloco de prompt —
- * cabeçalho "[N] linguagem", caixa de 1px com "→" e o código, status solto
+ * cabeçalho "linguagem ▶ ■", caixa de 1px com "→" e o código, status solto
  * e recuado embaixo. Sem cartão, raio ou sombra.
  */
 
@@ -169,12 +169,6 @@
   gap: var(--space-1);
 }
 
-.cellIndex {
-  white-space: pre;
-  color: var(--color-text-muted);
-  font-variant-numeric: tabular-nums;
-}
-
 .headerCenter {
   display: flex;
   justify-content: center;
@@ -278,7 +272,7 @@
   font-size: var(--font-size-xs);
 }
 
-/* Seletor de linguagem ao lado do "[N]": reaproveita o botão do Menu, alargado para caber o texto. */
+/* Seletor de linguagem à esquerda de ▶ e ■: reaproveita o botão do Menu, alargado para caber o texto. */
 .languageMenu [aria-haspopup="menu"],
 .languageLocked {
   width: auto;

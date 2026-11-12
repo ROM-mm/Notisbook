@@ -1,8 +1,7 @@
 /**
- * Cabeçalho da célula (estilo terminal): `[N]` (execution_count; `[ ]` sem execução),
- * seletor Python/SQL, ▶ e ■ à esquerda, título opcional (`metadata.title`) centralizado
- * e menu ⋮ à direita (título, tipo, mover, inserir, excluir). O ■ chama o interrupt do
- * kernel, que é global à sessão.
+ * Cabeçalho da célula (estilo terminal): seletor Python/SQL, ▶ e ■ à esquerda, título
+ * opcional (`metadata.title`) centralizado e menu ⋮ à direita (título, tipo, mover,
+ * inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
  */
 import { useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
@@ -189,11 +188,6 @@ export function CellHeader({
   return (
     <div className={styles.cellHeader} data-cell-type={isCode ? language : "markdown"}>
       <div className={styles.headerLeft}>
-        {isCode ? (
-          <span className={styles.cellIndex} data-testid="cell-index">
-            [{cell.execution_count ?? " "}]
-          </span>
-        ) : null}
         {left}
       </div>
       <div className={styles.headerCenter}>
