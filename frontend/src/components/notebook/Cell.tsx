@@ -1,10 +1,10 @@
 /**
  * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`:
- * linguagem, ▶/■ e ações), caixa de 1px com "›" e o editor (ou markdown
- * renderizado como texto) e slots.
+ * linguagem, ▶/■ e ações), faixa de fundo sem borda com o editor (em células
+ * code, o "›" fica à esquerda dele; markdown é renderizado como texto) e slots.
  *
  * Slots (preenchidos pela NotebookView):
- * - `footer`: status do run, logo abaixo da caixa (`data-testid="cell-duration"`).
+ * - `footer`: status do run, logo abaixo da faixa (`data-testid="cell-duration"`).
  * - `outputs`: saídas abaixo do status (renderizadores em components/outputs).
  */
 import { memo, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
