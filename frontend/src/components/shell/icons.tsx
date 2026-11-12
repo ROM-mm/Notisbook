@@ -180,12 +180,6 @@ export const FileJsonIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const DeltaIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" />
-  </Svg>
-);
-
 export const ViewIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
@@ -246,25 +240,5 @@ export const FocusIcon = (p: IconProps) => (
     <path d="M16 4h2a2 2 0 0 1 2 2v2" />
     <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
     <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
-  </Svg>
-);
-
-export const IcebergIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M7 12l3 -7l3 3l2 -2l2 6" />
-    <path d="M7 12l2 6l3 3l3 -3l2 -6" />
-    <path d="M3 12h18" />
-  </Svg>
-);
-
-export const HudiIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M3 7h18" />
-    <path d="M7 4v6" />
-    <path d="M12 4v6" />
-    <path d="M17 4v6" />
-    <path d="M3 14h18" />
-    <path d="M3 19h11" />
-    <path d="M17 17l3 2l-3 2" />
   </Svg>
 );
