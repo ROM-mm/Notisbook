@@ -86,6 +86,9 @@
   --color-code-border: var(--color-border);
   --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro mantém o cinza anterior */
   --color-overlay: rgba(28, 28, 26, 0.35);
+  --color-cell-bg: #fbfbfb;
+  --color-editor-selection: #d8d8d8;
+  --color-cell-bg-active: #f8f8f8;
 
   /* Aliases legados do tema anterior, remapeados para o tema limpo */
   --shadow-float: none;
@@ -151,6 +154,9 @@
     --color-code-border: #3a3a3a;
     --color-bg-panel: #181818;
     --color-overlay: rgba(0, 0, 0, 0.6);
+    --color-cell-bg: #24242a;
+    --color-editor-selection: #464651;
+    --color-cell-bg-active: #2d2d34;
     --shadow-float: none;
     --on-fill: #e6e6e6;
     --on-accent: #141414;
@@ -166,7 +172,7 @@
     --sx-kw: #6fa8ff;
     --sx-str: #9ecbff;
     --sx-num: #6fa8ff;
-    --sx-com: #8a8a8a;
+    --sx-com: #9a9a9a;
     --sx-fn: #e8a273;
     --sx-type: #e8a273;
     --sx-dec: #d9a0c0;
@@ -207,6 +213,9 @@
   --color-code-border: #3a3a3a;
   --color-bg-panel: #181818;
   --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-cell-bg: #24242a;
+  --color-editor-selection: #464651;
+  --color-cell-bg-active: #2d2d34;
   --shadow-float: none;
   --on-fill: #e6e6e6;
   --on-accent: #141414;
@@ -222,7 +231,7 @@
   --sx-kw: #6fa8ff;
   --sx-str: #9ecbff;
   --sx-num: #6fa8ff;
-  --sx-com: #8a8a8a;
+  --sx-com: #9a9a9a;
   --sx-fn: #e8a273;
   --sx-type: #e8a273;
   --sx-dec: #d9a0c0;

@@ -129,7 +129,7 @@
   color: var(--color-text);
 }
 
-/* Seleção (modo comando e edição): "›" na margem e borda na cor do texto. */
+/* Seleção (modo comando e edição): "›" na margem e faixa mais forte. */
 .cellActive::before {
   content: "›";
   position: absolute;
@@ -142,9 +142,8 @@
 }
 
 .cellActive .codeBox,
-.cellActive .textBox,
-.cellActive .rendered {
-  border-color: var(--color-text);
+.cellActive .textBox {
+  background: var(--color-cell-bg-active);
 }
 
 /* Em edição o "→" também assume a cor do texto. */
@@ -312,15 +311,15 @@
   padding: 0 0 0 var(--space-5);
 }
 
-/* Caixa de código: 1px, sem raio; o "→" fica à esquerda do editor. */
+/* Faixa de largura total sem contorno; o "→" fica à esquerda do editor. */
 .codeBox,
 .textBox {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  border: 0;
+  background: var(--color-cell-bg);
 }
 
 .codeBox > :not(.prompt),
@@ -341,7 +340,7 @@
 .rendered {
   min-height: 24px;
   padding: var(--space-1) var(--space-3);
-  border: 1px solid transparent;
+  border: 0;
   cursor: default;
 }
 

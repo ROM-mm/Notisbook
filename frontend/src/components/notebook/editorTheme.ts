@@ -34,10 +34,10 @@ const theme = EditorView.theme({
   ".cm-gutters": {
     fontFamily: "var(--font-code)",
     backgroundColor: "transparent",
-    color: "var(--color-text-subtle)",
+    color: "var(--color-text-muted)",
     border: "none",
   },
-  // Moldura terminal: gutter e linha ativa sem fundo próprio (a caixa da célula dá a moldura).
+  // Gutter e linha ativa sem fundo próprio: o fundo da faixa da célula já destaca a linha.
   ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
   ".cm-activeLineGutter": { color: "var(--color-text)" },
   ".cm-lineNumbers .cm-gutterElement": { padding: "0 var(--space-3) 0 var(--space-2)", fontSize: "12px" },
@@ -49,7 +49,8 @@ const theme = EditorView.theme({
     outline: "1px solid var(--color-focus-ring)",
   },
   "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--color-danger-subtle)" },
-  ".cm-content ::selection, .cm-line::selection": { backgroundColor: "var(--color-accent-subtle)" },
+  ".cm-content ::selection, .cm-line::selection": { backgroundColor: "var(--color-editor-selection)" },
+  "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "var(--color-editor-selection)" },
 });
 
 const highlight = HighlightStyle.define([
