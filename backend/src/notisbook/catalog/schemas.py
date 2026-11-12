@@ -28,6 +28,7 @@ RESERVED_SPARK = {"global_temp"}
 
 _STATUS = {
     "invalid_catalog": 400,
+    "read_only_catalog": 400,
     "invalid_name": 400,
     "reserved_name": 400,
     "schema_not_found": 404,
@@ -47,6 +48,8 @@ class SchemaError(Exception):
 
 
 def validate(catalog: str, name: str) -> None:
+    if catalog == registry.HUDI_CATALOG:
+        raise SchemaError("read_only_catalog")  # nó de exibição: os schemas pertencem ao `spark_catalog`
     if catalog not in (registry.SPARK_CATALOG, iceberg_jdbc.ICEBERG_CATALOG):
         raise SchemaError("invalid_catalog")
     if not NAME_RE.match(name):

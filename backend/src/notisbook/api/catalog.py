@@ -56,6 +56,8 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
         return [{"name": registry.SPARK_CATALOG, "databases": [{"name": registry.DEFAULT_DATABASE, "tables": []}]}]
     try:
         databases, used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES)
+        hudi_dbs, hudi_used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES - used, hudi=True)
+        used += hudi_used
         spark_node: dict[str, Any] = {"name": registry.SPARK_CATALOG, "databases": databases}
         warehouse = home / WAREHOUSE_DIR / "iceberg"
         try:
@@ -65,7 +67,8 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
             iceberg_node = iceberg_jdbc.error_entry(iceberg_jdbc.ERR_UNSUPPORTED)
         except sqlite3.Error:
             iceberg_node = iceberg_jdbc.error_entry(iceberg_jdbc.ERR_UNREADABLE)
-        return [spark_node, iceberg_node]
+        hudi_node: dict[str, Any] = {"name": registry.HUDI_CATALOG, "databases": hudi_dbs}
+        return [spark_node, iceberg_node, hudi_node]
     finally:
         conn.close()
 
@@ -77,6 +80,8 @@ def _read_columns(home: Path, catalog: str, database: str, table: str) -> list[d
     try:
         if catalog == registry.SPARK_CATALOG:
             return registry.read_columns(conn, database, table)
+        if catalog == registry.HUDI_CATALOG:
+            return registry.read_columns(conn, database, table, hudi_only=True)
         if catalog == iceberg_jdbc.ICEBERG_CATALOG:
             return iceberg_jdbc.read_columns(conn, database, table)
         return None

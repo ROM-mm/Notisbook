@@ -1,4 +1,4 @@
-"""Leitura e escrita de schemas do registro `nb_*` (Delta/Parquet do `spark_catalog`) sem SparkSession.
+"""Leitura e escrita de schemas do registro `nb_*` (Delta/Parquet/Hudi do `spark_catalog`) sem SparkSession.
 
 As tabelas continuam escritas pelo módulo oculto do kernel; o backend só cria/remove schemas inteiros
 (`create_namespace`/`drop_namespace`). A conexão e a transação (`BEGIN IMMEDIATE`) pertencem ao chamador.
@@ -13,6 +13,8 @@ from typing import Any
 from urllib.parse import unquote, urlparse
 
 SPARK_CATALOG = "spark_catalog"
+# Nó só de exibição: as tabelas Hudi vivem no `spark_catalog` (`nb_tables.format = 'hudi'`).
+HUDI_CATALOG = "hudi"
 DEFAULT_DATABASE = "default"
 # Teto da varredura: tabelas por database e no total. Estourar o teto marca `"truncated": true`.
 MAX_TABLES = 500
@@ -110,15 +112,20 @@ def _table_node(namespace: str, name: str, fmt: str, table_type: str, location: 
     }
 
 
-def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[str, Any]], int]:
-    """Databases do `spark_catalog` (sempre com `default`) e o total de tabelas listadas.
+def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False) -> tuple[list[dict[str, Any]], int]:
+    """Databases e o total de tabelas listadas: o `spark_catalog` sem as Hudi (sempre com `default`) ou, com `hudi`, só as Hudi.
 
     `max_total` é o que resta do teto global; databases após o teto voltam vazios e `truncated`.
+    O nó Hudi lista apenas os databases que têm tabela Hudi.
     """
-    names = {DEFAULT_DATABASE}
-    names.update(r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,)))
-    names.update(r[0] for r in conn.execute("SELECT DISTINCT namespace FROM nb_tables WHERE catalog_name = ?", (SPARK_CATALOG,)))
-    ordered = [DEFAULT_DATABASE, *sorted(names - {DEFAULT_DATABASE})]
+    fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
+    names = set() if hudi else {DEFAULT_DATABASE}
+    if not hudi:
+        names.update(r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,)))
+    names.update(
+        r[0] for r in conn.execute(f"SELECT DISTINCT namespace FROM nb_tables WHERE catalog_name = ? AND {fmt_filter}", (SPARK_CATALOG,))
+    )
+    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, n))
     used = 0
     databases: list[dict[str, Any]] = []
     for db in ordered:
@@ -128,7 +135,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[
         limit = min(MAX_TABLES, max_total - used)
         rows = conn.execute(
             "SELECT table_name, format, table_type, location, description FROM nb_tables "
-            "WHERE catalog_name = ? AND namespace = ? ORDER BY table_name LIMIT ?",
+            f"WHERE catalog_name = ? AND namespace = ? AND {fmt_filter} ORDER BY table_name LIMIT ?",
             (SPARK_CATALOG, db, limit + 1),
         ).fetchall()
         entry: dict[str, Any] = {"name": db, "tables": [_table_node(db, *r) for r in rows[:limit]]}
@@ -156,12 +163,13 @@ def _decode_columns(raw: str, partitions: set[str]) -> list[dict[str, Any]]:
     ]
 
 
-def read_columns(conn: sqlite3.Connection, database: str, table: str) -> list[dict[str, Any]] | None:
-    """Colunas de uma tabela do registro; `None` se não existir. Nomes seguem o Spark: sem distinção de caixa."""
+def read_columns(conn: sqlite3.Connection, database: str, table: str, hudi_only: bool = False) -> list[dict[str, Any]] | None:
+    """Colunas de uma tabela do registro (só Hudi com `hudi_only`); `None` se não existir. Nomes sem distinção de caixa."""
     row = conn.execute(
         "SELECT columns_json, partition_cols FROM nb_tables "
-        "WHERE catalog_name = ? AND namespace = ? COLLATE NOCASE AND table_name = ? COLLATE NOCASE",
-        (SPARK_CATALOG, database, table),
+        "WHERE catalog_name = ? AND namespace = ? COLLATE NOCASE AND table_name = ? COLLATE NOCASE "
+        "AND (? = 0 OR format = 'hudi')",
+        (SPARK_CATALOG, database, table, int(hudi_only)),
     ).fetchone()
     if row is None:
         return None
