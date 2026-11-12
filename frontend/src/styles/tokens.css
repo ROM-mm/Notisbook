@@ -110,15 +110,15 @@
   --brand-mark-shadow: transparent;
 
   /* Paleta de sintaxe */
-  --sx-kw: #1f5fa8;
-  --sx-str: #a31515;
-  --sx-num: #13875a;
-  --sx-com: #6a737d;
-  --sx-fn: #a8761a;
-  --sx-type: #a8761a;
-  --sx-dec: #be185d;
-  --sx-op: #444444;
-  --sx-qual: #a8761a;
+  --sx-kw: #000088;
+  --sx-str: #095e09;
+  --sx-num: #000088;
+  --sx-com: #737373;
+  --sx-fn: #000000;
+  --sx-type: #000000;
+  --sx-dec: #808000;
+  --sx-op: #777777;
+  --sx-qual: #4d154d;
 }
 
 /* Escuro seguindo o sistema, exceto quando o usuário forçou o claro. */
@@ -169,15 +169,15 @@
     --coral: #4a1f22;
     --creamy: #181818;
     --brand-mark-shadow: transparent;
-    --sx-kw: #6fa8ff;
-    --sx-str: #9ecbff;
-    --sx-num: #6fa8ff;
-    --sx-com: #9a9a9a;
-    --sx-fn: #e8a273;
-    --sx-type: #e8a273;
-    --sx-dec: #d9a0c0;
-    --sx-op: #c8c8c8;
-    --sx-qual: #e8a273;
+    --sx-kw: #9b859d;
+    --sx-str: #8f9d6a;
+    --sx-num: #cda869;
+    --sx-com: #9a989b;
+    --sx-fn: #7587a6;
+    --sx-type: #f9ee98;
+    --sx-dec: #afc4db;
+    --sx-op: #a7a7a7;
+    --sx-qual: #cf6a4c;
   }
 }
 
@@ -228,15 +228,15 @@
   --coral: #4a1f22;
   --creamy: #181818;
   --brand-mark-shadow: transparent;
-  --sx-kw: #6fa8ff;
-  --sx-str: #9ecbff;
-  --sx-num: #6fa8ff;
-  --sx-com: #9a9a9a;
-  --sx-fn: #e8a273;
-  --sx-type: #e8a273;
-  --sx-dec: #d9a0c0;
-  --sx-op: #c8c8c8;
-  --sx-qual: #e8a273;
+  --sx-kw: #9b859d;
+  --sx-str: #8f9d6a;
+  --sx-num: #cda869;
+  --sx-com: #9a989b;
+  --sx-fn: #7587a6;
+  --sx-type: #f9ee98;
+  --sx-dec: #afc4db;
+  --sx-op: #a7a7a7;
+  --sx-qual: #cf6a4c;
 }
 
 /* Claro forçado pelo toggle (explícito para vencer a media query). */
