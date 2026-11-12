@@ -15,9 +15,6 @@ const theme = EditorView.theme({
     color: "var(--color-text)",
     fontSize: "13.5px",
   },
-  ".cm-content, .cm-gutters": {
-    fontWeight: "500",
-  },
   // O `*` vence o span de `special(string)` do QuotedIdentifier, aninhado ou não.
   ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-qualifier)" },
   "&.cm-focused": { outline: "none" },
