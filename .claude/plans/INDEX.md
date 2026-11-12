@@ -1,7 +1,7 @@
 ## 20261112_main_cabecalho-e-icones-delta-parquet.md
-Criação: 2026-11-12 14:39:24 -0300   Finalização: —
+Criação: 2026-11-12 14:39:24 -0300   Finalização: 2026-11-12 15:05:43 -0300
 Problema: o cabeçalho da célula mostra a linguagem antes dos botões e a árvore de arquivos não usa os ícones Delta/Parquet do projeto.
-Resolução: — em andamento
+Resolução: ▶ ■ antes da linguagem no cabeçalho; logos Delta/Parquet em P&B na árvore e Iceberg/Delta/Hudi/Parquet na boas-vindas via BrandIcon compartilhado (--brand-size); SVGs sem uso removidos — commits ceed55e..2d4cb19
 
 ## 20261112_main_limpeza-pendencias-terminal.md
 Criação: 2026-11-12 13:50:19 -0300   Finalização: 2026-11-12 14:22:07 -0300
