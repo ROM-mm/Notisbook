@@ -276,6 +276,20 @@ async def list_tables(request: Request, namespace: str) -> dict[str, Any]:
     return {"identifiers": [{"namespace": _levels(ns), "name": name} for name in names]}
 
 
+def _guard_external(grant: RuntimeGrant, metadata_location: str | None, metadata: dict[str, Any]) -> dict[str, Any]:
+    """Devolve `gc.enabled=false` ao cliente nas tabelas externas (metadata fora do warehouse Iceberg).
+
+    O `SparkCatalog.purgeTable` (Iceberg 1.7.1) recusa o PURGE com essa propriedade, antes de qualquer drop; sem ela
+    apagaria os arquivos no cliente, contornando `_drop_table`. Só vai na resposta: o metadata.json em disco e o CAS
+    de `metadata_location` ficam intactos. Efeito: `expire_snapshots` e `remove_orphan_files` também são recusados.
+    """
+    reference = metadata_location or metadata.get("location")
+    if isinstance(reference, str) and not iceberg_jdbc.location_within_root(reference, grant.iceberg_root):
+        properties = metadata.get("properties")
+        metadata["properties"] = {**(properties if isinstance(properties, dict) else {}), "gc.enabled": "false"}
+    return metadata
+
+
 def _load_table(grant: RuntimeGrant, ns: str, table: str) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
     def query(conn: sqlite3.Connection, has_type: bool) -> dict[str, Any]:
         location = iceberg_jdbc.table_metadata_location(conn, ns, table, has_type)
@@ -610,8 +624,8 @@ def _load_current(location: str, grant: RuntimeGrant) -> TableMetadata:
     return metadata
 
 
-def _result(metadata_location: str | None, data: bytes) -> dict[str, Any]:
-    result: dict[str, Any] = {"metadata": json.loads(data), "config": {}}
+def _result(grant: RuntimeGrant, metadata_location: str | None, data: bytes) -> dict[str, Any]:
+    result: dict[str, Any] = {"metadata": _guard_external(grant, metadata_location, json.loads(data)), "config": {}}
     if metadata_location is not None:
         result["metadata-location"] = metadata_location
     return result
@@ -664,7 +678,7 @@ def _persist(
         if previous is None:
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         raise IcebergError(409, "CommitFailedException", "A tabela foi alterada por outro commit")
-    return _result(location, data)
+    return _result(grant, location, data)
 
 
 def _default_location(grant: RuntimeGrant, ns: str, table: str) -> str:
@@ -700,7 +714,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         if staged:  # CTAS: nada é gravado nem registrado; a materialização chega no commit com `assert-create`
             _require_no_overlap(conn, _table_path(final_location, grant))
-            return _result(None, metadata.model_dump_json().encode("utf-8"))
+            return _result(grant, None, metadata.model_dump_json().encode("utf-8"))
         return _persist(conn, has_type, grant, ns, table, metadata, None, commit=False)
 
     return run
