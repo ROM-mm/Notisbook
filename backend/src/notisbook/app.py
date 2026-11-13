@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from .api import catalog, contents, docker, export, files, jobs, notebooks_root, runtime_catalog, sessions, spark, system, variables
+from .api import catalog, contents, docker, export, files, iceberg_rest, jobs, notebooks_root, runtime_catalog, sessions, spark, system, variables
 from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
@@ -67,6 +67,8 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(sessions.router)
     app.include_router(catalog.router)
     app.include_router(runtime_catalog.router)
+    app.include_router(iceberg_rest.router)
+    app.add_exception_handler(iceberg_rest.IcebergError, iceberg_rest.handle_error)
     app.include_router(variables.router)
     app.include_router(sessions.ws_router)
     app.include_router(spark.router)

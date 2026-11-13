@@ -846,6 +846,8 @@ class KernelService:
             )
             session.issue_runtime_token()
             env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
+            if docker_runtime is not None:
+                env[docker_launch.PORT_ENV] = str(self._port)
             try:
                 await session.start(env, cwd)
             except Exception:

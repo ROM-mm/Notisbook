@@ -8,11 +8,13 @@ Formato inesperado degrada só o catálogo `iceberg` (`error`), nunca o resto do
 """
 
 import json
+import os
 import sqlite3
 import zlib
 from pathlib import Path
 from typing import Any
 
+from ..fs_safety import is_within
 from .registry import MAX_TABLES, is_available, local_path
 
 ICEBERG_CATALOG = "iceberg"
@@ -36,6 +38,10 @@ class UnsupportedIcebergSchema(Exception):
 
 class IcebergMetadataError(Exception):
     """O `metadata.json` da tabela não pôde ser lido ou interpretado."""
+
+
+class MetadataOutsideRoot(IcebergMetadataError):
+    """O `metadata_location` aponta para fora da raiz permitida (ou não é um caminho local)."""
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -339,3 +345,57 @@ def read_columns(conn: sqlite3.Connection, database: str, table: str) -> list[di
     if not row[0]:
         raise IcebergMetadataError("table has no metadata location")
     return _columns_from_metadata(_read_metadata(row[0]))
+
+
+def read_metadata_within(location: str, root: str) -> dict[str, Any]:
+    """`metadata.json` em `location`, aberto só se o realpath estiver dentro de `root`.
+
+    Levanta `MetadataOutsideRoot` (fora da raiz / não local) ou `IcebergMetadataError` (ilegível).
+    """
+    path = local_path(location)
+    if path is None:
+        raise MetadataOutsideRoot("metadata is not on the local disk")
+    real = Path(os.path.realpath(path))
+    if not is_within(real, Path(os.path.realpath(root))) or real == Path(os.path.realpath(root)):
+        raise MetadataOutsideRoot("metadata outside the Iceberg warehouse")
+    return _read_metadata(str(real))
+
+
+def list_child_namespaces(conn: sqlite3.Connection, parent: str | None) -> list[str]:
+    """Namespaces do próximo nível abaixo de `parent` (ou do topo), como o `JdbcCatalog.listNamespaces`."""
+    rows = conn.execute(
+        "SELECT namespace FROM iceberg_namespace_properties WHERE catalog_name = ? "
+        "UNION SELECT table_namespace FROM iceberg_tables WHERE catalog_name = ?",
+        (ICEBERG_CATALOG, ICEBERG_CATALOG),
+    )
+    prefix = f"{parent}." if parent else ""
+    children = set()
+    for (name,) in rows:
+        if name.startswith(prefix) and len(name) > len(prefix):
+            children.add(prefix + name[len(prefix) :].split(".", 1)[0])
+    return sorted(children)
+
+
+def namespace_properties(conn: sqlite3.Connection, namespace: str) -> dict[str, str]:
+    """Propriedades do namespace, sem o marcador interno `exists`."""
+    rows = conn.execute(
+        "SELECT property_key, property_value FROM iceberg_namespace_properties "
+        "WHERE catalog_name = ? AND namespace = ? AND property_key IS NOT NULL AND property_key <> 'exists'",
+        (ICEBERG_CATALOG, namespace),
+    )
+    return {k: v for k, v in rows if v is not None}
+
+
+def list_table_names(conn: sqlite3.Connection, namespace: str, has_type: bool) -> list[str]:
+    """Nomes das tabelas (sem views) do namespace, ordenados."""
+    return [name for name, kind, _ in namespace_entries(conn, namespace, has_type) if kind == "TABLE"]
+
+
+def table_metadata_location(conn: sqlite3.Connection, namespace: str, table: str, has_type: bool) -> str | None:
+    """`metadata_location` da tabela; `None` se ela não existe; `""` se existe sem metadata."""
+    row = conn.execute(
+        "SELECT COALESCE(metadata_location, '') FROM iceberg_tables "
+        f"WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? {_type_filter(has_type)}",
+        (ICEBERG_CATALOG, namespace, table),
+    ).fetchone()
+    return None if row is None else str(row[0])

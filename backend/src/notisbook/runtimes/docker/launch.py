@@ -15,10 +15,12 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ...config import default_home
+from ...config import RUNTIME_HOST, default_home
 from ...spark.bundles import SPARK_WAREHOUSE_SUBDIR, WAREHOUSE_DIR
 from . import catalog, cli
 
+# Porta do backend para o container alcançar o catálogo Iceberg REST; o KernelService a põe no env do kernel.
+PORT_ENV = "NOTISBOOK_RUNTIME_PORT"
 START_TIMEOUT_S = 60.0
 CALL_TIMEOUT_S = 30.0
 INCONTAINER = Path(__file__).with_name("incontainer.py")
@@ -42,6 +44,15 @@ def tag_for(connection_file: str) -> str:
 def warehouse_dir() -> Path:
     """Warehouse Spark do app (`<home>/warehouse/spark`), a mesma pasta do runtime local e montada no container."""
     return Path(os.path.abspath(default_home())) / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR
+
+
+def iceberg_options() -> list[str]:
+    """Opções do catálogo `iceberg` (REST do backend); vazio se a porta do backend não veio no ambiente."""
+    port = os.environ.get(PORT_ENV, "")
+    if not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
+        return []
+    warehouse = Path(os.path.abspath(default_home())) / WAREHOUSE_DIR / "iceberg"
+    return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", str(warehouse)]
 
 
 def incontainer_source() -> bytes:
@@ -124,7 +135,7 @@ def launch(key: str, connection_file: str) -> None:
         "run",
         tag_for(connection_file),
     ]
-    argv += ["--cwd", os.getcwd(), "--warehouse-dir", str(warehouse_dir())]
+    argv += ["--cwd", os.getcwd(), "--warehouse-dir", str(warehouse_dir()), *iceberg_options()]
     # Arquivo anônimo 0600 como stdin: o payload (código + connection file) passa de um pipe pequeno.
     with tempfile.TemporaryFile() as payload:
         payload.write(header + source + Path(connection_file).read_bytes())

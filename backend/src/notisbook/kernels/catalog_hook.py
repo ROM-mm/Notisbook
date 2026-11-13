@@ -43,6 +43,8 @@ MANAGED_ROOT = CONFIG["managed_root"]
 ICEBERG_WAREHOUSE = CONFIG["iceberg_warehouse"]
 WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session")
 SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
+# Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
+ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 HTTP_TIMEOUT = 8.0
 HTTP_PAUSE = 30.0
 HTTP_MAX_BYTES = 32 * 1024 * 1024
@@ -497,7 +499,7 @@ def attach(session):
         STATE["off"].add(skey)
         warn(("hive", skey), "Hive support is active; the persistent catalog is off for this session.")
         return
-    if conf_get(session, "spark.sql.catalog.iceberg") and conf_get(session, "spark.sql.catalog.iceberg.type") != "jdbc":
+    if conf_get(session, "spark.sql.catalog.iceberg") and conf_get(session, "spark.sql.catalog.iceberg.type") != ICEBERG_TYPE:
         warn(("outdated", skey), OUTDATED % session.version)
     gen, rows, namespaces = read_registry()
     refresh = hydrate(session, skey, rows, namespaces | {k[0] for k in rows})
@@ -774,6 +776,10 @@ def wrap_get_or_create(original):
     @functools.wraps(original)
     def get_or_create(self):
         session = original(self)
+        if TRANSPORT == "http" and TOKEN:
+            # Token do catálogo `iceberg` (REST) na conf da sessão: o `Builder.config` iria ao argv do spark-submit (visível
+            # no `ps`). O Spark só lê `spark.sql.catalog.iceberg.*` ao carregar o catálogo, no primeiro uso.
+            guarded("iceberg-token", session.conf.set, "spark.sql.catalog.iceberg.token", TOKEN)
         guarded("getOrCreate", attach, session)
         return session
     get_or_create._notisbook_original = original

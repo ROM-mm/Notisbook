@@ -1,7 +1,7 @@
 """Código executado DENTRO do container do runtime (Python 3.11, só biblioteca padrão).
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
-  run <tag> [--cwd DIR] [--warehouse-dir DIR]
+  run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]
                          lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
                          vira líder de grupo, grava PID+starttime em /run/notisbook e faz exec do ipykernel
   kill <tag>             SIGKILL no grupo do kernel de <tag> (validando PID+starttime)
@@ -26,22 +26,40 @@ RUN_DIR = "/run/notisbook"
 TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
+RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse"}
+ICEBERG_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/iceberg")
 SUBMIT_ARGS = (
     "--conf spark.sql.catalogImplementation=in-memory "
-    "--conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension "
+    "--conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
+    "io.delta.sql.DeltaSparkSessionExtension "
     "--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog "
     "pyspark-shell"
 )
 PYSPARK_SHELL = "pyspark-shell"
 
 
-def _submit_args(warehouse_dir: str | None) -> str:
-    """SUBMIT_ARGS com o warehouse do app; o PySpark separa a variável com shlex, então o caminho é citado."""
-    if not warehouse_dir:
-        return SUBMIT_ARGS
-    conf = shlex.quote(f"spark.sql.warehouse.dir={warehouse_dir}")
+def _submit_args(
+    warehouse_dir: str | None, iceberg_uri: str | None = None, iceberg_warehouse: str | None = None
+) -> str:
+    """SUBMIT_ARGS com o warehouse e o catálogo `iceberg` (REST) do app; o PySpark separa a variável com shlex.
+
+    Sem segredos: o token do catálogo é definido depois, pelo kernel (nunca aparece no `ps` do container).
+    """
+    confs = []
+    if warehouse_dir:
+        confs.append(f"spark.sql.warehouse.dir={warehouse_dir}")
+    if iceberg_uri and iceberg_warehouse:
+        prefix = "spark.sql.catalog.iceberg"
+        confs += [
+            f"{prefix}=org.apache.iceberg.spark.SparkCatalog",
+            f"{prefix}.type=rest",
+            f"{prefix}.uri={iceberg_uri}",
+            f"{prefix}.warehouse={iceberg_warehouse}",
+            f"{prefix}.token-refresh-enabled=false",
+            f"{prefix}.oauth2-server-uri={iceberg_uri}/v1/oauth/tokens",
+        ]
     head = SUBMIT_ARGS[: -len(PYSPARK_SHELL)]
-    return f"{head}--conf {conf} {PYSPARK_SHELL}"
+    return head + "".join(f"--conf {shlex.quote(conf)} " for conf in confs) + PYSPARK_SHELL
 
 
 def _fail(code: int, message: str) -> NoReturn:
@@ -161,7 +179,7 @@ def _read_connection() -> dict[str, object]:
     return conn
 
 
-def cmd_run(tag: str, cwd: str | None, warehouse_dir: str | None = None) -> None:
+def cmd_run(tag: str, options: dict[str, str]) -> None:
     conn = _read_connection()
     kill_tag(tag)
     try:
@@ -179,14 +197,16 @@ def cmd_run(tag: str, cwd: str | None, warehouse_dir: str | None = None) -> None
     devnull = os.open(os.devnull, os.O_RDONLY)
     os.dup2(devnull, 0)
     os.close(devnull)
-    if cwd:
+    if cwd := options.get("--cwd"):
         try:
             os.chdir(cwd)
         except OSError:
             sys.stderr.write(
                 "notisbook-incontainer: pasta do notebook indisponível no container; usando a padrão\n"
             )
-    os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(warehouse_dir)
+    os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
+        options.get("--warehouse-dir"), options.get("--iceberg-uri"), options.get("--iceberg-warehouse")
+    )
     try:
         os.execv(
             sys.executable,
@@ -212,13 +232,18 @@ def cmd_packages() -> None:
 
 
 def _run_options(rest: list[str]) -> dict[str, str] | None:
-    """Pares `--cwd DIR` / `--warehouse-dir DIR` (sem repetição); None se algo fora disso."""
+    """Pares `--opção valor` do `run` (sem repetição); None se algo fora disso ou valor inválido."""
     if len(rest) % 2:
         return None
     options = dict(zip(rest[::2], rest[1::2]))
-    if len(options) * 2 != len(rest) or not set(options) <= {"--cwd", "--warehouse-dir"}:
+    if len(options) * 2 != len(rest) or not set(options) <= RUN_OPTIONS:
         return None
-    if "--warehouse-dir" in options and not os.path.isabs(options["--warehouse-dir"]):
+    for name in ("--warehouse-dir", "--iceberg-warehouse"):
+        if name in options and not os.path.isabs(options[name]):
+            return None
+    if ("--iceberg-uri" in options) != ("--iceberg-warehouse" in options):
+        return None
+    if "--iceberg-uri" in options and not ICEBERG_URI_RE.fullmatch(options["--iceberg-uri"]):
         return None
     return options
 
@@ -227,7 +252,7 @@ def main(argv: list[str]) -> None:
     mode = argv[0] if argv else ""
     options = _run_options(argv[2:]) if mode == "run" and len(argv) >= 2 else None
     if options is not None:
-        cmd_run(_valid_tag(argv[1]), options.get("--cwd"), options.get("--warehouse-dir"))
+        cmd_run(_valid_tag(argv[1]), options)
     elif mode == "kill" and len(argv) == 2:
         sys.stdout.write("killed\n" if kill_tag(_valid_tag(argv[1])) else "none\n")
     elif mode == "sweep" and len(argv) == 1:
@@ -235,7 +260,11 @@ def main(argv: list[str]) -> None:
     elif mode == "packages" and len(argv) == 1:
         cmd_packages()
     else:
-        _fail(2, "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] | kill <tag> | sweep | packages")
+        _fail(
+            2,
+            "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]"
+            " | kill <tag> | sweep | packages",
+        )
 
 
 if __name__ == "__main__":
