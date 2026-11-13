@@ -2,8 +2,10 @@
 
 O backend é o único escritor do `catalog.db` para o lado Docker. Autenticação por token de runtime da
 sessão (nunca o token da UI) e regra de Host própria. O plano do hook é validado antes de tocar o banco:
-formato, nomes, tamanho e `location` por realpath dentro das pastas montadas na sessão. A exclusão de
-pastas MANAGED é decidida pela linha do registro, depois do COMMIT; respostas e logs não carregam segredo.
+formato, nomes, tamanho e `location` por realpath dentro das pastas montadas na sessão. Corpo malformado
+recusa o plano (422); item inválido por regra ou limite sai em `rejected` e os demais são gravados numa só
+transação. A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT; respostas e logs
+não carregam segredo.
 """
 
 import asyncio
@@ -102,9 +104,10 @@ class Dropped(_Model):
 
 
 class PlanBody(_Model):
-    created: list[Created] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
-    updated: list[Updated] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
-    renamed: list[Renamed] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
+    # Itens de tabela chegam crus e são validados um a um (`_parse_items`): limite estourado recusa só o item.
+    created: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
+    updated: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
+    renamed: list[dict[str, Any]] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
     dropped: list[Dropped] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
     # Sai só do registro (a tabela ainda existe no Spark): nunca apaga arquivos. Mesmo formato de `dropped`.
     unregistered: list[Dropped] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
@@ -142,31 +145,69 @@ def _location_error(location: str, grant: RuntimeGrant) -> str | None:
     return "location_outside_mounts"
 
 
-def _build_plan(body: PlanBody, grant: RuntimeGrant) -> dict[str, Any]:
-    """Converte o corpo no plano do `apply_plan`, recusando (422) o que sai das regras; sem eco de valores."""
+LIMIT_ERRORS = frozenset({"string_too_long", "too_long", "string_pattern_mismatch"})
+MAX_KEY_PART = 128
 
-    def check(location: str) -> None:
-        error = _location_error(location, grant)
+
+def _raw_key(section: str, raw: dict[str, Any]) -> tuple[str, str] | None:
+    """(db, name) do item cru para devolvê-lo em `rejected`; `None` se não der para identificá-lo."""
+    db, name = (raw.get("new_db"), raw.get("new_name")) if section == "renamed" else (raw.get("db"), raw.get("name"))
+    if isinstance(db, str) and isinstance(name, str) and len(db) <= MAX_KEY_PART and len(name) <= MAX_KEY_PART:
+        return db, name
+    return None
+
+
+def _parse_items[M: BaseModel](
+    section: str, raw_items: list[dict[str, Any]], model: type[M], rejected: list[dict[str, Any]]
+) -> list[M]:
+    """Valida item a item. Estouro de tamanho/formato recusa só o item; qualquer outro erro é corpo malformado (422)."""
+    valid: list[M] = []
+    for index, raw in enumerate(raw_items):
+        try:
+            valid.append(model.model_validate(raw))
+        except ValidationError as exc:
+            errors = exc.errors()
+            key = _raw_key(section, raw)
+            if key is None or any(e["type"] not in LIMIT_ERRORS for e in errors):
+                detail = [{"loc": [section, str(index), *(str(p) for p in e["loc"])], "msg": e["msg"]} for e in errors[:10]]
+                raise HTTPException(422, detail) from None
+            rejected.append({"key": list(key), "reason": "item_limits"})
+    return valid
+
+
+def _created_error(item: Created, grant: RuntimeGrant) -> str | None:
+    error = _location_error(item.loc, grant)
+    if error or item.type != "MANAGED":
+        return error
+    path = registry.local_path(item.loc)
+    if path is None or managed_table_dir(str(path), grant.managed_root)[1] is not None:
+        return "managed_location_rejected"
+    return None
+
+
+def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Plano do `apply_plan` só com os itens válidos e a lista dos recusados (`key`, `reason`); sem eco de valores."""
+    rejected: list[dict[str, Any]] = []
+    created, updated, renamed = [], [], []
+    for item in _parse_items("created", body.created, Created, rejected):
+        error = _created_error(item, grant)
         if error:
-            raise HTTPException(422, error)
-
-    created = []
-    for item in body.created:
-        check(item.loc)
-        if item.type == "MANAGED":
-            path = registry.local_path(item.loc)
-            if path is None or managed_table_dir(str(path), grant.managed_root)[1] is not None:
-                raise HTTPException(422, "managed_location_rejected")
+            rejected.append({"key": [item.db, item.name], "reason": error})
+            continue
         created.append(((item.db, item.name), {**_info(item), "type": item.type, "description": item.description}))
-    updated = []
-    for u in body.updated:
-        check(u.loc)
+    for u in _parse_items("updated", body.updated, Updated, rejected):
+        error = _location_error(u.loc, grant)
+        if error:
+            rejected.append({"key": [u.db, u.name], "reason": error})
+            continue
         updated.append(((u.db, u.name), u.expected_loc, "EXTERNAL", _info(u)))
-    renamed = []
-    for r in body.renamed:
-        check(r.loc)
+    for r in _parse_items("renamed", body.renamed, Renamed, rejected):
+        error = _location_error(r.loc, grant)
+        if error:
+            rejected.append({"key": [r.new_db, r.new_name], "reason": error})
+            continue
         renamed.append(((r.old_db, r.old_name), (r.new_db, r.new_name), r.expected_loc, _info(r)))
-    return {
+    plan = {
         "created": created,
         "updated": updated,
         "renamed": renamed,
@@ -175,6 +216,7 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> dict[str, Any]:
         "new_dbs": sorted(set(body.new_dbs)),
         "gone_dbs": sorted(set(body.gone_dbs)),
     }
+    return plan, rejected
 
 
 def _managed_shape(grant: RuntimeGrant) -> Callable[[str], bool]:
@@ -285,7 +327,10 @@ async def get_registry(request: Request) -> dict[str, Any]:
 
 @router.post("/plan")
 async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
-    """Aplica o plano do hook. 413 corpo grande, 422 plano recusado (nada é gravado), 503 db ocupado."""
+    """Aplica o plano do hook. 413 corpo grande, 422 corpo malformado (nada é gravado), 503 db ocupado.
+
+    Item inválido por regra ou limite não derruba o plano: volta em `rejected` (`key`, `reason`).
+    """
     raw = await _read_body(request)
     try:
         body = PlanBody.model_validate(json.loads(raw))
@@ -296,13 +341,14 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         raise HTTPException(422, "invalid_json") from None
     if body.item_count() > MAX_PLAN_ITEMS:
         raise HTTPException(422, "plan_too_large")
-    plan = _build_plan(body, grant)
+    plan, rejected = _build_plan(body, grant)
     try:
         result = await asyncio.to_thread(_apply, _home(request), grant, plan)
     except sqlite3.Error as exc:
         raise _sqlite_http(exc) from exc
     log.info(
-        "runtime catalog plan: created=%d updated=%d renamed=%d dropped=%d unregistered=%d",
-        len(body.created), len(body.updated), len(body.renamed), len(body.dropped), len(body.unregistered),
+        "runtime catalog plan: created=%d updated=%d renamed=%d dropped=%d unregistered=%d rejected=%d",
+        len(plan["created"]), len(plan["updated"]), len(plan["renamed"]), len(plan["dropped"]),
+        len(plan["unregistered"]), len(rejected),
     )
-    return result
+    return {**result, "rejected": rejected}

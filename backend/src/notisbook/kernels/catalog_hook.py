@@ -37,7 +37,7 @@ TRANSPORT = CONFIG.get("transport", "sqlite")
 DB_PATH = CONFIG.get("db_path")
 BASE_URL = CONFIG.get("base_url")
 TOKEN = CONFIG.get("token")
-# Folders shared with the runtime (http only): the backend refuses the whole plan for a location outside them.
+# Folders shared with the runtime (http only): the backend rejects, item by item, a location outside them.
 ROOTS = tuple(CONFIG.get("roots") or ())
 MANAGED_ROOT = CONFIG["managed_root"]
 ICEBERG_WAREHOUSE = CONFIG["iceberg_warehouse"]
@@ -48,6 +48,14 @@ ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 HTTP_TIMEOUT = 8.0
 HTTP_PAUSE = 30.0
 HTTP_MAX_BYTES = 32 * 1024 * 1024
+HTTP_DETAIL_BYTES = 4096
+REJECTED = {
+    "location_outside_mounts": "its location is outside the folders shared with the runtime",
+    "location_in_iceberg_warehouse": "its location is inside the Iceberg warehouse",
+    "location_not_local": "its location is not a local folder",
+    "managed_location_rejected": "its managed location is not in the Spark warehouse",
+    "item_limits": "its name, schema or description exceeds the allowed limits",
+}
 DEFAULT_DB = "default"
 CATALOG = "spark_catalog"
 # Cells that may change a table's schema/location without a new Delta commit (DDL words, never `.drop(`).
@@ -242,6 +250,17 @@ def http_pause(seconds):
     STATE["http_pause"] = time.monotonic() + seconds
 
 
+def http_detail(exc):
+    """Short `detail` of a 4xx answer (text of the first validation error), cut and without the token; '' if unreadable."""
+    try:
+        detail = json.loads(exc.read(HTTP_DETAIL_BYTES))["detail"]
+        if isinstance(detail, list):
+            detail = "%s: %s" % (".".join(map(str, detail[0]["loc"])), detail[0]["msg"])
+        return str(detail).replace(TOKEN, "")[:120]
+    except Exception:
+        return ""
+
+
 def http_call(method, path, payload=None):
     """JSON call to the backend catalog API; errors carry a short generic text (never the URL or the token)."""
     if time.monotonic() < STATE.get("http_pause", 0.0):
@@ -256,10 +275,11 @@ def http_call(method, path, payload=None):
             body = response.read(HTTP_MAX_BYTES + 1)
     except urllib.error.HTTPError as exc:
         code = exc.code
+        detail = http_detail(exc) if code == 422 else ""
         exc.close()
         if code in (401, 403) or code >= 500:
             http_pause(HTTP_PAUSE if code < 500 else 5.0)
-        raise RuntimeError("catalog API answered HTTP %d" % code) from None
+        raise RuntimeError("catalog API answered HTTP %d%s" % (code, " (%s)" % detail if detail else "")) from None
     except (urllib.error.URLError, OSError):
         http_pause(HTTP_PAUSE)
         raise RuntimeError("catalog API unreachable") from None
@@ -667,6 +687,7 @@ def commit_http(plan):
            "conflicts": [tuple(k) for k in reply["conflicts"]],
            "dropped_ok": [tuple(k) for k in reply["dropped_ok"]],
            "files_kept": [tuple(k) for k in reply.get("files_kept", [])],
+           "rejected": [(tuple(r["key"]), str(r["reason"])) for r in reply.get("rejected", [])],
            "updated_ok": [(tuple(u["key"]), {**changes[tuple(u["key"])], "type": u["type"]})
                           for u in reply["updated_ok"] if tuple(u["key"]) in changes],
            "renamed_ok": [(tuple(r["old"]), tuple(r["new"]), infos[(tuple(r["old"]), tuple(r["new"]))])
@@ -710,6 +731,9 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
     for key, info in created:
         if key in result["adopted"]:
             known[key] = {**info, "sess_managed": info["type"] == "MANAGED"}
+    for key, reason in result.get("rejected", ()):
+        ignored.add(key)
+        warn(("rejected", skey, key), "table %s.%s was not saved in the persistent catalog: %s." % (*key, REJECTED.get(reason, reason)))
     for key in result["conflicts"]:
         ignored.add(key)
         warn(("conflict", skey, key), "table %s.%s already exists in the persistent catalog with a different location; it was not saved." % key)
@@ -775,6 +799,8 @@ def reconcile(session, raw_cell):
     created, updated, leaving = {}, [], []
     for key, table in current.items():
         if key in known:
+            if key in ignored:  # the backend rejected its last change; do not resend it every cell
+                continue
             change = refresh_table(session, key, known[key], key in deep)
             if change == LEAVE:
                 leaving.append(key)

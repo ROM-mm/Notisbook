@@ -12,7 +12,7 @@ import sys
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -699,8 +699,8 @@ class KernelService:
         return plan
 
     def _runtime_grant(self, session_id: str, plan: MountPlan) -> RuntimeGrant:
-        """Pastas montadas (por realpath) e raízes do warehouse; a Connections não entra (o backend não a conhece)."""
-        roots = tuple(dict.fromkeys(os.path.realpath(p) for p in (plan.notebooks, plan.warehouse)))
+        """Raízes do token: todas as montagens do plano (por realpath), Connections inclusive quando montada."""
+        roots = tuple(dict.fromkeys(os.path.realpath(p) for p in plan.paths))
         return RuntimeGrant(
             session_id=session_id,
             roots=roots,
@@ -746,14 +746,21 @@ class KernelService:
             raise DockerRuntimeError(409, f"A pasta atual não serve ao runtime Docker ({exc.field}): {exc.message}") from exc
         except OSError as exc:
             raise DockerRuntimeError(503, "Não foi possível preparar a pasta warehouse do runtime Docker") from exc
-        # Só raiz e warehouse: a pasta Connections é do cliente e o backend não a conhece aqui.
-        missing = {str(plan.notebooks), str(plan.warehouse)} - set(info.mounts)
-        if missing:
+        required = {str(plan.notebooks), str(plan.warehouse)}
+        if required - set(info.mounts):
             raise DockerRuntimeError(
                 409,
                 "As pastas montadas no container estão defasadas em relação à raiz atual dos notebooks; "
                 "use Recriar no runtime Docker (Spark > Installed) e tente de novo",
             )
+        # A Connections é escolha do cliente: o backend a descobre pela montagem real do container, revalidada.
+        for source in sorted(set(info.mounts) - required):
+            try:
+                connections = (await asyncio.to_thread(docker.plan_mounts, source)).connections
+            except (MountRejected, OSError):
+                continue
+            if connections is not None:
+                return replace(plan, connections=connections)
         return plan
 
     def _refresh_docker_spec(self, runtime: docker_catalog.DockerRuntime) -> None:
