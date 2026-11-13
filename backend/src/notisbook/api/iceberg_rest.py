@@ -282,6 +282,8 @@ def _guard_external(grant: RuntimeGrant, metadata_location: str | None, metadata
     O `SparkCatalog.purgeTable` (Iceberg 1.7.1) recusa o PURGE com essa propriedade, antes de qualquer drop; sem ela
     apagaria os arquivos no cliente, contornando `_drop_table`. Só vai na resposta: o metadata.json em disco e o CAS
     de `metadata_location` ficam intactos. Efeito: `expire_snapshots` e `remove_orphan_files` também são recusados.
+    Aplicado no load e nas respostas de create direto e de commit; não na do stage-create, porque o cliente reenvia
+    o metadata dele (com as propriedades) no commit `assert-create`, e a propriedade seria gravada em disco.
     """
     reference = metadata_location or metadata.get("location")
     if isinstance(reference, str) and not iceberg_jdbc.location_within_root(reference, grant.iceberg_root):
@@ -624,8 +626,9 @@ def _load_current(location: str, grant: RuntimeGrant) -> TableMetadata:
     return metadata
 
 
-def _result(grant: RuntimeGrant, metadata_location: str | None, data: bytes) -> dict[str, Any]:
-    result: dict[str, Any] = {"metadata": _guard_external(grant, metadata_location, json.loads(data)), "config": {}}
+def _result(grant: RuntimeGrant, metadata_location: str | None, data: bytes, *, guard: bool = True) -> dict[str, Any]:
+    metadata = json.loads(data)
+    result: dict[str, Any] = {"metadata": _guard_external(grant, metadata_location, metadata) if guard else metadata, "config": {}}
     if metadata_location is not None:
         result["metadata-location"] = metadata_location
     return result
@@ -714,7 +717,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         if staged:  # CTAS: nada é gravado nem registrado; a materialização chega no commit com `assert-create`
             _require_no_overlap(conn, _table_path(final_location, grant))
-            return _result(grant, None, metadata.model_dump_json().encode("utf-8"))
+            return _result(grant, None, metadata.model_dump_json().encode("utf-8"), guard=False)
         return _persist(conn, has_type, grant, ns, table, metadata, None, commit=False)
 
     return run
