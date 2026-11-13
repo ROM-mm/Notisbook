@@ -437,6 +437,7 @@ def describe_new(session, key, table):
         return None
     loc = norm_loc(info["location"])
     if is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True):
+        warn(("warehouse", skey, key), "table %s is inside the Iceberg warehouse; it is not saved in the persistent catalog." % label)
         return None
     if not allowed_location(loc):
         warn(("outside", skey, key), "table %s is outside the folders shared with the runtime; it is not saved in the persistent catalog." % label)
@@ -486,13 +487,16 @@ def hydrate(session, skey, rows, namespaces, listing=None):
 def refresh_hydrated(session, skey, keys):
     """Update registry schemas that drifted from the real table (Delta by log version, Hudi by instant, Parquet by schema)."""
     known = STATE["known"][skey]
-    changes = []
+    changes, leaving = [], []
     for key in keys:
         change = refresh_table(session, key, known[key], deep=known[key]["fmt"] == "parquet")
-        if change:
+        if change == LEAVE:
+            leaving.append(key)
+        elif change:
             changes.append((key, change))
-    if changes:
-        apply_changes(skey, [], changes, [], [], set(), set())
+    if changes or leaving:
+        STATE.setdefault("ignored", {}).setdefault(skey, set()).update(leaving)
+        apply_changes(skey, [], changes, [], leaving, set(), set(), keep_files=set(leaving))
 
 
 def attach(session):
@@ -583,8 +587,15 @@ def sync_registry(session, skey):
     guarded("refresh", refresh_hydrated, session, skey, refresh)
 
 
+LEAVE = "leave"
+
+
 def refresh_table(session, key, rec, deep):
-    """Changed fields of a known table, or None. `deep` rereads location/format/schema from Spark."""
+    """Changed fields of a known table, None, or LEAVE. `deep` rereads location/format/schema from Spark.
+
+    LEAVE: the location moved into the Iceberg warehouse or out of the shared folders; the caller unregisters
+    the table (warned once) so no session rehydrates the old path.
+    """
     fmt, loc, cols, parts, dv = rec["fmt"], rec["loc"], rec["cols"], rec["parts"], rec["dv"]
     hi = rec.get("hi")  # absent in records carried over from a hook version that predates Hudi
     if deep:
@@ -600,8 +611,14 @@ def refresh_table(session, key, rec, deep):
         cols = table_columns(session, key, parts)
         hi = cur
     new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
-    if loc != rec["loc"] and (is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True) or not allowed_location(loc)):
-        return None
+    if loc != rec["loc"]:
+        skey, label = session_key(session), "%s.%s" % key
+        if is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True):
+            warn(("warehouse", skey, key), "table %s moved into the Iceberg warehouse; it is no longer saved in the persistent catalog." % label)
+            return LEAVE
+        if not allowed_location(loc):
+            warn(("outside", skey, key), "table %s moved outside the folders shared with the runtime; it is no longer saved in the persistent catalog." % label)
+            return LEAVE
     return None if all(new[f] == rec.get(f) for f in new) else new
 
 
@@ -671,8 +688,11 @@ def commit_plan(plan, stamp):
     return result
 
 
-def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
-    """Write the plan in one transaction, then update `known`, delete files and warn."""
+def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, keep_files=frozenset()):
+    """Write the plan in one transaction, then update `known`, delete files and warn.
+
+    `keep_files`: dropped keys that only leave the registry (the table still exists); their files are never deleted here.
+    """
     known = STATE["known"][skey]
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     ignored = STATE.setdefault("ignored", {}).setdefault(skey, set())
@@ -701,6 +721,8 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
     known_dbs |= set(new_dbs)
     known_dbs -= set(gone_dbs)
     for key, loc in result["deletions"]:
+        if key in keep_files:
+            continue
         error = delete_managed(loc)
         if error:
             warn(("delete", skey, key), "kept the files of dropped table %s.%s (%s)." % (*key, error))
@@ -748,11 +770,13 @@ def reconcile(session, raw_cell):
     dbs, current, failed = list_catalog(session)
     ignored &= set(current)
     deep = deep_keys(raw_cell, known)
-    created, updated = {}, []
+    created, updated, leaving = {}, [], []
     for key, table in current.items():
         if key in known:
             change = refresh_table(session, key, known[key], key in deep)
-            if change:
+            if change == LEAVE:
+                leaving.append(key)
+            elif change:
                 updated.append((key, change))
         elif key not in ignored:
             info = describe_new(session, key, table)
@@ -762,14 +786,15 @@ def reconcile(session, raw_cell):
                 created[key] = info
     # Tables of a database whose listing failed are unknown, never dropped.
     vanished = confirm_vanished(session, skey, [k for k in known if k not in current and k[0] not in failed])
+    ignored.update(leaving)
     renamed = match_renames(vanished, created, known, raw_cell)
     tombstones = STATE.setdefault("tombstones", {}).setdefault(skey, set())
     tombstones &= set(dbs)
     new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in known_dbs and d not in tombstones}
     gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed}
-    plan = (list(created.items()), updated, renamed, vanished, new_dbs, gone_dbs)
+    plan = (list(created.items()), updated, renamed, vanished + leaving, new_dbs, gone_dbs)
     if any(plan):
-        apply_changes(skey, *plan)
+        apply_changes(skey, *plan, keep_files=set(leaving))
 
 
 def unwrap(func):

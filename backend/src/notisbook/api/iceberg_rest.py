@@ -77,7 +77,14 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_UPDATES = 1000
 MAX_PROPERTIES = 200
 # Nomes novos viram pastas: mesmo padrão do catálogo de runtime.
-DATA_PATH_PROPERTIES = ("write.data.path", "write.metadata.path")
+# Os dois últimos são nomes legados que os location providers ainda honram quando `write.data.path` falta.
+DATA_PATH_PROPERTIES = (
+    "write.data.path",
+    "write.metadata.path",
+    "write.folder-storage.path",
+    "write.object-storage.path",
+)
+LOCATION_PROVIDER_PROPERTY = "write.location-provider.impl"
 NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_$-]{0,127}")
 # Só o que o Spark 1.7 envia em CREATE/CTAS/INSERT/ALTER comuns; o resto (statistics, chaves de criptografia) é 400.
 ALLOWED_ACTIONS = frozenset(
@@ -511,10 +518,13 @@ def _check_updates(updates: tuple[Any, ...], root: str) -> None:
 
 
 def _check_data_paths(properties: dict[str, str], location: str) -> None:
-    """400 se `write.data.path`/`write.metadata.path` apontam para fora da pasta da própria tabela.
+    """400 se algum caminho de dados aponta para fora da pasta da própria tabela ou há location provider customizado.
 
     Outra tabela gravando dentro da pasta de A perderia os dados no purge de A (comparação com realpath e fold).
+    `write.location-provider.impl` carrega classe que escolhe caminhos arbitrários, então é sempre recusado.
     """
+    if LOCATION_PROVIDER_PROPERTY in properties:
+        raise _bad_request(f"{LOCATION_PROVIDER_PROPERTY} não é suportado")
     own = local_path(location)
     for key in DATA_PATH_PROPERTIES:
         value = properties.get(key)
