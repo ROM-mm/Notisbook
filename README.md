@@ -66,7 +66,7 @@ brew uninstall notisbook
 brew untap rom-mm/tap
 ```
 
-Uninstalling does not delete the data in `~/.notisbook` (environments, catalog, warehouse) or your notebooks.
+Uninstalling does not delete the data in `~/.notisbook` (environments, catalog, warehouse and the default notebooks folder `~/.notisbook/notebooks`) or notebooks in any other folder you chose. On the first run, the default notebooks folder starts with three sample notebooks (Delta, Hudi and Iceberg); to remove everything, delete `~/.notisbook` by hand.
 
 ## Quick Start
 
