@@ -3,6 +3,7 @@
 import argparse
 import dataclasses
 import signal
+import socket
 import sqlite3
 import sys
 import threading
@@ -88,6 +89,24 @@ def _stop_owned_containers() -> None:
         signal.signal(signal.SIGINT, previous)
 
 
+def _bind_listener(port: int) -> socket.socket:
+    """Abre o socket de escuta antes do uvicorn: porta ocupada falha aqui, sem lifespan, varredura ou parada de containers."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((HOST, port))
+    except OSError as exc:
+        sock.close()
+        print(
+            f"Notisbook: não foi possível abrir http://{HOST}:{port} ({exc.strerror or exc}); "
+            "a porta está em uso, talvez por outro Notisbook. Use --port <outra>.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    sock.set_inheritable(True)
+    return sock
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     settings = Settings(port=args.port)
@@ -106,23 +125,28 @@ def main(argv: list[str] | None = None) -> None:
     run_onboarding(settings.home, args.root)
     root, source, locked = _resolve_root(args.root, settings.home)
     settings = dataclasses.replace(settings, root=root, root_source=source, root_locked=locked)
+    sock = _bind_listener(settings.port)
     url = f"http://{HOST}:{settings.port}/?token={settings.token}"
     print(f"Notisbook: {url}", flush=True)
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
     # Access log desligado: o token da sessão viaja em `?token=` e iria inteiro para o stdout.
-    try:
-        uvicorn.run(
+    server = uvicorn.Server(
+        uvicorn.Config(
             create_app(settings),
-            host=HOST,
-            port=settings.port,
             log_level="info",
             access_log=False,
             timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
         )
+    )
+    try:
+        server.run(sockets=[sock])
     finally:
+        sock.close()
         # `finally`: o uvicorn re-emite o SIGINT capturado ao sair, o que vira KeyboardInterrupt aqui.
-        _stop_owned_containers()
+        # Só para containers se o servidor chegou a servir; senão o lifespan não rodou e o runtime não é nosso.
+        if server.started:
+            _stop_owned_containers()
 
 
 if __name__ == "__main__":
