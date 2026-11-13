@@ -2,9 +2,11 @@
 
 import argparse
 import dataclasses
+import signal
 import sqlite3
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 
@@ -16,6 +18,16 @@ from .catalog.store import ensure_catalog_db
 from .config import DEFAULT_PORT, HOST, Settings, default_root, ensure_home
 from .onboarding import run_onboarding
 from .preferences import RootRejected, read_notebooks_root, validate_notebooks_root
+from .runtimes.docker import catalog as docker_catalog
+from .runtimes.docker import cli as docker_cli
+from .runtimes.docker.service import inspect_container
+
+# Prazo para a aba/WebSockets abertos soltarem o servidor: sem ele o 1º Ctrl+C espera sem limite e o 2º
+# (saída forçada) pula o lifespan, onde os containers são parados.
+GRACEFUL_SHUTDOWN_S = 5
+# Prazo total do fallback que para os containers do app depois que o servidor sai.
+FALLBACK_STOP_BUDGET_S = 20.0
+FALLBACK_STOP_GRACE_S = 10
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -43,6 +55,39 @@ def _resolve_root(cli_root: Path | None, home: Path) -> tuple[Path, str, bool]:
     return default_root(home).resolve(), "default", False
 
 
+def _stop_owned_containers() -> None:
+    """Fallback síncrono pós-servidor: para (nunca remove) containers do catálogo com label de dono e ainda rodando.
+
+    Idempotente: o lifespan normalmente já parou tudo. SIGINT é ignorado aqui (prazo total limitado) para
+    um Ctrl+C a mais não abortar o `docker stop`.
+    """
+    deadline = time.monotonic() + FALLBACK_STOP_BUDGET_S
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        if docker_cli.docker_binary() is None or not docker_cli.is_available(timeout=min(5.0, FALLBACK_STOP_BUDGET_S)):
+            print("Notisbook: Docker indisponível; containers dos runtimes não foram verificados.", file=sys.stderr)
+            return
+        for runtime in docker_catalog.CATALOG:
+            remaining = deadline - time.monotonic()
+            if remaining <= 1:
+                print("Notisbook: prazo esgotado; verifique os containers dos runtimes Docker.", file=sys.stderr)
+                return
+            info = inspect_container(runtime)
+            if info is None or not info.running or not info.owned_by(runtime):
+                continue
+            print(f"Notisbook: parando container {runtime.container}…", file=sys.stderr, flush=True)
+            result = docker_cli.run(
+                ["stop", "-t", str(FALLBACK_STOP_GRACE_S), runtime.container],
+                timeout=max(1.0, deadline - time.monotonic()),
+            )
+            if result.returncode != 0:
+                print(f"Notisbook: não foi possível parar o container {runtime.container}.", file=sys.stderr)
+    except (docker_cli.DockerError, OSError) as exc:
+        print(f"Notisbook: containers dos runtimes não foram parados ({exc}).", file=sys.stderr)
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     settings = Settings(port=args.port)
@@ -66,7 +111,18 @@ def main(argv: list[str] | None = None) -> None:
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, args=(url,)).start()
     # Access log desligado: o token da sessão viaja em `?token=` e iria inteiro para o stdout.
-    uvicorn.run(create_app(settings), host=HOST, port=settings.port, log_level="info", access_log=False)
+    try:
+        uvicorn.run(
+            create_app(settings),
+            host=HOST,
+            port=settings.port,
+            log_level="info",
+            access_log=False,
+            timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
+        )
+    finally:
+        # `finally`: o uvicorn re-emite o SIGINT capturado ao sair, o que vira KeyboardInterrupt aqui.
+        _stop_owned_containers()
 
 
 if __name__ == "__main__":

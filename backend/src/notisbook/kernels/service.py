@@ -651,7 +651,7 @@ class KernelService:
             try:
                 await asyncio.wait_for(docker.stop(runtime), DOCKER_STOP_WAIT)
             except DOCKER_STOP_SKIPPED as exc:  # container ausente, Docker fora do ar, timeout: nada a parar
-                log.info("container of runtime %s not stopped: %s", runtime.key, type(exc).__name__)
+                log.warning("container %s was not stopped at shutdown: %s", runtime.container, type(exc).__name__)
 
     async def _prepare_docker(self, runtime: docker_catalog.DockerRuntime) -> None:
         """Garante que o runtime Docker pode abrir um kernel e deixa o container rodando; levanta `DockerRuntimeError`."""
