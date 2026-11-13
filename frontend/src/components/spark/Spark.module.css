@@ -609,3 +609,86 @@
   flex: none;
   gap: var(--space-2);
 }
+
+/* Runtimes Docker */
+.tagDocker {
+  background: var(--color-accent-subtle);
+}
+
+.dockerFacts {
+  margin: 0 var(--space-5);
+  grid-template-columns: 104px minmax(0, 1fr);
+}
+
+.dockerState {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.staleBox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  background: var(--color-warning-subtle);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.staleBox > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0 var(--space-5);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  list-style: none;
+  font-size: var(--font-size-sm);
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--color-text-subtle);
+}
+
+.step_running {
+  color: var(--color-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.step_done {
+  color: var(--color-text);
+}
+
+.step_done .stepMark {
+  color: var(--color-success);
+}
+
+.step_failed {
+  color: var(--color-danger);
+}
+
+.stepMark {
+  width: 14px;
+  flex: none;
+  text-align: center;
+}
+
+.pkgDialog > .steps {
+  margin: 0 var(--space-5);
+}
+
+.dockerFacts .tag {
+  margin-left: var(--space-2);
+}

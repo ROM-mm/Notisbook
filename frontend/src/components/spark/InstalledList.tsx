@@ -3,18 +3,24 @@
  * chama `DELETE /api/spark/versions/{v}`; fica desabilitado enquanto houver
  * sessão de kernel ativa daquela versão (o backend também responde 409).
  * "Config" abre o diálogo de libs do ambiente, com o mesmo bloqueio.
+ * Runtimes Docker instalados aparecem na mesma lista (selo `docker`), depois dos Local.
  */
 import { useState } from "react";
 import { ApiError, errorMessage } from "../../api/http";
-import type { InstalledSpark, SessionInfo, SparkVersions } from "../../api/types";
+import type { DockerRuntime, DockerRuntimes, InstalledSpark, SessionInfo, SparkVersions } from "../../api/types";
+import { DockerInstalledRow } from "./DockerInstalledRow";
 import { PackagesDialog } from "./PackagesDialog";
 import type { Loadable } from "./useSparkData";
 import styles from "./Spark.module.css";
 
 interface Props {
   versions: Loadable<SparkVersions>;
+  docker: Loadable<DockerRuntimes>;
+  connectionsDir: string | null;
   sessions: SessionInfo[];
   onRemove: (version: string) => Promise<void>;
+  onDockerAction: (key: string, action: "stop" | "restart" | "remove") => Promise<void>;
+  onDockerRecreate: (runtime: DockerRuntime) => void;
 }
 
 function removeError(err: unknown): string {
@@ -61,6 +67,7 @@ function Row({ item, sessions, installing, installingVersion, onRemove }: { item
       <div className={styles.rowMain}>
         <div className={styles.rowTitle}>
           <span className={styles.rowVersion}>Spark {item.version}</span>
+          <span className={styles.tag}>local</span>
           <span className={styles.rowKernel}>{item.kernel_name}</span>
           {item.legacy ? (
             <span className={styles.tag} title="Environment created outside Notisbook (.venv-spark*)">
@@ -115,8 +122,9 @@ function Row({ item, sessions, installing, installingVersion, onRemove }: { item
   );
 }
 
-export function InstalledList({ versions, sessions, onRemove }: Props) {
+export function InstalledList({ versions, docker, connectionsDir, sessions, onRemove, onDockerAction, onDockerRecreate }: Props) {
   const data = versions.data;
+  const dockerInstalled = (docker.data?.runtimes ?? []).filter((r) => r.installed);
   const installing = new Set((data?.installing ?? []).map((i) => i.kernel_name));
   const installingVersion = new Set((data?.installing ?? []).filter((i) => i.kind === "install").map((i) => i.kernel_name));
   return (
@@ -125,12 +133,21 @@ export function InstalledList({ versions, sessions, onRemove }: Props) {
         <h3 className={styles.blockTitle}>Installed</h3>
       </div>
       {versions.error ? <p className={styles.error}>Could not list the versions: {versions.error}</p> : null}
-      {data && data.installed.length === 0 ? <p className={styles.text}>No versions installed yet.</p> : null}
+      {docker.error ? <p className={styles.error}>Could not list the Docker runtimes: {docker.error}</p> : null}
+      {docker.data && !docker.data.available ? (
+        <p className={styles.notice} data-testid="docker-unavailable">
+          Docker is not available (start Colima or Docker Desktop). Docker environments cannot be checked or used until it is running.
+        </p>
+      ) : null}
+      {data && data.installed.length === 0 && dockerInstalled.length === 0 ? <p className={styles.text}>No versions installed yet.</p> : null}
       {!data && versions.loading ? <p className={styles.text}>Loading…</p> : null}
-      {data && data.installed.length > 0 ? (
+      {(data && data.installed.length > 0) || dockerInstalled.length > 0 ? (
         <ul className={styles.rows}>
-          {data.installed.map((item) => (
+          {(data?.installed ?? []).map((item) => (
             <Row key={item.kernel_name} item={item} sessions={sessions} installing={installing.has(item.kernel_name)} installingVersion={installingVersion.has(item.kernel_name)} onRemove={onRemove} />
+          ))}
+          {dockerInstalled.map((rt) => (
+            <DockerInstalledRow key={rt.key} runtime={rt} connectionsDir={connectionsDir} sessions={sessions} onAction={onDockerAction} onRecreate={onDockerRecreate} />
           ))}
         </ul>
       ) : null}
