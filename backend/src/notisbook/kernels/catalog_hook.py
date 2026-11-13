@@ -519,9 +519,20 @@ def refresh_hydrated(session, skey, keys):
         apply_changes(skey, [], changes, [], leaving, set(), set(), keep_files=set(leaving))
 
 
+def set_iceberg_token(session):
+    """Put the runtime token of the `iceberg` (REST) catalog in the session conf, not in the spark-submit argv (visible in `ps`).
+
+    Spark only reads `spark.sql.catalog.iceberg.*` when it loads the catalog, on first use.
+    """
+    if TRANSPORT == "http" and TOKEN:
+        guarded("iceberg-token", session.conf.set, "spark.sql.catalog.iceberg.token", TOKEN)
+
+
 def attach(session):
     if getattr(session, "_jsparkSession", None) is None:
         return
+    # Sessions made by `SparkSession(sc)` or `newSession()` never pass through getOrCreate.
+    set_iceberg_token(session)
     skey = session_key(session)
     if skey in STATE.setdefault("attached", set()) or skey in STATE.setdefault("off", set()):
         return
@@ -835,10 +846,6 @@ def wrap_get_or_create(original):
     @functools.wraps(original)
     def get_or_create(self):
         session = original(self)
-        if TRANSPORT == "http" and TOKEN:
-            # Token do catálogo `iceberg` (REST) na conf da sessão: o `Builder.config` iria ao argv do spark-submit (visível
-            # no `ps`). O Spark só lê `spark.sql.catalog.iceberg.*` ao carregar o catálogo, no primeiro uso.
-            guarded("iceberg-token", session.conf.set, "spark.sql.catalog.iceberg.token", TOKEN)
         guarded("getOrCreate", attach, session)
         return session
     get_or_create._notisbook_original = original
