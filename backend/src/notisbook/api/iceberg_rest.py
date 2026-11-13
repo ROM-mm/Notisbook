@@ -301,7 +301,7 @@ def _load_table(grant: RuntimeGrant, ns: str, table: str) -> Callable[[sqlite3.C
             raise _outside_mounts() from None
         except iceberg_jdbc.IcebergMetadataError:
             raise IcebergError(500, "ServiceFailureException", "Não foi possível ler o metadata da tabela") from None
-        return {"metadata-location": location, "metadata": metadata, "config": {}}
+        return {"metadata-location": location, "metadata": _guard_external(grant, location, metadata), "config": {}}
 
     return query
 
