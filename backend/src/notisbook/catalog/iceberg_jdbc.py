@@ -399,3 +399,79 @@ def table_metadata_location(conn: sqlite3.Connection, namespace: str, table: str
         (ICEBERG_CATALOG, namespace, table),
     ).fetchone()
     return None if row is None else str(row[0])
+
+
+def insert_table(conn: sqlite3.Connection, namespace: str, table: str, metadata_location: str, has_type: bool) -> bool:
+    """INSERT do `JdbcCatalog.createTable` (V1); `False` se a chave já existe (tabela ou view). Dentro de transação."""
+    columns = "catalog_name, table_namespace, table_name, metadata_location, previous_metadata_location"
+    values = "?, ?, ?, ?, NULL"
+    if has_type:
+        columns += ", iceberg_type"
+        values += ", 'TABLE'"
+    try:
+        conn.execute(
+            f"INSERT INTO iceberg_tables ({columns}) VALUES ({values})",
+            (ICEBERG_CATALOG, namespace, table, metadata_location),
+        )
+    except sqlite3.IntegrityError:
+        return False
+    return True
+
+
+def swap_metadata_location(
+    conn: sqlite3.Connection, namespace: str, table: str, expected: str, new: str, has_type: bool
+) -> bool:
+    """CAS do commit, com o mesmo predicado do `JdbcTableOperations`; `False` se a localização atual mudou."""
+    cursor = conn.execute(
+        "UPDATE iceberg_tables SET metadata_location = ?, previous_metadata_location = ? "
+        f"WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? AND metadata_location = ? {_type_filter(has_type)}",
+        (new, expected, ICEBERG_CATALOG, namespace, table, expected),
+    )
+    return cursor.rowcount == 1
+
+
+def delete_table_row(conn: sqlite3.Connection, namespace: str, table: str, has_type: bool) -> bool:
+    """`DELETE` do `JdbcCatalog.dropTable`; `False` se a tabela não existe."""
+    cursor = conn.execute(
+        f"DELETE FROM iceberg_tables WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? {_type_filter(has_type)}",
+        (ICEBERG_CATALOG, namespace, table),
+    )
+    return cursor.rowcount == 1
+
+
+def table_row_exists(conn: sqlite3.Connection, namespace: str, table: str) -> bool:
+    """Existe tabela OU view com esse nome (a chave primária é a mesma)."""
+    row = conn.execute(
+        "SELECT 1 FROM iceberg_tables WHERE catalog_name = ? AND table_namespace = ? AND table_name = ?",
+        (ICEBERG_CATALOG, namespace, table),
+    ).fetchone()
+    return row is not None
+
+
+def rename_table_row(
+    conn: sqlite3.Connection, source: tuple[str, str], target: tuple[str, str], has_type: bool
+) -> bool:
+    """`UPDATE` do `JdbcCatalog.renameTable`; `False` se a origem não existe. O destino deve ser checado antes."""
+    cursor = conn.execute(
+        "UPDATE iceberg_tables SET table_namespace = ?, table_name = ? "
+        f"WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? {_type_filter(has_type)}",
+        (target[0], target[1], ICEBERG_CATALOG, source[0], source[1]),
+    )
+    return cursor.rowcount == 1
+
+
+def set_namespace_properties(conn: sqlite3.Connection, namespace: str, properties: dict[str, str]) -> None:
+    for key, value in properties.items():
+        conn.execute(
+            "INSERT OR REPLACE INTO iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) "
+            "VALUES (?, ?, ?, ?)",
+            (ICEBERG_CATALOG, namespace, key, value),
+        )
+
+
+def remove_namespace_property(conn: sqlite3.Connection, namespace: str, key: str) -> bool:
+    cursor = conn.execute(
+        "DELETE FROM iceberg_namespace_properties WHERE catalog_name = ? AND namespace = ? AND property_key = ?",
+        (ICEBERG_CATALOG, namespace, key),
+    )
+    return cursor.rowcount > 0
