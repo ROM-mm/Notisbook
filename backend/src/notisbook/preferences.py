@@ -1,8 +1,9 @@
-"""Preferências do operador em `<home>/preferences.json` (`{"version": 1, "notebooks_root": "/abs"}`).
+"""Preferências do operador em `<home>/preferences.json`.
 
-Leitura tolerante: arquivo ausente, malformado ou de outra versão é ignorado com aviso.
-Escrita atômica (arquivo temporário no mesmo diretório + `os.replace`), modo 0600.
-Também concentra a validação da raiz dos notebooks, usada pela API e pelo start da CLI.
+Formato: `{"version": 1, "notebooks_root": "/abs", "samples_seeded": true}`; as duas chaves são opcionais
+e chaves desconhecidas são preservadas na gravação. Leitura tolerante: arquivo malformado ou de outra
+versão é ignorado com aviso. Escrita atômica (temporário no mesmo diretório + `os.replace`), modo 0600,
+sempre mesclada ao conteúdo atual. Também concentra a validação da raiz dos notebooks (API e CLI).
 """
 
 import json
@@ -10,6 +11,9 @@ import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
+
+from .config import default_root
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +25,8 @@ def preferences_path(home: Path) -> Path:
     return home / FILENAME
 
 
-def read_notebooks_root(home: Path) -> str | None:
-    """Caminho salvo da raiz dos notebooks, ou None se ausente/inválido (sem validar o diretório)."""
+def _read_raw(home: Path) -> dict[str, Any] | None:
+    """Conteúdo do arquivo quando é um objeto JSON `version == 1`; None se ausente, ilegível ou de outra versão."""
     path = preferences_path(home)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -31,20 +35,28 @@ def read_notebooks_root(home: Path) -> str | None:
     except (OSError, ValueError) as exc:
         logger.warning("Ignoring unreadable preferences file %s: %s", path, exc)
         return None
-    value = data.get("notebooks_root") if isinstance(data, dict) and data.get("version") == VERSION else None
-    if not isinstance(value, str) or not value.startswith("/") or "\x00" in value:
+    if not isinstance(data, dict) or data.get("version") != VERSION:
         logger.warning("Ignoring preferences file %s: unexpected content", path)
+        return None
+    return data
+
+
+def read_notebooks_root(home: Path) -> str | None:
+    """Caminho salvo da raiz dos notebooks, ou None se ausente/inválido (sem validar o diretório)."""
+    data = _read_raw(home)
+    if data is None or "notebooks_root" not in data:
+        return None
+    value = data["notebooks_root"]
+    if not isinstance(value, str) or not value.startswith("/") or "\x00" in value:
+        logger.warning("Ignoring preferences file %s: unexpected content", preferences_path(home))
         return None
     return value
 
 
-def stage_notebooks_root(home: Path, root: Path) -> Path:
-    """Escreve a preferência num temporário (fsync, 0600) sem publicá-la; devolve o temporário.
-
-    Separado do `commit` para que o commit (um `os.replace`) rode no event loop,
-    atômico com a checagem final de sessões. Levanta OSError em falha.
-    """
-    payload = json.dumps({"version": VERSION, "notebooks_root": str(root)}, indent=2) + "\n"
+def _stage(home: Path, updates: dict[str, Any]) -> Path:
+    """Mescla `updates` ao conteúdo atual e grava num temporário (fsync, 0600); devolve o temporário."""
+    merged = {**(_read_raw(home) or {}), "version": VERSION, **updates}
+    payload = json.dumps(merged, indent=2) + "\n"
     fd, tmp_name = tempfile.mkstemp(dir=home, prefix=".preferences-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as tmp:
@@ -58,6 +70,19 @@ def stage_notebooks_root(home: Path, root: Path) -> Path:
     return Path(tmp_name)
 
 
+def stage_notebooks_root(home: Path, root: Path, *, samples_seeded: bool = False) -> Path:
+    """Escreve a preferência num temporário sem publicá-la; devolve o temporário.
+
+    Separado do `commit` para que o commit (um `os.replace`) rode no event loop,
+    atômico com a checagem final de sessões. Preserva as demais chaves do arquivo atual.
+    `samples_seeded=True` também grava o marcador. Levanta OSError em falha.
+    """
+    updates: dict[str, Any] = {"notebooks_root": str(root)}
+    if samples_seeded:
+        updates["samples_seeded"] = True
+    return _stage(home, updates)
+
+
 def commit_notebooks_root(home: Path, staged: Path) -> None:
     """Publica o temporário de `stage_notebooks_root`; em falha o arquivo anterior fica intacto e o temporário é removido."""
     try:
@@ -67,9 +92,14 @@ def commit_notebooks_root(home: Path, staged: Path) -> None:
         raise
 
 
-def write_notebooks_root(home: Path, root: Path) -> None:
+def write_notebooks_root(home: Path, root: Path, *, samples_seeded: bool = False) -> None:
     """Grava a raiz de forma atômica. Levanta OSError em falha (o arquivo anterior fica intacto)."""
-    commit_notebooks_root(home, stage_notebooks_root(home, root))
+    commit_notebooks_root(home, stage_notebooks_root(home, root, samples_seeded=samples_seeded))
+
+
+def mark_samples_seeded(home: Path) -> None:
+    """Grava o marcador `samples_seeded` (atômico, 0600), preservando as demais chaves. Levanta OSError em falha."""
+    commit_notebooks_root(home, _stage(home, {"samples_seeded": True}))
 
 
 class RootRejected(Exception):
@@ -89,7 +119,8 @@ def protected_paths(data_home: Path) -> tuple[Path, ...]:
 def validate_notebooks_root(raw: str, data_home: Path) -> Path:
     """Caminho absoluto, existente, diretório acessível e fora das raízes proibidas; devolve o caminho resolvido.
 
-    Bloqueia `/`, qualquer ancestral (ou o próprio) home do usuário e pasta de dados, e o interior desta.
+    Bloqueia `/`, qualquer ancestral (ou o próprio) home do usuário e pasta de dados, e o interior desta,
+    exceto `<dados>/notebooks` (comparação exata, com caixa) e seus descendentes.
     I/O bloqueante: chame fora do event loop. Levanta `RootRejected`.
     """
     if "\x00" in raw or not raw.startswith("/"):
@@ -103,7 +134,9 @@ def validate_notebooks_root(raw: str, data_home: Path) -> Path:
     if not resolved.is_dir():
         raise RootRejected(400, "Not a directory")
     user_home, data = protected_paths(data_home)
-    if resolved == data or data in resolved.parents:
+    managed = default_root(data)
+    in_managed = resolved == managed or managed in resolved.parents
+    if not in_managed and (resolved == data or data in resolved.parents):
         raise RootRejected(400, "The Notisbook data folder cannot be used as the notebooks folder")
     if any(p == resolved or p.is_relative_to(resolved) for p in (user_home, data)):
         raise RootRejected(400, "This folder cannot be used as the notebooks folder")

@@ -28,8 +28,9 @@ build-backend = "hatchling.build"
 packages = ["src/notisbook"]
 # `_frontend` é gitignorado (cópia do build); sem `artifacts` o hatch o omitiria do wheel.
 artifacts = ["src/notisbook/_frontend"]
+exclude = ["**/.ipynb_checkpoints"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/LICENSE", "/pyproject.toml"]
-exclude = ["**/__pycache__", "**/*.pyc"]
+exclude = ["**/__pycache__", "**/*.pyc", "**/.ipynb_checkpoints"]
 artifacts = ["src/notisbook/_frontend"]

@@ -14,6 +14,7 @@ from . import __version__
 from .app import create_app
 from .catalog.store import ensure_catalog_db
 from .config import DEFAULT_PORT, HOST, Settings, default_root, ensure_home
+from .onboarding import run_onboarding
 from .preferences import RootRejected, read_notebooks_root, validate_notebooks_root
 
 
@@ -27,7 +28,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 
 
 def _resolve_root(cli_root: Path | None, home: Path) -> tuple[Path, str, bool]:
-    """Raiz inicial e sua origem: `--root` (trava a UI) > preferência salva > `default_root()`.
+    """Raiz inicial e sua origem: `--root` (trava a UI) > preferência salva > `default_root(home)`.
 
     A preferência salva nunca é criada aqui: se for inválida (mesma validação da API), cai no default com aviso.
     """
@@ -39,7 +40,7 @@ def _resolve_root(cli_root: Path | None, home: Path) -> tuple[Path, str, bool]:
             return validate_notebooks_root(saved, home), "saved", False
         except RootRejected as exc:
             print(f"Notisbook: saved notebooks folder {saved} is not usable ({exc.message}); using the default.", file=sys.stderr)
-    return default_root().resolve(), "default", False
+    return default_root(home).resolve(), "default", False
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -57,6 +58,7 @@ def main(argv: list[str] | None = None) -> None:
     except sqlite3.Error as exc:
         print(f"Notisbook: cannot prepare catalog database in {settings.home}: {exc}", file=sys.stderr)
         sys.exit(1)
+    run_onboarding(settings.home, args.root)
     root, source, locked = _resolve_root(args.root, settings.home)
     settings = dataclasses.replace(settings, root=root, root_source=source, root_locked=locked)
     url = f"http://{HOST}:{settings.port}/?token={settings.token}"

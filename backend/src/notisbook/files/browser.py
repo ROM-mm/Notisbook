@@ -9,6 +9,7 @@ from typing import Any
 from .. import fs_safety
 from ..catalog import iceberg_jdbc, registry
 from ..catalog.store import catalog_db_path, connect
+from ..config import default_root
 from ..preferences import protected_paths
 
 
@@ -127,18 +128,31 @@ def _in_allowlist(real: Path, user_home: Path) -> bool:
 
 
 def _refuse_protected(lexical: Path, real: Path, notebooks_root: Path, data_home: Path) -> None:
-    """403 `protected_path` quando a pasta (já resolvida) não pode ser apagada pelo painel."""
+    """403 `protected_path` quando a pasta (já resolvida) não pode ser apagada pelo painel.
+
+    Estritamente dentro de `<dados>/notebooks` (caixa exata) a pasta de dados, a allowlist e as pastas ocultas
+    acima dessa raiz não valem; ela mesma, partes ocultas abaixo dela e a raiz ativa continuam protegidas.
+    """
     data = data_home.resolve()
+    managed = default_root(data)
+    inside_managed = real != managed and fs_safety.is_within(real, managed)
+    if inside_managed:
+        below = real.relative_to(managed).parts
+        # `lexical` fora de `managed` (alias por link): mantém todas as partes, o que só recusa mais.
+        lexical_below = lexical.relative_to(managed).parts if fs_safety.is_within(lexical, managed) else lexical.parts
+        hidden_parts = (*lexical_below, *below)
+    else:
+        hidden_parts = (*lexical.parts, *real.parts)
     reason: str | None = None
     if real == Path(real.anchor):
         reason = "The filesystem root cannot be deleted"
     elif fs_safety.is_protected(real, protected_paths(data_home), fold=True):
         reason = "This folder is protected or contains a protected folder"
-    elif fs_safety.is_within(real, data, fold=True):
+    elif not inside_managed and fs_safety.is_within(real, data, fold=True):
         reason = "The Notisbook data folder cannot be deleted from here"
-    elif any(part.startswith(".") for part in (*lexical.parts, *real.parts)):
+    elif any(part.startswith(".") for part in hidden_parts):
         reason = "Hidden folders cannot be deleted"
-    elif not _in_allowlist(real, Path.home().resolve()):
+    elif not inside_managed and not _in_allowlist(real, Path.home().resolve()):
         reason = "Only folders in your home folder or on mounted volumes can be deleted"
     elif fs_safety.is_protected(real, (notebooks_root,), fold=True):
         reason = "The notebooks folder cannot be deleted from here"

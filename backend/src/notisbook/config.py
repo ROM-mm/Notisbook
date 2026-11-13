@@ -13,8 +13,9 @@ HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 
 
-def default_root() -> Path:
-    return Path.home() / "notebooks"
+def default_root(home: Path) -> Path:
+    """Pasta padrão dos notebooks: `<home>/notebooks`, dentro da pasta de dados do Notisbook."""
+    return home / "notebooks"
 
 
 def default_home() -> Path:
@@ -52,7 +53,7 @@ def default_pypi_url() -> str:
 @dataclass(frozen=True)
 class Settings:
     port: int = DEFAULT_PORT
-    root: Path = field(default_factory=default_root)
+    root: Path = None  # type: ignore[assignment]  # preenchido em __post_init__ a partir de `home`
     home: Path = field(default_factory=default_home)
     pypi_url: str = field(default_factory=default_pypi_url)
     frontend_dist: Path = field(default_factory=default_frontend_dist)
@@ -61,6 +62,10 @@ class Settings:
     root_source: str = "default"
     root_locked: bool = False
     host: str = field(default=HOST, init=False)
+
+    def __post_init__(self) -> None:
+        if self.root is None:
+            object.__setattr__(self, "root", default_root(self.home))
 
     @property
     def allowed_origins(self) -> frozenset[str]:
