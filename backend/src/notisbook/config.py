@@ -50,10 +50,14 @@ def default_pypi_url() -> str:
     return os.environ.get("NOTISBOOK_PYPI_URL") or "https://pypi.org"
 
 
+# Marca "root não informada"; comparada por identidade em `__post_init__`, que a substitui pela raiz padrão.
+_ROOT_UNSET = Path("/.notisbook-root-unset")
+
+
 @dataclass(frozen=True)
 class Settings:
     port: int = DEFAULT_PORT
-    root: Path = None  # type: ignore[assignment]  # preenchido em __post_init__ a partir de `home`
+    root: Path = _ROOT_UNSET
     home: Path = field(default_factory=default_home)
     pypi_url: str = field(default_factory=default_pypi_url)
     frontend_dist: Path = field(default_factory=default_frontend_dist)
@@ -64,7 +68,7 @@ class Settings:
     host: str = field(default=HOST, init=False)
 
     def __post_init__(self) -> None:
-        if self.root is None:
+        if self.root is _ROOT_UNSET:
             object.__setattr__(self, "root", default_root(self.home))
 
     @property

@@ -83,13 +83,18 @@ def stage_notebooks_root(home: Path, root: Path, *, samples_seeded: bool = False
     return _stage(home, updates)
 
 
-def commit_notebooks_root(home: Path, staged: Path) -> None:
-    """Publica o temporário de `stage_notebooks_root`; em falha o arquivo anterior fica intacto e o temporário é removido."""
+def _commit_preferences(home: Path, staged: Path) -> None:
+    """Publica um temporário de `_stage` como `preferences.json`; em falha o arquivo anterior fica intacto e o temporário é removido."""
     try:
         os.replace(staged, preferences_path(home))
     except BaseException:
         staged.unlink(missing_ok=True)
         raise
+
+
+def commit_notebooks_root(home: Path, staged: Path) -> None:
+    """Publica o temporário de `stage_notebooks_root`; em falha o arquivo anterior fica intacto e o temporário é removido."""
+    _commit_preferences(home, staged)
 
 
 def write_notebooks_root(home: Path, root: Path, *, samples_seeded: bool = False) -> None:
@@ -99,7 +104,7 @@ def write_notebooks_root(home: Path, root: Path, *, samples_seeded: bool = False
 
 def mark_samples_seeded(home: Path) -> None:
     """Grava o marcador `samples_seeded` (atômico, 0600), preservando as demais chaves. Levanta OSError em falha."""
-    commit_notebooks_root(home, _stage(home, {"samples_seeded": True}))
+    _commit_preferences(home, _stage(home, {"samples_seeded": True}))
 
 
 class RootRejected(Exception):
