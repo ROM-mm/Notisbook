@@ -1,6 +1,7 @@
 """Salvaguardas de exclusão de pastas, compartilhadas pelos painéis Notebooks e Files."""
 
 import shutil
+import unicodedata
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -10,7 +11,8 @@ class PartialDelete(Exception):
 
 
 def _parts(path: Path, fold: bool) -> tuple[str, ...]:
-    return tuple(p.casefold() for p in path.parts) if fold else path.parts
+    # APFS trata `café` NFC e NFD como a mesma pasta; sem normalizar, a sobreposição passaria despercebida.
+    return tuple(unicodedata.normalize("NFC", p).casefold() for p in path.parts) if fold else path.parts
 
 
 def is_within(inner: Path, outer: Path, *, fold: bool = False) -> bool:
