@@ -23,7 +23,7 @@ from jupyter_core.paths import jupyter_runtime_dir
 from nbformat.v4 import output_from_msg
 
 from ..catalog.store import catalog_db_path
-from ..config import Settings
+from ..config import RUNTIME_HOST, Settings
 from ..runtimes.docker import catalog as docker_catalog
 from ..runtimes.docker import cli as docker_cli
 from ..runtimes.docker import kernelspec as docker_spec
@@ -52,6 +52,7 @@ from ..spark.bundles import (
 )
 from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
+from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
 from .introspect import Probe, VarOp, build_variables_request, parse_reply
 from .protocol import (
     ClearOutputEvent,
@@ -707,6 +708,15 @@ class KernelService:
             iceberg_root=str(self._home / WAREHOUSE_DIR / "iceberg"),
         )
 
+    def _docker_catalog_factory(self, grant: RuntimeGrant) -> Callable[[str], str]:
+        """Snippet do hook com transporte HTTP; o container alcança o backend pelo `host.lima.internal`."""
+        base_url = f"http://{RUNTIME_HOST}:{self._port}/api/runtime-catalog"
+
+        def build(token: str) -> str:
+            return build_catalog_http_ensure_code(base_url, token, grant.managed_root, grant.iceberg_root, grant.roots)
+
+        return build
+
     @staticmethod
     def _refuse_if_mutating(docker: DockerRuntimes, runtime: docker_catalog.DockerRuntime) -> None:
         if docker.is_mutating(runtime.kernel_name):
@@ -826,8 +836,9 @@ class KernelService:
                 manager,
                 target=target,
                 duckdb_ext_dir=self._duckdb_ext_dir,
-                # O container nunca grava o catalog.db: sem o hook de catálogo no kernel Docker.
+                # O container nunca toca o catalog.db: no Docker o hook fala com a API do backend (snippet vem do token).
                 catalog_ensure="" if docker_runtime is not None else self._catalog_ensure,
+                catalog_factory=self._docker_catalog_factory(runtime_grant) if runtime_grant is not None else None,
                 docker_runtime=docker_runtime,
                 docker_tag=docker_launch.tag_for(connection_file) if docker_runtime is not None else "",
                 runtime_tokens=self.runtime_tokens if docker_runtime is not None else None,

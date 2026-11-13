@@ -11,6 +11,8 @@ the schema and Iceberg lives in its own JDBC catalog.
 The config reaches the kernel as JSON literals (the kernel reads no env vars). Hook errors never
 reach the user's cell: they are kept in `STATE["errors"]` and warned once, briefly, on stderr.
 Files of a dropped MANAGED table are deleted only under `managed_root` (see `delete_managed`).
+With `transport: "http"` (Docker runtime) the registry is read and written through the backend API
+(stdlib `urllib`, per-session token) and the backend, not the kernel, deletes MANAGED files.
 """
 
 import hashlib
@@ -18,22 +20,32 @@ import inspect
 import json
 
 from ..catalog.managed import managed_table_dir
+from ..catalog.registry import apply_plan, read_snapshot
 
 MODULE_NAME = "_notisbook_catalog"
 
 # Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__ and __MANAGED_HELPERS__.
 _KERNEL_TEMPLATE = r'''
-import functools, importlib.abc, importlib.util, json, os, re, shutil, sqlite3, sys
+import functools, importlib.abc, importlib.util, json, os, re, shutil, sqlite3, sys, time
+import urllib.error, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
 CONFIG = json.loads(__CONFIG__)
-DB_PATH = CONFIG["db_path"]
+TRANSPORT = CONFIG.get("transport", "sqlite")
+DB_PATH = CONFIG.get("db_path")
+BASE_URL = CONFIG.get("base_url")
+TOKEN = CONFIG.get("token")
+# Folders shared with the runtime (http only): the backend refuses the whole plan for a location outside them.
+ROOTS = tuple(CONFIG.get("roots") or ())
 MANAGED_ROOT = CONFIG["managed_root"]
 ICEBERG_WAREHOUSE = CONFIG["iceberg_warehouse"]
 WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session")
-SUPPORTED = ("delta", "parquet", "hudi")
+SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
+HTTP_TIMEOUT = 8.0
+HTTP_PAUSE = 30.0
+HTTP_MAX_BYTES = 32 * 1024 * 1024
 DEFAULT_DB = "default"
 CATALOG = "spark_catalog"
 # Cells that may change a table's schema/location without a new Delta commit (DDL words, never `.drop(`).
@@ -102,6 +114,14 @@ def norm_loc(location):
     return Path(path).as_uri() if path else location
 
 
+def allowed_location(location):
+    """True unless (http only) the location is not strictly inside a folder shared with the runtime."""
+    if not ROOTS:
+        return True
+    path = local_path(location)
+    return bool(path) and any(is_under(path, r) and path.rstrip("/") != r.rstrip("/") for r in ROOTS)
+
+
 def is_under(location, root):
     """True when `location` is `root` or inside it (compared with a trailing separator: `a/iceberg` is not `a/iceberg_raw`)."""
     return (location.rstrip("/") + "/").startswith(root.rstrip("/") + "/")
@@ -164,6 +184,9 @@ def hudi_instant(location):
 __MANAGED_HELPERS__
 
 
+__REGISTRY_HELPERS__
+
+
 def delete_managed(location):
     """Delete a dropped MANAGED table folder; returns an error text, or None when deleted/nothing to do.
 
@@ -198,22 +221,66 @@ def read_generation(conn):
     return int(row[0]) if row else 0
 
 
-def read_registry():
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # the Authorization header must never follow a redirect
+
+
+# No proxy from the environment either: the token goes only to the backend.
+HTTP_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+
+
+def http_pause(seconds):
+    STATE["http_pause"] = time.monotonic() + seconds
+
+
+def http_call(method, path, payload=None):
+    """JSON call to the backend catalog API; errors carry a short generic text (never the URL or the token)."""
+    if time.monotonic() < STATE.get("http_pause", 0.0):
+        raise RuntimeError("catalog API unreachable (retrying shortly)")
+    data = json.dumps(payload).encode() if payload is not None else None
+    headers = {"Authorization": "Bearer " + TOKEN, "Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    request = urllib.request.Request(BASE_URL + path, data=data, method=method, headers=headers)
+    try:
+        with HTTP_OPENER.open(request, timeout=HTTP_TIMEOUT) as response:
+            body = response.read(HTTP_MAX_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        code = exc.code
+        exc.close()
+        if code in (401, 403) or code >= 500:
+            http_pause(HTTP_PAUSE if code < 500 else 5.0)
+        raise RuntimeError("catalog API answered HTTP %d" % code) from None
+    except (urllib.error.URLError, OSError):
+        http_pause(HTTP_PAUSE)
+        raise RuntimeError("catalog API unreachable") from None
+    if len(body) > HTTP_MAX_BYTES:
+        raise RuntimeError("catalog API answer too large")
+    return json.loads(body)
+
+
+def current_generation():
+    if TRANSPORT == "http":
+        return int(http_call("GET", "/generation")["generation"])
     conn = connect()
     try:
-        gen = read_generation(conn)
-        rows = {}
-        for db, name, fmt, loc, typ, cols, parts, dv, hi in conn.execute(
-            "SELECT namespace, table_name, format, location, table_type, columns_json, partition_cols, delta_version, "
-            "hudi_instant "
-            "FROM nb_tables WHERE catalog_name = 'spark_catalog'"
-        ):
-            rows[(db, name)] = {"fmt": fmt, "loc": loc, "type": typ, "cols": json.loads(cols),
-                                "parts": json.loads(parts), "dv": dv, "hi": hi}
-        namespaces = {r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = 'spark_catalog'")}
+        return read_generation(conn)
     finally:
         conn.close()
-    return gen, rows, namespaces
+
+
+def read_registry():
+    if TRANSPORT == "http":
+        data = http_call("GET", "/registry")
+        rows = {(t["db"], t["name"]): {k: t[k] for k in ("fmt", "loc", "type", "cols", "parts", "dv", "hi")}
+                for t in data["tables"] if t["fmt"] in SUPPORTED}
+        return int(data["generation"]), rows, set(data["namespaces"])
+    conn = connect()
+    try:
+        return read_snapshot(conn)
+    finally:
+        conn.close()
 
 
 def write_txn(fn):
@@ -363,6 +430,9 @@ def describe_new(session, key, table):
     loc = norm_loc(info["location"])
     if is_under(loc, norm_loc(ICEBERG_WAREHOUSE)):
         return None
+    if not allowed_location(loc):
+        warn(("outside", skey, key), "table %s is outside the folders shared with the runtime; it is not saved in the persistent catalog." % label)
+        return None
     fmt = info["provider"]
     parts = [c["name"] for c in info["columns"] if c["is_partition"]]
     return {"fmt": fmt, "loc": loc, "type": table.tableType, "cols": info["columns"], "parts": parts,
@@ -477,12 +547,8 @@ def drop_removed_db(session, ns, session_dbs, known_dbs, tombstones):
 
 def sync_registry(session, skey):
     """Before a cell: bring in what other kernels registered or dropped since the last look."""
-    conn = connect()
-    try:
-        if read_generation(conn) == STATE.get("gen"):
-            return
-    finally:
-        conn.close()
+    if current_generation() == STATE.get("gen"):
+        return
     gen, rows, namespaces = read_registry()
     # Without a reliable spark_catalog listing nothing is dropped or hydrated in this cell.
     listing = list_catalog(session)
@@ -526,6 +592,8 @@ def refresh_table(session, key, rec, deep):
         cols = table_columns(session, key, parts)
         hi = cur
     new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
+    if loc != rec["loc"] and not allowed_location(loc):
+        return None
     return None if all(new[f] == rec.get(f) for f in new) else new
 
 
@@ -549,109 +617,87 @@ def match_renames(vanished, appeared, known, raw_cell):
     return pairs
 
 
+def wire_info(info):
+    return {k: info[k] for k in ("fmt", "loc", "cols", "parts", "dv", "hi")}
+
+
+def commit_http(plan):
+    """POST the plan; the backend decides types and deletes MANAGED files, and answers in the shape `apply_plan` returns."""
+    body = {
+        "created": [{"db": k[0], "name": k[1], "type": i["type"], "description": i.get("description"), **wire_info(i)}
+                    for k, i in plan["created"]],
+        "updated": [{"db": k[0], "name": k[1], "expected_loc": loc, **wire_info(c)} for k, loc, _t, c in plan["updated"]],
+        "renamed": [{"old_db": o[0], "old_name": o[1], "new_db": n[0], "new_name": n[1], "expected_loc": loc,
+                     **wire_info(i)} for o, n, loc, i in plan["renamed"]],
+        "dropped": [{"db": k[0], "name": k[1], "expected_loc": loc} for k, loc in plan["dropped"]],
+        "new_dbs": sorted(plan["new_dbs"]),
+        "gone_dbs": sorted(plan["gone_dbs"]),
+    }
+    reply = http_call("POST", "/plan", body)
+    changes = {k: c for k, _l, _t, c in plan["updated"]}
+    infos = {(o, n): i for o, n, _l, i in plan["renamed"]}
+    out = {"changed": bool(reply["changed"]), "deletions": [],
+           "adopted": [tuple(k) for k in reply["adopted"]],
+           "conflicts": [tuple(k) for k in reply["conflicts"]],
+           "dropped_ok": [tuple(k) for k in reply["dropped_ok"]],
+           "files_kept": [tuple(k) for k in reply.get("files_kept", [])],
+           "updated_ok": [(tuple(u["key"]), {**changes[tuple(u["key"])], "type": u["type"]})
+                          for u in reply["updated_ok"] if tuple(u["key"]) in changes],
+           "renamed_ok": [(tuple(r["old"]), tuple(r["new"]), infos[(tuple(r["old"]), tuple(r["new"]))])
+                          for r in reply["renamed_ok"] if (tuple(r["old"]), tuple(r["new"])) in infos]}
+    if out["changed"] and reply["generation_before"] == STATE.get("gen"):
+        STATE["gen"] = reply["generation"]  # our own write, nothing of others' unseen
+    return out
+
+
+def commit_plan(plan, stamp):
+    if TRANSPORT == "http":
+        return commit_http(plan)
+    result = {}
+
+    def fn(conn):
+        result.update(apply_plan(conn, plan, stamp, managed_shape))
+        return result["changed"]
+
+    write_txn(fn)
+    return result
+
+
 def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs):
     """Write the plan in one transaction, then update `known`, delete files and warn."""
     known = STATE["known"][skey]
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     ignored = STATE.setdefault("ignored", {}).setdefault(skey, set())
-    adopted, conflicts, deletions = [], [], []
-    stamp = now()
-    dropped_ok, renamed_ok, updated_ok = [], [], []
-
-    def row_of(conn, key):
-        return conn.execute(
-            "SELECT location, table_type FROM nb_tables WHERE catalog_name = 'spark_catalog' "
-            "AND namespace = ? AND table_name = ?", key).fetchone()
-
-    def fn(conn):
-        changed = False
-        for key, info in created:
-            row = row_of(conn, key)
-            if row is None:
-                conn.execute(
-                    "INSERT INTO nb_tables (catalog_name, namespace, table_name, format, location, table_type, "
-                    "columns_json, partition_cols, options_json, delta_version, hudi_instant, description, created_at, updated_at) "
-                    "VALUES ('spark_catalog', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
-                    (*key, info["fmt"], info["loc"], info["type"], json.dumps(info["cols"]), json.dumps(info["parts"]),
-                     info["dv"], info["hi"], info.get("description"), stamp, stamp))
-                changed = True
-                adopted.append(key)
-            elif row[0] == info["loc"]:
-                adopted.append(key)
-            else:
-                conflicts.append(key)
-        for key, change in updated:
-            rec = known[key]
-            typ = rec["type"]
-            if typ == "MANAGED" and change["loc"] != rec["loc"] and not managed_shape(change["loc"]):
-                typ = "EXTERNAL"
-            cur = conn.execute(
-                "UPDATE nb_tables SET format = ?, location = ?, table_type = ?, columns_json = ?, partition_cols = ?, "
-                "delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
-                "AND namespace = ? AND table_name = ? AND location = ?",
-                (change["fmt"], change["loc"], typ, json.dumps(change["cols"]), json.dumps(change["parts"]),
-                 change["dv"], change["hi"], stamp, *key, rec["loc"]))
-            if cur.rowcount:
-                changed = True
-                updated_ok.append((key, {**change, "type": typ}))
-        for old, new, info in renamed:
-            rec = known[old]
-            try:
-                cur = conn.execute(
-                    "UPDATE nb_tables SET namespace = ?, table_name = ?, format = ?, location = ?, columns_json = ?, "
-                    "partition_cols = ?, delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
-                    "AND namespace = ? AND table_name = ? AND location = ?",
-                    (*new, info["fmt"], info["loc"], json.dumps(info["cols"]), json.dumps(info["parts"]), info["dv"],
-                     info["hi"], stamp, *old, rec["loc"]))
-            except sqlite3.IntegrityError:
-                conflicts.append(new)
-                continue
-            if cur.rowcount:
-                changed = True
-                renamed_ok.append((old, new, info))
-        for key in dropped:
-            row, rec = row_of(conn, key), known[key]
-            dropped_ok.append(key)
-            if row is None or row[0] != rec["loc"]:
-                continue  # another kernel already dropped or recreated it
-            conn.execute(
-                "DELETE FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ? AND table_name = ?", key)
-            changed = True
-            shared = conn.execute("SELECT count(*) FROM nb_tables WHERE location = ?", (row[0],)).fetchone()[0]
-            if row[1] == "MANAGED" and not shared:
-                deletions.append((key, row[0]))
-        for ns in new_dbs:
-            changed |= conn.execute(
-                "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "
-                "VALUES ('spark_catalog', ?, NULL, ?)", (ns, stamp)).rowcount > 0
-        for ns in gone_dbs:
-            left = conn.execute(
-                "SELECT count(*) FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).fetchone()[0]
-            if not left:
-                changed |= conn.execute(
-                    "DELETE FROM nb_namespaces WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).rowcount > 0
-        return changed
-
-    write_txn(fn)
+    plan = {
+        "created": created,
+        "updated": [(key, known[key]["loc"], known[key]["type"], change) for key, change in updated],
+        "renamed": [(old, new, known[old]["loc"], info) for old, new, info in renamed],
+        "dropped": [(key, known[key]["loc"]) for key in dropped],
+        "new_dbs": new_dbs,
+        "gone_dbs": gone_dbs,
+    }
+    result = commit_plan(plan, now())
     for key, info in created:
-        if key in adopted:
+        if key in result["adopted"]:
             known[key] = {**info, "sess_managed": info["type"] == "MANAGED"}
-    for key in conflicts:
+    for key in result["conflicts"]:
         ignored.add(key)
         warn(("conflict", skey, key), "table %s.%s already exists in the persistent catalog with a different location; it was not saved." % key)
-    for key, change in updated_ok:
+    for key, change in result["updated_ok"]:
         known[key].update(change)
-    for old, new, info in renamed_ok:
+    for old, new, info in result["renamed_ok"]:
         rec = known.pop(old)
         known[new] = {**rec, **{f: info[f] for f in ("fmt", "loc", "cols", "parts", "dv", "hi")}}
-    for key in dropped_ok:
+    for key in result["dropped_ok"]:
         known.pop(key, None)
     known_dbs |= set(new_dbs)
     known_dbs -= set(gone_dbs)
-    for key, loc in deletions:
+    for key, loc in result["deletions"]:
         error = delete_managed(loc)
         if error:
             warn(("delete", skey, key), "kept the files of dropped table %s.%s (%s)." % (*key, error))
+    for key in result.get("files_kept", ()):
+        warn(("delete", skey, key), "kept the files of dropped table %s.%s (the catalog API could not remove them)." % key)
 
 
 def managed_shape(location):
@@ -861,11 +907,12 @@ mod.register()
 '''
 
 
-def build_ensure_code(db_path: str, managed_root: str, iceberg_warehouse: str) -> str:
-    """Return the idempotent snippet that installs the catalog hook with the given paths."""
-    config = json.dumps({"db_path": db_path, "managed_root": managed_root, "iceberg_warehouse": iceberg_warehouse})
-    source = _KERNEL_TEMPLATE.replace("__CONFIG__", repr(config)).replace(
-        "__MANAGED_HELPERS__", inspect.getsource(managed_table_dir).rstrip()
+def _render(config: dict[str, object]) -> str:
+    helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, apply_plan))
+    source = (
+        _KERNEL_TEMPLATE.replace("__MANAGED_HELPERS__", inspect.getsource(managed_table_dir).rstrip())
+        .replace("__REGISTRY_HELPERS__", helpers)
+        .replace("__CONFIG__", repr(json.dumps(config)))
     )
     version = hashlib.sha1(source.encode()).hexdigest()[:12]
     ensure = (
@@ -874,3 +921,27 @@ def build_ensure_code(db_path: str, managed_root: str, iceberg_warehouse: str) -
         .replace("__SOURCE__", repr(source))
     )
     return f"exec({ensure!r}, {{}})"
+
+
+def build_ensure_code(db_path: str, managed_root: str, iceberg_warehouse: str) -> str:
+    """Return the idempotent snippet that installs the catalog hook with the given paths (SQLite transport)."""
+    return _render({"db_path": db_path, "managed_root": managed_root, "iceberg_warehouse": iceberg_warehouse})
+
+
+def build_http_ensure_code(
+    base_url: str, token: str, managed_root: str, iceberg_warehouse: str, roots: tuple[str, ...]
+) -> str:
+    """Snippet for the Docker runtime: the hook talks to the backend API with the session token, never to SQLite.
+
+    The token travels only in the JSON literal of this code (not in env vars nor in the Spark submit args).
+    """
+    return _render(
+        {
+            "transport": "http",
+            "base_url": base_url,
+            "token": token,
+            "managed_root": managed_root,
+            "iceberg_warehouse": iceberg_warehouse,
+            "roots": list(roots),
+        }
+    )
