@@ -6,12 +6,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from .api import catalog, contents, export, files, jobs, notebooks_root, sessions, spark, system, variables
+from .api import catalog, contents, docker, export, files, jobs, notebooks_root, sessions, spark, system, variables
 from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
 from .notebooks.store import NotebookStore
 from .preferences import protected_paths
+from .runtimes.docker.service import DockerRuntimes
 from .spark.catalog import CatalogService
 from .spark.installer import SparkInstaller
 from .static import mount_frontend
@@ -47,6 +48,12 @@ def create_app(settings: Settings) -> FastAPI:
         settings.pypi_url,
     )
     app.state.catalog = CatalogService(settings.pypi_url)
+    app.state.docker = DockerRuntimes(
+        settings.home,
+        app.state.jobs,
+        lambda: app.state.store.root,
+        kernels.has_session,
+    )
     app.include_router(system.router)
     app.include_router(contents.router)
     app.include_router(export.router)
@@ -57,6 +64,7 @@ def create_app(settings: Settings) -> FastAPI:
     app.include_router(variables.router)
     app.include_router(sessions.ws_router)
     app.include_router(spark.router)
+    app.include_router(docker.router)
     app.include_router(jobs.router)
     app.include_router(jobs.ws_router)
     mount_frontend(app, settings.frontend_dist)
