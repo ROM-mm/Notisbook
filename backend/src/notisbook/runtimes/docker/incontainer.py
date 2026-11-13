@@ -75,8 +75,8 @@ def _kernel_env() -> None:
             parts = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
             os.environ["PYTHONPATH"] = os.pathsep.join([*parts, jars[-1]])
             break
-    os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
-    os.environ["AWS_METADATA_SERVICE_NUM_ATTEMPTS"] = "1"
+    os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
+    os.environ.setdefault("AWS_METADATA_SERVICE_NUM_ATTEMPTS", "1")
 
 
 def _fail(code: int, message: str) -> NoReturn:
