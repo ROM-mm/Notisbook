@@ -333,8 +333,11 @@ def _bad_request(message: str) -> IcebergError:
     return IcebergError(400, "BadRequestException", message)
 
 
-def _busy() -> IcebergError:
-    return IcebergError(503, "ServiceUnavailableException", "Catálogo ocupado ou indisponível")
+def _unavailable(message: str, commit: bool) -> IcebergError:
+    """Falha transitória antes do CAS: 409 no commit (seguro repetir; 5xx viraria estado desconhecido), 503 nos demais."""
+    if commit:
+        return IcebergError(409, "CommitFailedException", f"{message}; tente o commit novamente")
+    return IcebergError(503, "ServiceUnavailableException", message)
 
 
 def _new_name(value: Any, what: str) -> str:
@@ -366,8 +369,14 @@ def _string_map(value: Any, what: str) -> dict[str, str]:
 
 
 @contextmanager
-def _write_txn(conn: sqlite3.Connection) -> Iterator[None]:
-    conn.execute("BEGIN IMMEDIATE")
+def _write_txn(conn: sqlite3.Connection, begin_error: Callable[[], IcebergError] | None = None) -> Iterator[None]:
+    """Transação de escrita; `begin_error` traduz a falha do `BEGIN IMMEDIATE` (nada aplicado ainda)."""
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.Error:
+        if begin_error is None:
+            raise
+        raise begin_error() from None
     try:
         yield
     except BaseException:
@@ -376,25 +385,26 @@ def _write_txn(conn: sqlite3.Connection) -> Iterator[None]:
     conn.execute("COMMIT")
 
 
-def _run_write[T](home: Path, func: Callable[[sqlite3.Connection, bool], T]) -> T:
+def _run_write[T](home: Path, func: Callable[[sqlite3.Connection, bool], T], commit: bool) -> T:
     if not catalog_db_path(home).exists():
-        raise IcebergError(503, "ServiceUnavailableException", "Catálogo ainda não inicializado")
+        raise _unavailable("Catálogo ainda não inicializado", commit)
     conn = connect(home)
     try:
         try:
             has_type = iceberg_jdbc.check_schema(conn)
         except iceberg_jdbc.UnsupportedIcebergSchema:
-            raise IcebergError(500, "ServiceFailureException", "Formato do catálogo Iceberg não suportado") from None
+            raise IcebergError(422, "UnprocessableEntityException", "Formato do catálogo Iceberg não suportado") from None
         return func(conn, has_type)
     finally:
         conn.close()
 
 
-async def _write[T](request: Request, func: Callable[[sqlite3.Connection, bool], T]) -> T:
+async def _write[T](request: Request, func: Callable[[sqlite3.Connection, bool], T], *, commit: bool = False) -> T:
+    """Roda `func` numa thread. Com `commit`, erro de SQLite que escapa é anterior ao CAS (o `_register` o traduz) e vira 409."""
     try:
-        return await asyncio.to_thread(_run_write, _home(request), func)
+        return await asyncio.to_thread(_run_write, _home(request), func, commit)
     except sqlite3.Error:
-        raise _busy() from None
+        raise _unavailable("Catálogo ocupado ou indisponível", commit) from None
 
 
 def _inside_root(location: str, root: str) -> Path:
@@ -428,10 +438,13 @@ def _next_version(previous_location: str | None) -> int:
     return int(match.group(1)) + 1 if match else 0
 
 
-def _write_metadata_file(metadata: TableMetadata, root: str, previous_location: str | None) -> tuple[Path, str, bytes]:
+def _write_metadata_file(
+    metadata: TableMetadata, root: str, previous_location: str | None, commit: bool
+) -> tuple[Path, str, bytes]:
     """Grava o `metadata.json` novo (nome único, criação exclusiva). Devolve caminho, URI e conteúdo.
 
-    Levanta 400 (location fora da raiz / grande demais) ou 503 (E/S); nada é registrado aqui.
+    Levanta 400 (location fora da raiz / grande demais) ou, na falha de E/S, 409 no commit e 503 no create;
+    nada é registrado aqui e o arquivo parcial é removido.
     """
     data = metadata.model_dump_json().encode("utf-8")
     if len(data) > iceberg_jdbc.MAX_METADATA_BYTES:
@@ -446,7 +459,7 @@ def _write_metadata_file(metadata: TableMetadata, root: str, previous_location: 
             raise _bad_request("A location deve ficar dentro do warehouse Iceberg do Notisbook")
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
     except OSError:
-        raise IcebergError(503, "ServiceUnavailableException", "Não foi possível gravar o metadata da tabela") from None
+        raise _unavailable("Não foi possível gravar o metadata da tabela", commit) from None
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
@@ -454,7 +467,7 @@ def _write_metadata_file(metadata: TableMetadata, root: str, previous_location: 
             os.fsync(handle.fileno())
     except OSError:
         _remove_quiet(target)
-        raise IcebergError(503, "ServiceUnavailableException", "Não foi possível gravar o metadata da tabela") from None
+        raise _unavailable("Não foi possível gravar o metadata da tabela", commit) from None
     return target, _file_uri(target), data
 
 
@@ -509,7 +522,7 @@ def _load_current(location: str, root: str) -> TableMetadata:
             403, "ForbiddenException", "A tabela fica fora do warehouse Iceberg do Notisbook e não é acessível ao runtime Docker"
         ) from None
     except iceberg_jdbc.IcebergMetadataError:
-        raise IcebergError(500, "ServiceFailureException", "Não foi possível ler o metadata da tabela") from None
+        raise IcebergError(422, "UnprocessableEntityException", "Não foi possível ler o metadata da tabela") from None
     try:
         metadata = TableMetadataUtil.parse_obj(raw)
     except (ValidationError, ValueError, TypeError):
@@ -527,22 +540,17 @@ def _result(metadata_location: str | None, data: bytes) -> dict[str, Any]:
 
 
 def _register(
-    conn: sqlite3.Connection, has_type: bool, ns: str, table: str, previous: str | None, new_location: str
+    conn: sqlite3.Connection, has_type: bool, ns: str, table: str, previous: str | None, new_location: str, commit: bool
 ) -> bool:
     """CAS (ou INSERT na criação) numa transação curta; `False` se perdeu a disputa.
 
-    Levanta `IcebergError` 409 se o banco está ocupado (nada foi aplicado) e 500 se o estado é desconhecido.
+    Falha do `BEGIN IMMEDIATE` (nada aplicado): 409 no commit e 503 no create. Qualquer falha depois dele: 500.
     """
     try:
-        with _write_txn(conn):
+        with _write_txn(conn, lambda: _unavailable("Catálogo ocupado ou indisponível", commit)):
             if previous is None:
                 return iceberg_jdbc.insert_table(conn, ns, table, new_location, has_type)
             return iceberg_jdbc.swap_metadata_location(conn, ns, table, previous, new_location, has_type)
-    except sqlite3.OperationalError as exc:
-        text = str(exc).lower()
-        if "locked" in text or "busy" in text:
-            raise IcebergError(409, "CommitFailedException", "Catálogo ocupado; tente o commit novamente") from None
-        raise IcebergError(500, "CommitStateUnknownException", "Falha ao registrar o commit no catálogo") from None
     except sqlite3.Error:
         raise IcebergError(500, "CommitStateUnknownException", "Falha ao registrar o commit no catálogo") from None
 
@@ -555,11 +563,13 @@ def _persist(
     table: str,
     metadata: TableMetadata,
     previous: str | None,
+    *,
+    commit: bool,
 ) -> dict[str, Any]:
     """Grava o metadata novo, registra (CAS) e, se perdeu, apaga o arquivo e responde 409."""
-    path, location, data = _write_metadata_file(metadata, grant.iceberg_root, previous)
+    path, location, data = _write_metadata_file(metadata, grant.iceberg_root, previous, commit)
     try:
-        registered = _register(conn, has_type, ns, table, previous, location)
+        registered = _register(conn, has_type, ns, table, previous, location, commit)
     except IcebergError as exc:
         if exc.status != 500:  # com 500 o estado é desconhecido: o arquivo pode estar referenciado
             _remove_quiet(path)
@@ -602,11 +612,11 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
     def run(conn: sqlite3.Connection, has_type: bool) -> dict[str, Any]:
         if not iceberg_jdbc.namespace_exists(conn, ns):
             raise _no_such_namespace()
-        if iceberg_jdbc.table_row_exists(conn, ns, table):
+        if iceberg_jdbc.table_row_exists(conn, ns, table, ignore_case=True):  # APFS: `T` e `t` são a mesma pasta
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         if staged:  # CTAS: nada é gravado nem registrado; a materialização chega no commit com `assert-create`
             return _result(None, metadata.model_dump_json().encode("utf-8"))
-        return _persist(conn, has_type, grant, ns, table, metadata, None)
+        return _persist(conn, has_type, grant, ns, table, metadata, None, commit=False)
 
     return run
 
@@ -618,6 +628,9 @@ def _commit_table(
     updates = _parse_updates(body.get("updates", []))
     _check_updates(updates, grant.iceberg_root)
     creating = any(isinstance(r, AssertCreate) for r in requirements)
+    if creating:  # CTAS vira pasta como o create direto: mesmas regras de nome
+        _new_name(table, "Nome de tabela")
+        _new_namespace(ns.split("."))
 
     def run(conn: sqlite3.Connection, has_type: bool) -> dict[str, Any]:
         location = iceberg_jdbc.table_metadata_location(conn, ns, table, has_type)
@@ -627,8 +640,8 @@ def _commit_table(
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         if location is None and not iceberg_jdbc.namespace_exists(conn, ns):
             raise _no_such_namespace()
-        if location is None and iceberg_jdbc.table_row_exists(conn, ns, table):
-            raise IcebergError(409, "AlreadyExistsException", "Já existe uma view com esse nome")
+        if location is None and iceberg_jdbc.table_row_exists(conn, ns, table, ignore_case=True):
+            raise IcebergError(409, "AlreadyExistsException", "Já existe uma tabela ou view com esse nome")
         if location == "":
             raise IcebergError(422, "UnprocessableEntityException", "A tabela não tem metadata registrado")
         base = _load_current(location, grant.iceberg_root) if location else None
@@ -646,7 +659,7 @@ def _commit_table(
             raise IcebergError(422, "UnprocessableEntityException", "As atualizações não puderam ser aplicadas à tabela") from None
         if isinstance(new, TableMetadataV3) or new.format_version > MAX_FORMAT_VERSION:
             raise _bad_request("format-version acima de 2 não é suportado")
-        return _persist(conn, has_type, grant, ns, table, new, location or None)
+        return _persist(conn, has_type, grant, ns, table, new, location or None, commit=True)
 
     return run
 
@@ -663,9 +676,17 @@ def _purge(conn: sqlite3.Connection, grant: RuntimeGrant, folder: Path | None) -
         other = iceberg_jdbc.table_folder(location)
         if other is not None:
             real_other = Path(os.path.realpath(other))
-            if is_within(real_other, target) or is_within(target, real_other):
+            if is_within(real_other, target, fold=True) or is_within(target, real_other, fold=True):
                 return
     shutil.rmtree(target, ignore_errors=True)
+
+
+def _require_inside_root(location: str, root: str) -> None:
+    """403 se o metadata da tabela está fora do warehouse Iceberg (mesma regra de load/commit)."""
+    if not iceberg_jdbc.location_within_root(location, root):
+        raise IcebergError(
+            403, "ForbiddenException", "A tabela fica fora do warehouse Iceberg do Notisbook e não é acessível ao runtime Docker"
+        )
 
 
 def _drop_table(
@@ -675,8 +696,12 @@ def _drop_table(
         location = iceberg_jdbc.table_metadata_location(conn, ns, table, has_type)
         if location is None:
             raise _no_such_table()
+        if location:
+            _require_inside_root(location, grant.iceberg_root)
         folder = None
         if purge and location:
+            if iceberg_jdbc.gc_enabled(location) is False:
+                raise _bad_request("A tabela tem gc.enabled=false: o purge foi recusado e nada foi removido")
             try:
                 folder = Path(str(_inside_root(iceberg_jdbc.read_metadata_within(location, grant.iceberg_root)["location"], grant.iceberg_root)))
             except (iceberg_jdbc.IcebergMetadataError, KeyError, TypeError, IcebergError):
@@ -757,7 +782,7 @@ async def create_table(request: Request, namespace: str, grant: Grant) -> dict[s
 @router.post("/v1/namespaces/{namespace}/tables/{table}")
 async def commit_table(request: Request, namespace: str, table: str, grant: Grant) -> dict[str, Any]:
     ns, name = parse_namespace(namespace), parse_table_name(table)
-    result = await _write(request, _commit_table(grant, ns, name, await _json_body(request)))
+    result = await _write(request, _commit_table(grant, ns, name, await _json_body(request)), commit=True)
     result.pop("config", None)
     return result
 
@@ -770,12 +795,15 @@ async def drop_table(request: Request, namespace: str, table: str, grant: Grant,
 
 
 @router.post("/v1/tables/rename")
-async def rename_table(request: Request) -> Response:
+async def rename_table(request: Request, grant: Grant) -> Response:
     body = await _json_body(request)
     source = _identifier(body.get("source"), "Origem")
     target = _identifier(body.get("destination"), "Destino")
 
     def run(conn: sqlite3.Connection, has_type: bool) -> None:
+        current = iceberg_jdbc.table_metadata_location(conn, source[0], source[1], has_type)
+        if current:
+            _require_inside_root(current, grant.iceberg_root)
         with _write_txn(conn):
             if iceberg_jdbc.table_metadata_location(conn, source[0], source[1], has_type) is None:
                 raise _no_such_table()

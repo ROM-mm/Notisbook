@@ -347,18 +347,24 @@ def read_columns(conn: sqlite3.Connection, database: str, table: str) -> list[di
     return _columns_from_metadata(_read_metadata(row[0]))
 
 
+def location_within_root(location: str, root: str) -> bool:
+    """True se `location` é um caminho local cujo realpath fica estritamente dentro de `root`."""
+    path = local_path(location)
+    if path is None:
+        return False
+    real, real_root = Path(os.path.realpath(path)), Path(os.path.realpath(root))
+    return real != real_root and is_within(real, real_root)
+
+
 def read_metadata_within(location: str, root: str) -> dict[str, Any]:
     """`metadata.json` em `location`, aberto só se o realpath estiver dentro de `root`.
 
     Levanta `MetadataOutsideRoot` (fora da raiz / não local) ou `IcebergMetadataError` (ilegível).
     """
     path = local_path(location)
-    if path is None:
-        raise MetadataOutsideRoot("metadata is not on the local disk")
-    real = Path(os.path.realpath(path))
-    if not is_within(real, Path(os.path.realpath(root))) or real == Path(os.path.realpath(root)):
+    if path is None or not location_within_root(location, root):
         raise MetadataOutsideRoot("metadata outside the Iceberg warehouse")
-    return _read_metadata(str(real))
+    return _read_metadata(str(Path(os.path.realpath(path))))
 
 
 def list_child_namespaces(conn: sqlite3.Connection, parent: str | None) -> list[str]:
@@ -402,7 +408,12 @@ def table_metadata_location(conn: sqlite3.Connection, namespace: str, table: str
 
 
 def insert_table(conn: sqlite3.Connection, namespace: str, table: str, metadata_location: str, has_type: bool) -> bool:
-    """INSERT do `JdbcCatalog.createTable` (V1); `False` se a chave já existe (tabela ou view). Dentro de transação."""
+    """INSERT do `JdbcCatalog.createTable` (V1); `False` se já existe tabela ou view com o nome, ignorando a caixa.
+
+    Dentro de transação: a checagem sem caixa evita que `T` e `t` dividam a pasta (APFS).
+    """
+    if table_row_exists(conn, namespace, table, ignore_case=True):
+        return False
     columns = "catalog_name, table_namespace, table_name, metadata_location, previous_metadata_location"
     values = "?, ?, ?, ?, NULL"
     if has_type:
@@ -439,10 +450,11 @@ def delete_table_row(conn: sqlite3.Connection, namespace: str, table: str, has_t
     return cursor.rowcount == 1
 
 
-def table_row_exists(conn: sqlite3.Connection, namespace: str, table: str) -> bool:
-    """Existe tabela OU view com esse nome (a chave primária é a mesma)."""
+def table_row_exists(conn: sqlite3.Connection, namespace: str, table: str, *, ignore_case: bool = False) -> bool:
+    """Existe tabela OU view com esse nome (a chave primária é a mesma); `ignore_case` compara sem caixa."""
+    match = "lower(table_name) = lower(?)" if ignore_case else "table_name = ?"
     row = conn.execute(
-        "SELECT 1 FROM iceberg_tables WHERE catalog_name = ? AND table_namespace = ? AND table_name = ?",
+        f"SELECT 1 FROM iceberg_tables WHERE catalog_name = ? AND table_namespace = ? AND {match}",
         (ICEBERG_CATALOG, namespace, table),
     ).fetchone()
     return row is not None
