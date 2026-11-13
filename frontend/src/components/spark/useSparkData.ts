@@ -8,14 +8,18 @@
  *   instalações já em andamento (`installing`) são reconectadas ao abrir a página.
  * - Ao terminar uma instalação ou remoção, recarrega listas e os kernelspecs
  *   das abas abertas (seletor de ambiente da barra de abas).
+ * - Runtimes Docker: lidos com a pasta Connections atual (localStorage, `state/files`) para o
+ *   backend apontar montagens defasadas; seus jobs seguem o mesmo mecanismo das instalações Local.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { installDockerRuntime, listDockerRuntimes, removeDockerRuntime, restartDockerRuntime, stopDockerRuntime } from "../../api/docker";
 import { errorMessage } from "../../api/http";
 import { listSessions } from "../../api/kernels";
 import { getJob, getPrereqs, getSparkCatalog, getSparkVersions, installSparkVersion, removeSparkVersion } from "../../api/spark";
-import type { Prereqs, SessionInfo, SparkCatalog, SparkVersions } from "../../api/types";
+import type { DockerRuntimes, Prereqs, SessionInfo, SparkCatalog, SparkVersions } from "../../api/types";
 import type { JobEvent } from "../../ws/protocol";
 import { JobStream } from "../../ws/jobs";
+import { useFiles } from "../../state/files";
 import { refreshKernelspecs } from "../../state/workspace";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "lost";
@@ -60,10 +64,17 @@ export function useSparkData() {
   const [prereqs, reloadPrereqs] = useLoadable<Prereqs>(getPrereqs);
   const [catalog, reloadCatalog] = useLoadable<SparkCatalog>(getSparkCatalog);
   const [versions, reloadVersions] = useLoadable<SparkVersions>(getSparkVersions);
+  const connectionsDir = useFiles((s) => s.root);
+  const fetchDocker = useCallback((signal?: AbortSignal) => listDockerRuntimes(connectionsDir, signal), [connectionsDir]);
+  const [docker, reloadDocker] = useLoadable<DockerRuntimes>(fetchDocker);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [jobs, setJobs] = useState<InstallJob[]>([]);
   const streams = useRef(new Map<string, JobStream>());
   const mounted = useRef(true);
+  // Ref: a identidade de `reloadDocker` muda com a Connections e não pode recriar `attach` (fecharia os streams).
+  const reloadDockerRef = useRef(reloadDocker);
+  reloadDockerRef.current = reloadDocker;
+  const attachedDockerJobs = useRef(new Set<string>());
 
   const reloadSessions = useCallback(async () => {
     try {
@@ -76,7 +87,13 @@ export function useSparkData() {
 
   /** Após instalar/remover: listas, catálogo (marca de instalada) e kernelspecs das abas. */
   const refreshAfterChange = useCallback(async () => {
-    await Promise.all([reloadVersions(), reloadCatalog(), reloadSessions(), refreshKernelspecs().catch(() => undefined)]);
+    await Promise.all([
+      reloadVersions(),
+      reloadCatalog(),
+      reloadSessions(),
+      reloadDockerRef.current(),
+      refreshKernelspecs().catch(() => undefined),
+    ]);
   }, [reloadVersions, reloadCatalog, reloadSessions]);
 
   const patchJob = useCallback((id: string, patch: (j: InstallJob) => Partial<InstallJob>) => {
@@ -156,6 +173,19 @@ export function useSparkData() {
     };
   }, [reloadPrereqs, reloadCatalog, reloadSessions, reloadVersions, attach]);
 
+  // Runtimes Docker: carrega ao abrir e quando a Connections muda; reconecta a job em andamento.
+  useEffect(() => {
+    void reloadDocker();
+  }, [reloadDocker]);
+
+  useEffect(() => {
+    for (const rt of docker.data?.runtimes ?? []) {
+      if (!rt.job || attachedDockerJobs.current.has(rt.job.id)) continue;
+      attachedDockerJobs.current.add(rt.job.id);
+      attach(rt.job.id, rt.key);
+    }
+  }, [docker.data, attach]);
+
   /** POST /api/spark/versions e acompanha o job. Lança em erro (422/409). */
   const install = useCallback(
     async (version: string) => {
@@ -178,11 +208,53 @@ export function useSparkData() {
     [refreshAfterChange],
   );
 
+  /** POST /api/docker/runtimes/{key}/install e acompanha o job; devolve o id. Lança em erro (422/409/404). */
+  const installDocker = useCallback(
+    async (key: string, recreate: boolean) => {
+      const { job_id } = await installDockerRuntime(key, connectionsDir, recreate);
+      attachedDockerJobs.current.add(job_id);
+      attach(job_id, key);
+      void reloadDocker();
+      return job_id;
+    },
+    [attach, connectionsDir, reloadDocker],
+  );
+
+  /** Stop/Restart/Remove do container; recarrega a lista (e os kernelspecs) mesmo em erro. */
+  const dockerAction = useCallback(
+    async (key: string, action: "stop" | "restart" | "remove") => {
+      try {
+        if (action === "stop") await stopDockerRuntime(key);
+        else if (action === "restart") await restartDockerRuntime(key);
+        else await removeDockerRuntime(key);
+      } finally {
+        await refreshAfterChange();
+      }
+    },
+    [refreshAfterChange],
+  );
+
   const dismissJob = useCallback((id: string) => {
     streams.current.get(id)?.close();
     streams.current.delete(id);
     setJobs((list) => list.filter((j) => j.id !== id));
   }, []);
 
-  return { prereqs, catalog, versions, sessions, jobs, install, remove, dismissJob, reloadPrereqs, reloadCatalog };
+  return {
+    prereqs,
+    catalog,
+    versions,
+    docker,
+    connectionsDir,
+    sessions,
+    jobs,
+    install,
+    remove,
+    installDocker,
+    dockerAction,
+    dismissJob,
+    reloadPrereqs,
+    reloadCatalog,
+    reloadDocker,
+  };
 }

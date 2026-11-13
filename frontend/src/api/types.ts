@@ -128,6 +128,66 @@ export interface Job {
   log: JobLogLine[];
 }
 
+/** Prefixo do `kernel_name` dos runtimes Docker em `/api/kernelspecs` e `/api/sessions`. */
+export const DOCKER_KERNEL_PREFIX = "notisbook-docker-";
+
+export interface DockerfileInfo {
+  /** Caminho relativo ao repositório do Notisbook. */
+  path: string;
+  text: string;
+  base_image: string | null;
+  base_digest: string | null;
+}
+
+export interface DockerMounts {
+  registered: string[];
+  /** Pastas que uma recriação montaria agora; null se não foi possível planejar. */
+  current: string[] | null;
+  /** O container montado difere das pastas atuais (ex.: Connections trocada). */
+  stale: boolean;
+  missing: string[];
+  extra: string[];
+  error: string | null;
+}
+
+export interface DockerContainer {
+  status: string;
+  running: boolean;
+  owned: boolean;
+}
+
+/** Versões lidas na validação da instalação (chaves ausentes quando não relatadas). */
+export type DockerVersions = Partial<Record<"python" | "spark" | "pyspark" | "java" | "sqlite3" | "spark_session", string>>;
+
+export interface DockerRuntime {
+  key: string;
+  label: string;
+  kernel_name: string;
+  formats: string[];
+  image: string;
+  container_name: string;
+  dockerfile: DockerfileInfo;
+  available: boolean;
+  installed: boolean;
+  busy: boolean;
+  job: { id: string; kind: "docker-install" | "docker-recreate" } | null;
+  image_present: boolean | null;
+  image_size: number | null;
+  container: DockerContainer | null;
+  mounts: DockerMounts | null;
+  versions: DockerVersions;
+}
+
+export interface DockerRuntimes {
+  available: boolean;
+  runtimes: DockerRuntime[];
+}
+
+export interface DockerRuntimeDetails extends DockerRuntime {
+  python: string | null;
+  packages: PackageItem[];
+}
+
 /** Variável do kernel; `group: "special"` agrupa dunders/internos no fim da lista. */
 export interface VariableItem {
   name: string;
