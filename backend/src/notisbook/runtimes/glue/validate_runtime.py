@@ -1,6 +1,6 @@
 """Valida o runtime Glue do Notisbook de dentro do container.
 
-Uso: docker exec <container> python3 validate_runtime.py
+Uso: docker exec -i <container> python3 - < validate_runtime.py
 
 Imprime um único JSON no stdout com uma entrada por verificação (`ok` e detalhes).
 Todo o resto (logs do Spark, avisos) vai para o stderr. Sai com 0 somente se todas
