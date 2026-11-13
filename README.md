@@ -1,6 +1,6 @@
 # Notisbook
 
-![Notisbook](docs/assets/banner.png)
+![Notisbook](assets/banner.png)
 
 ## Título & Visão Geral do Negócio
 
@@ -117,10 +117,9 @@ Na primeira execução (sem `--root` e sem `preferences.json`), os notebooks de 
 
 ## Onde Encontrar Mais Detalhes
 
-- Arquitetura: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Diagramas Mermaid: [contexto](docs/arch/context.mmd), [containers](docs/arch/container.mmd), [componentes](docs/arch/component.mmd), [implantação](docs/arch/deployment.mmd), [fluxo de dados](docs/arch/data-flow.mmd)
-- Contrato da API: [docs/api/swagger.yaml](docs/api/swagger.yaml)
-- Decisões de arquitetura: [docs/adr/](docs/adr/)
+- Backend (servidor, kernels, catálogo e ambientes Spark): [backend/src/notisbook/](backend/src/notisbook/)
+- Frontend (interface web): [frontend/src/](frontend/src/)
+- Build e release: [scripts/](scripts/)
 
 ## Licença
 
