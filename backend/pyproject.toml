@@ -1,6 +1,6 @@
 [project]
 name = "notisbook"
-version = "0.4.0"
+version = "0.4.1"
 description = "Local notebook UI and Spark environment manager"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
