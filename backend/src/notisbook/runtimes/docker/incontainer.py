@@ -12,6 +12,7 @@ Saída 0 em sucesso; 2 uso inválido; 3 falha ao preparar o processo; 4 conn fil
 
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
@@ -36,6 +37,7 @@ SUBMIT_ARGS = (
     "pyspark-shell"
 )
 PYSPARK_SHELL = "pyspark-shell"
+DELTA_JAR_GLOBS = ("/usr/share/aws/delta/lib/delta-spark_2.12-*.jar", "/usr/share/aws/delta/lib/delta-spark.jar")
 
 
 def _submit_args(
@@ -60,6 +62,21 @@ def _submit_args(
         ]
     head = SUBMIT_ARGS[: -len(PYSPARK_SHELL)]
     return head + "".join(f"--conf {shlex.quote(conf)} " for conf in confs) + PYSPARK_SHELL
+
+
+def _kernel_env() -> None:
+    """Ajusta o ambiente do kernel: `delta.tables` e falha rápida do Glue Data Catalog remoto (fora de escopo).
+
+    O módulo Python `delta` só existe dentro do jar do delta-spark da imagem (zipimport); resolvido por glob para não
+    fixar a versão. Sem AWS, a cadeia de credenciais do SDK Java/botocore esperava o IMDS (50 tentativas na imagem).
+    """
+    for pattern in DELTA_JAR_GLOBS:
+        if jars := sorted(glob.glob(pattern)):
+            parts = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
+            os.environ["PYTHONPATH"] = os.pathsep.join([*parts, jars[-1]])
+            break
+    os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
+    os.environ["AWS_METADATA_SERVICE_NUM_ATTEMPTS"] = "1"
 
 
 def _fail(code: int, message: str) -> NoReturn:
@@ -204,6 +221,7 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
             sys.stderr.write(
                 "notisbook-incontainer: pasta do notebook indisponível no container; usando a padrão\n"
             )
+    _kernel_env()
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
         options.get("--warehouse-dir"), options.get("--iceberg-uri"), options.get("--iceberg-warehouse")
     )
