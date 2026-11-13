@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import sys
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Iterator
@@ -23,6 +24,21 @@ from nbformat.v4 import output_from_msg
 
 from ..catalog.store import catalog_db_path
 from ..config import Settings
+from ..runtimes.docker import catalog as docker_catalog
+from ..runtimes.docker import cli as docker_cli
+from ..runtimes.docker import kernelspec as docker_spec
+from ..runtimes.docker import launch as docker_launch
+from ..runtimes.docker.service import (
+    ContainerForeign,
+    ContainerInfo,
+    ContainerMissing,
+    DockerRuntimes,
+    DockerUnavailable,
+    InstallInProgress,
+    MountRejected,
+    SessionsActive,
+    inspect_container,
+)
 from ..spark.bundles import (
     SPARK_WAREHOUSE_SUBDIR,
     WAREHOUSE_DIR,
@@ -46,7 +62,7 @@ from .protocol import (
     StatusEvent,
 )
 from .sql_cell import build_code as build_sql_code
-from .sql_cell import MODULE_NAME, build_duckdb_code, build_ensure_code
+from .sql_cell import DUCKDB_DOCKER_MESSAGE, MODULE_NAME, build_duckdb_code, build_ensure_code, build_unavailable_code
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +85,21 @@ ENSURE_WAIT = 3.0
 ENSURE_CHECK = f"__import__('sys').modules.get({MODULE_NAME!r}) is not None"
 MAX_CACHE = 100
 TRUNCATION_NOTICE = "\n[output truncated: 1 MB limit per cell reached]\n"
+DOCKER_KERNEL_PREFIX = "notisbook-docker-"
+# Limites do ramo Docker: o encerramento do app e o fechamento de sessão não podem ficar presos no CLI.
+DOCKER_KILL_WAIT = 10.0
+DOCKER_SWEEP_WAIT = 25.0
+DOCKER_STOP_WAIT = 25.0
+DOCKER_STOP_SKIPPED = (
+    TimeoutError,
+    ContainerMissing,
+    ContainerForeign,
+    DockerUnavailable,
+    InstallInProgress,
+    SessionsActive,
+    docker_cli.DockerError,
+    OSError,
+)
 
 Sink = Callable[[ServerEvent], Awaitable[None]]
 
@@ -83,6 +114,15 @@ class KernelsBusy(Exception):
 
 class SessionNotFound(Exception):
     """No session with the requested id."""
+
+
+class DockerRuntimeError(Exception):
+    """O runtime Docker não pode abrir a sessão agora; `status_code` é o HTTP correspondente e a mensagem vai ao operador."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
 
 
 @dataclass
@@ -122,6 +162,9 @@ class KernelSession:
     duckdb_ext_dir: str = ""
     # Snippet that installs the catalog hook (paths derived from the home injected in KernelService).
     catalog_ensure: str = ""
+    # Runtime Docker da sessão (None no Local) e tag do kernel no container, usada pelo reaper do close.
+    docker_runtime: docker_catalog.DockerRuntime | None = None
+    docker_tag: str = ""
     _restarting: bool = False
     _channel_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     _ready_task: asyncio.Task[None] | None = None
@@ -398,6 +441,8 @@ class KernelSession:
         if language == "sql":
             return build_sql_code(code)
         if language == "duckdb":
+            if self.docker_runtime is not None:
+                return build_unavailable_code(DUCKDB_DOCKER_MESSAGE)
             # Extensões ficam sob a raiz única de dados; o autoinstall é desligado no kernel.
             return build_duckdb_code(code, self.duckdb_ext_dir)
         return code
@@ -512,6 +557,17 @@ class KernelSession:
                 log.warning("graceful shutdown failed for %s; killing", self.session_id, exc_info=True)
                 with contextlib.suppress(Exception):
                     await self.manager.shutdown_kernel(now=True)
+            await self._reap_docker_kernel()
+
+    async def _reap_docker_kernel(self) -> None:
+        """Mata o grupo do kernel no container: matar o `docker exec` local não encerra o que roda lá dentro."""
+        runtime = self.docker_runtime
+        if runtime is None:
+            return
+        try:
+            await asyncio.wait_for(asyncio.to_thread(docker_launch.kill_kernel, runtime, self.docker_tag), DOCKER_KILL_WAIT)
+        except (TimeoutError, docker_launch.LaunchError, docker_cli.DockerError, OSError) as exc:
+            log.warning("kernel of session %s may still run in the container: %s", self.session_id, type(exc).__name__)
 
 
 class KernelService:
@@ -521,6 +577,8 @@ class KernelService:
         self._starting: dict[str, str] = {}  # session_id -> kernel_name while `start` is pending
         self._starting_paths: dict[str, Path | None] = {}  # session_id -> resolved target while `start` is pending
         self._reservations = 0
+        self._docker: DockerRuntimes | None = None
+        self._sweep_task: asyncio.Task[None] | None = None
         self._prefix = f"notisbook-{port}-"
         self._runtime_dir = runtime_dir or Path(jupyter_runtime_dir()) / "notisbook"
         self._home = Path(os.path.abspath((home or Settings().home).expanduser()))
@@ -551,7 +609,113 @@ class KernelService:
             }
             for name, info in specs.items()
         ]
-        return sorted(result, key=lambda item: item["name"])
+        # Docker por último: o frontend usa o primeiro item como padrão e o Spark Local não pode mudar.
+        return sorted(result, key=lambda item: (item["name"].startswith(DOCKER_KERNEL_PREFIX), item["name"]))
+
+    def bind_docker(self, docker: DockerRuntimes) -> None:
+        """Liga o serviço dos runtimes Docker (criado depois deste, pois recebe `has_session`)."""
+        self._docker = docker
+
+    def start_docker_sweep(self) -> None:
+        """Agenda a varredura de kernels órfãos nos containers do app; sessões Docker esperam por ela."""
+        if self._docker is not None:
+            self._sweep_task = asyncio.ensure_future(self._sweep_docker_orphans())
+
+    async def _sweep_docker_orphans(self) -> None:
+        try:
+            await asyncio.wait_for(self._sweep_running_containers(), DOCKER_SWEEP_WAIT)
+        except (TimeoutError, docker_cli.DockerError, docker_launch.LaunchError, OSError) as exc:  # Docker fora do ar não impede o app de subir
+            log.warning("orphan kernel sweep skipped: %s", type(exc).__name__)
+
+    async def _sweep_running_containers(self) -> None:
+        if not await asyncio.to_thread(docker_cli.is_available):
+            return
+        for runtime in docker_catalog.CATALOG:
+            info = await asyncio.to_thread(inspect_container, runtime)
+            if info is None or not info.running or not info.owned_by(runtime):
+                continue
+            killed = await asyncio.to_thread(docker_launch.sweep, runtime)
+            if killed:
+                log.info("swept %d orphan kernel(s) in container of runtime %s", killed, runtime.key)
+
+    async def stop_docker_runtimes(self) -> None:
+        """No encerramento do app: para (sem remover) os containers do app; falhas não travam o shutdown."""
+        task, self._sweep_task = self._sweep_task, None
+        if task is not None and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        docker = self._docker
+        if docker is None:
+            return
+        for runtime in docker_catalog.CATALOG:
+            try:
+                await asyncio.wait_for(docker.stop(runtime), DOCKER_STOP_WAIT)
+            except DOCKER_STOP_SKIPPED as exc:  # container ausente, Docker fora do ar, timeout: nada a parar
+                log.info("container of runtime %s not stopped: %s", runtime.key, type(exc).__name__)
+
+    async def _prepare_docker(self, runtime: docker_catalog.DockerRuntime) -> None:
+        """Garante que o runtime Docker pode abrir um kernel e deixa o container rodando; levanta `DockerRuntimeError`."""
+        docker = self._docker
+        if docker is None:
+            raise DockerRuntimeError(503, "Runtime Docker indisponível neste servidor")
+        sweep = self._sweep_task
+        if sweep is not None and not sweep.done():
+            await asyncio.shield(sweep)
+        if not await asyncio.to_thread(docker_cli.is_available):
+            raise DockerRuntimeError(503, "Docker indisponível: inicie o Colima (ou o daemon Docker) e tente de novo")
+        info = await self._inspect_docker(runtime)
+        await self._check_docker_mounts(docker, info)
+        self._refuse_if_mutating(docker, runtime)
+        if not info.running:
+            try:
+                await asyncio.to_thread(docker_launch.ensure_started, runtime)
+            except (docker_launch.LaunchError, docker_cli.DockerError) as exc:
+                raise DockerRuntimeError(503, f"Não foi possível iniciar o container do runtime Docker: {exc}") from exc
+        await asyncio.to_thread(self._refresh_docker_spec, runtime)
+
+    @staticmethod
+    def _refuse_if_mutating(docker: DockerRuntimes, runtime: docker_catalog.DockerRuntime) -> None:
+        if docker.is_mutating(runtime.kernel_name):
+            raise DockerRuntimeError(
+                409, "O runtime Docker está sendo instalado, recriado ou alterado; tente de novo quando a operação terminar"
+            )
+
+    @staticmethod
+    async def _inspect_docker(runtime: docker_catalog.DockerRuntime) -> ContainerInfo:
+        try:
+            info = await asyncio.to_thread(inspect_container, runtime)
+        except docker_cli.DockerError as exc:
+            raise DockerRuntimeError(503, "Docker não respondeu ao consultar o container do runtime") from exc
+        if info is None:
+            raise DockerRuntimeError(
+                409, f"O container {runtime.container} não existe: instale o runtime Docker (Spark > Install > Docker)"
+            )
+        if not info.owned_by(runtime):
+            raise DockerRuntimeError(409, f"O container {runtime.container} não pertence ao Notisbook; ele não foi alterado")
+        return info
+
+    @staticmethod
+    async def _check_docker_mounts(docker: DockerRuntimes, info: ContainerInfo) -> None:
+        try:
+            plan = await asyncio.to_thread(docker.plan_mounts, None)
+        except MountRejected as exc:
+            raise DockerRuntimeError(409, f"A pasta atual não serve ao runtime Docker ({exc.field}): {exc.message}") from exc
+        except OSError as exc:
+            raise DockerRuntimeError(503, "Não foi possível preparar a pasta warehouse do runtime Docker") from exc
+        # Só raiz e warehouse: a pasta Connections é do cliente e o backend não a conhece aqui.
+        missing = {str(plan.notebooks), str(plan.warehouse)} - set(info.mounts)
+        if missing:
+            raise DockerRuntimeError(
+                409,
+                "As pastas montadas no container estão defasadas em relação à raiz atual dos notebooks; "
+                "use Recriar no runtime Docker (Spark > Installed) e tente de novo",
+            )
+
+    def _refresh_docker_spec(self, runtime: docker_catalog.DockerRuntime) -> None:
+        """Regrava o kernelspec se o `argv[0]` não for o Python deste app (ex.: venv recriada)."""
+        spec = self._specs.get_kernel_spec(runtime.kernel_name)
+        if not spec.argv or spec.argv[0] != sys.executable:
+            docker_spec.write_kernelspec(runtime)
 
     def _ensure_log4j2(self, spec: Any) -> None:
         """Keep the log4j2 config of a Notisbook-managed Spark env current; never blocks the start."""
@@ -600,17 +764,24 @@ class KernelService:
         self._starting[session_id] = kernel_name
         self._starting_paths[session_id] = target
         try:
+            docker_runtime = docker_catalog.by_kernel_name(kernel_name)
+            if docker_runtime is None and kernel_name.startswith(DOCKER_KERNEL_PREFIX):
+                raise KernelNotFound(kernel_name)
+            if docker_runtime is not None and self._docker is not None:
+                # Antes de qualquer await: a recusa vale para o instante em que a requisição chegou.
+                self._refuse_if_mutating(self._docker, docker_runtime)
             try:
                 spec = await asyncio.to_thread(self._specs.get_kernel_spec, kernel_name)
             except NoSuchKernel as exc:
                 raise KernelNotFound(kernel_name) from exc
-            await asyncio.to_thread(self._ensure_log4j2, spec)
-            await asyncio.to_thread(self._ensure_spark_defaults, spec)
+            if docker_runtime is not None:
+                await self._prepare_docker(docker_runtime)
+            else:
+                await asyncio.to_thread(self._ensure_log4j2, spec)
+                await asyncio.to_thread(self._ensure_spark_defaults, spec)
             self._runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            manager = AsyncKernelManager(
-                kernel_name=kernel_name,
-                connection_file=str(self._runtime_dir / f"{self._prefix}{session_id}.json"),
-            )
+            connection_file = str(self._runtime_dir / f"{self._prefix}{session_id}.json")
+            manager = AsyncKernelManager(kernel_name=kernel_name, connection_file=connection_file)
             manager.shutdown_wait_time = SHUTDOWN_WAIT
             session = KernelSession(
                 session_id,
@@ -619,7 +790,10 @@ class KernelService:
                 manager,
                 target=target,
                 duckdb_ext_dir=self._duckdb_ext_dir,
-                catalog_ensure=self._catalog_ensure,
+                # O container nunca grava o catalog.db: sem o hook de catálogo no kernel Docker.
+                catalog_ensure="" if docker_runtime is not None else self._catalog_ensure,
+                docker_runtime=docker_runtime,
+                docker_tag=docker_launch.tag_for(connection_file) if docker_runtime is not None else "",
             )
             env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
             try:

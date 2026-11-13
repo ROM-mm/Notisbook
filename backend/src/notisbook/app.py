@@ -22,13 +22,17 @@ from .static import mount_frontend
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     kernels: KernelService = app.state.kernels
     kernels.cleanup_orphans()
+    kernels.start_docker_sweep()
     installer: SparkInstaller = app.state.installer
+    docker: DockerRuntimes = app.state.docker
     await asyncio.to_thread(installer.sweep_trash)
     try:
         yield
     finally:
         await installer.shutdown()
+        await docker.shutdown()
         await kernels.shutdown_all()
+        await kernels.stop_docker_runtimes()
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -54,6 +58,7 @@ def create_app(settings: Settings) -> FastAPI:
         lambda: app.state.store.root,
         kernels.has_session,
     )
+    kernels.bind_docker(app.state.docker)
     app.include_router(system.router)
     app.include_router(contents.router)
     app.include_router(export.router)

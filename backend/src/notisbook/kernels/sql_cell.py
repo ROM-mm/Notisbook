@@ -30,6 +30,7 @@ NO_SESSION_MESSAGE = "No active SparkSession; create one in a Python cell"
 DUCKDB_MISSING_MESSAGE = (
     "DuckDB is not installed in this Spark environment; reinstall it from the Spark versions panel"
 )
+DUCKDB_DOCKER_MESSAGE = "DuckDB cells are not available in the Docker runtime; use a Spark SQL cell or a local Spark kernel"
 MAX_ROWS = 1000
 DISPLAY_ROWS = 50
 MAX_CELL_CHARS = 500
@@ -360,3 +361,8 @@ def build_duckdb_code(sql: str, ext_dir: str) -> str:
     )
     call = f"exec({guard!r}, {{}})"
     return f"{build_ensure_code()}\n{call}"
+
+
+def build_unavailable_code(message: str) -> str:
+    """Return the Python source that fails the cell with `message` (embedded as a `repr` literal)."""
+    return f"raise RuntimeError({message!r})"
