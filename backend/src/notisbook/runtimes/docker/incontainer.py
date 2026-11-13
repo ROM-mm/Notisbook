@@ -1,7 +1,8 @@
 """Código executado DENTRO do container do runtime (Python 3.11, só biblioteca padrão).
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
-  run <tag> [--cwd DIR]  lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
+  run <tag> [--cwd DIR] [--warehouse-dir DIR]
+                         lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
                          vira líder de grupo, grava PID+starttime em /run/notisbook e faz exec do ipykernel
   kill <tag>             SIGKILL no grupo do kernel de <tag> (validando PID+starttime)
   sweep                  `kill` para todas as tags registradas
@@ -14,6 +15,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import signal
 import sys
 import time
@@ -30,6 +32,16 @@ SUBMIT_ARGS = (
     "--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog "
     "pyspark-shell"
 )
+PYSPARK_SHELL = "pyspark-shell"
+
+
+def _submit_args(warehouse_dir: str | None) -> str:
+    """SUBMIT_ARGS com o warehouse do app; o PySpark separa a variável com shlex, então o caminho é citado."""
+    if not warehouse_dir:
+        return SUBMIT_ARGS
+    conf = shlex.quote(f"spark.sql.warehouse.dir={warehouse_dir}")
+    head = SUBMIT_ARGS[: -len(PYSPARK_SHELL)]
+    return f"{head}--conf {conf} {PYSPARK_SHELL}"
 
 
 def _fail(code: int, message: str) -> NoReturn:
@@ -149,7 +161,7 @@ def _read_connection() -> dict[str, object]:
     return conn
 
 
-def cmd_run(tag: str, cwd: str | None) -> None:
+def cmd_run(tag: str, cwd: str | None, warehouse_dir: str | None = None) -> None:
     conn = _read_connection()
     kill_tag(tag)
     try:
@@ -174,7 +186,7 @@ def cmd_run(tag: str, cwd: str | None) -> None:
             sys.stderr.write(
                 "notisbook-incontainer: pasta do notebook indisponível no container; usando a padrão\n"
             )
-    os.environ["PYSPARK_SUBMIT_ARGS"] = SUBMIT_ARGS
+    os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(warehouse_dir)
     try:
         os.execv(
             sys.executable,
@@ -199,10 +211,23 @@ def cmd_packages() -> None:
     sys.stdout.write(json.dumps(payload) + "\n")
 
 
+def _run_options(rest: list[str]) -> dict[str, str] | None:
+    """Pares `--cwd DIR` / `--warehouse-dir DIR` (sem repetição); None se algo fora disso."""
+    if len(rest) % 2:
+        return None
+    options = dict(zip(rest[::2], rest[1::2]))
+    if len(options) * 2 != len(rest) or not set(options) <= {"--cwd", "--warehouse-dir"}:
+        return None
+    if "--warehouse-dir" in options and not os.path.isabs(options["--warehouse-dir"]):
+        return None
+    return options
+
+
 def main(argv: list[str]) -> None:
     mode = argv[0] if argv else ""
-    if mode == "run" and len(argv) in (2, 4) and (len(argv) == 2 or argv[2] == "--cwd"):
-        cmd_run(_valid_tag(argv[1]), argv[3] if len(argv) == 4 else None)
+    options = _run_options(argv[2:]) if mode == "run" and len(argv) >= 2 else None
+    if options is not None:
+        cmd_run(_valid_tag(argv[1]), options.get("--cwd"), options.get("--warehouse-dir"))
     elif mode == "kill" and len(argv) == 2:
         sys.stdout.write("killed\n" if kill_tag(_valid_tag(argv[1])) else "none\n")
     elif mode == "sweep" and len(argv) == 1:
@@ -210,7 +235,7 @@ def main(argv: list[str]) -> None:
     elif mode == "packages" and len(argv) == 1:
         cmd_packages()
     else:
-        _fail(2, "uso: run <tag> [--cwd DIR] | kill <tag> | sweep | packages")
+        _fail(2, "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] | kill <tag> | sweep | packages")
 
 
 if __name__ == "__main__":
