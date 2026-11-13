@@ -35,10 +35,12 @@ from ..runtimes.docker.service import (
     DockerRuntimes,
     DockerUnavailable,
     InstallInProgress,
+    MountPlan,
     MountRejected,
     SessionsActive,
     inspect_container,
 )
+from ..security import RuntimeGrant, RuntimeTokens
 from ..spark.bundles import (
     SPARK_WAREHOUSE_SUBDIR,
     WAREHOUSE_DIR,
@@ -165,6 +167,11 @@ class KernelSession:
     # Runtime Docker da sessão (None no Local) e tag do kernel no container, usada pelo reaper do close.
     docker_runtime: docker_catalog.DockerRuntime | None = None
     docker_tag: str = ""
+    # Token de runtime da sessão Docker: emitido na criação, trocado no restart, revogado no close.
+    runtime_tokens: RuntimeTokens | None = None
+    runtime_grant: RuntimeGrant | None = None
+    # Monta o snippet do hook de catálogo a partir do token; None deixa o hook desligado na sessão.
+    catalog_factory: Callable[[str], str] | None = None
     _restarting: bool = False
     _channel_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     _ready_task: asyncio.Task[None] | None = None
@@ -252,6 +259,14 @@ class KernelSession:
         except Exception:
             log.exception("channel reader failed for session %s", self.session_id)
             await self._mark_dead()
+
+    def issue_runtime_token(self) -> None:
+        """Emite um token novo (o anterior deixa de valer) e, havendo fábrica, regenera o snippet do hook."""
+        if self.runtime_tokens is None or self.runtime_grant is None:
+            return
+        token = self.runtime_tokens.issue(self.runtime_grant)
+        if self.catalog_factory is not None:
+            self.catalog_ensure = self.catalog_factory(token)
 
     async def _await_ready(self, client: AsyncKernelClient) -> None:
         try:
@@ -531,6 +546,7 @@ class KernelSession:
                 await self.set_state("restarting")
                 await self._abort_pending()
                 await self._close_channels()
+                self.issue_runtime_token()  # o kernel novo recebe um token novo; o do kernel antigo morre aqui
                 self._var_cache.clear()
                 self._var_gen += 1
                 await self.manager.restart_kernel(now=True)
@@ -547,6 +563,8 @@ class KernelSession:
         async with self._lock:
             self.closing = True
             self.sink = None
+            if self.runtime_tokens is not None:
+                self.runtime_tokens.revoke(self.session_id)
             for task in list(self._bg_tasks):
                 task.cancel()
             await asyncio.gather(*self._bg_tasks, return_exceptions=True)
@@ -579,6 +597,8 @@ class KernelService:
         self._reservations = 0
         self._docker: DockerRuntimes | None = None
         self._sweep_task: asyncio.Task[None] | None = None
+        self.runtime_tokens = RuntimeTokens()
+        self._port = port
         self._prefix = f"notisbook-{port}-"
         self._runtime_dir = runtime_dir or Path(jupyter_runtime_dir()) / "notisbook"
         self._home = Path(os.path.abspath((home or Settings().home).expanduser()))
@@ -653,8 +673,11 @@ class KernelService:
             except DOCKER_STOP_SKIPPED as exc:  # container ausente, Docker fora do ar, timeout: nada a parar
                 log.warning("container %s was not stopped at shutdown: %s", runtime.container, type(exc).__name__)
 
-    async def _prepare_docker(self, runtime: docker_catalog.DockerRuntime) -> None:
-        """Garante que o runtime Docker pode abrir um kernel e deixa o container rodando; levanta `DockerRuntimeError`."""
+    async def _prepare_docker(self, runtime: docker_catalog.DockerRuntime) -> MountPlan:
+        """Garante que o runtime Docker pode abrir um kernel e deixa o container rodando; levanta `DockerRuntimeError`.
+
+        Devolve o plano de montagens validado, de onde saem as pastas que o token de runtime da sessão alcança.
+        """
         docker = self._docker
         if docker is None:
             raise DockerRuntimeError(503, "Runtime Docker indisponível neste servidor")
@@ -664,7 +687,7 @@ class KernelService:
         if not await asyncio.to_thread(docker_cli.is_available):
             raise DockerRuntimeError(503, "Docker indisponível: inicie o Colima (ou o daemon Docker) e tente de novo")
         info = await self._inspect_docker(runtime)
-        await self._check_docker_mounts(docker, info)
+        plan = await self._check_docker_mounts(docker, info)
         self._refuse_if_mutating(docker, runtime)
         if not info.running:
             try:
@@ -672,6 +695,17 @@ class KernelService:
             except (docker_launch.LaunchError, docker_cli.DockerError) as exc:
                 raise DockerRuntimeError(503, f"Não foi possível iniciar o container do runtime Docker: {exc}") from exc
         await asyncio.to_thread(self._refresh_docker_spec, runtime)
+        return plan
+
+    def _runtime_grant(self, session_id: str, plan: MountPlan) -> RuntimeGrant:
+        """Pastas montadas (por realpath) e raízes do warehouse; a Connections não entra (o backend não a conhece)."""
+        roots = tuple(dict.fromkeys(os.path.realpath(p) for p in (plan.notebooks, plan.warehouse)))
+        return RuntimeGrant(
+            session_id=session_id,
+            roots=roots,
+            managed_root=str(self._home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR),
+            iceberg_root=str(self._home / WAREHOUSE_DIR / "iceberg"),
+        )
 
     @staticmethod
     def _refuse_if_mutating(docker: DockerRuntimes, runtime: docker_catalog.DockerRuntime) -> None:
@@ -695,7 +729,7 @@ class KernelService:
         return info
 
     @staticmethod
-    async def _check_docker_mounts(docker: DockerRuntimes, info: ContainerInfo) -> None:
+    async def _check_docker_mounts(docker: DockerRuntimes, info: ContainerInfo) -> MountPlan:
         try:
             plan = await asyncio.to_thread(docker.plan_mounts, None)
         except MountRejected as exc:
@@ -710,6 +744,7 @@ class KernelService:
                 "As pastas montadas no container estão defasadas em relação à raiz atual dos notebooks; "
                 "use Recriar no runtime Docker (Spark > Installed) e tente de novo",
             )
+        return plan
 
     def _refresh_docker_spec(self, runtime: docker_catalog.DockerRuntime) -> None:
         """Regrava o kernelspec se o `argv[0]` não for o Python deste app (ex.: venv recriada)."""
@@ -774,8 +809,9 @@ class KernelService:
                 spec = await asyncio.to_thread(self._specs.get_kernel_spec, kernel_name)
             except NoSuchKernel as exc:
                 raise KernelNotFound(kernel_name) from exc
+            runtime_grant: RuntimeGrant | None = None
             if docker_runtime is not None:
-                await self._prepare_docker(docker_runtime)
+                runtime_grant = self._runtime_grant(session_id, await self._prepare_docker(docker_runtime))
             else:
                 await asyncio.to_thread(self._ensure_log4j2, spec)
                 await asyncio.to_thread(self._ensure_spark_defaults, spec)
@@ -794,7 +830,10 @@ class KernelService:
                 catalog_ensure="" if docker_runtime is not None else self._catalog_ensure,
                 docker_runtime=docker_runtime,
                 docker_tag=docker_launch.tag_for(connection_file) if docker_runtime is not None else "",
+                runtime_tokens=self.runtime_tokens if docker_runtime is not None else None,
+                runtime_grant=runtime_grant,
             )
+            session.issue_runtime_token()
             env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
             try:
                 await session.start(env, cwd)

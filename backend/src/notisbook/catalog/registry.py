@@ -208,3 +208,139 @@ def read_columns(conn: sqlite3.Connection, database: str, table: str, hudi_only:
     except (ValueError, KeyError, TypeError):
         # Registro com JSON ilegível: a tabela existe, só não há colunas para mostrar.
         return []
+
+
+# As duas funções abaixo são injetadas no kernel por `inspect.getsource` (hook local e HTTP): só usam
+# `json`/`sqlite3` e não têm anotações, que exigiriam nomes ausentes no kernel.
+def read_snapshot(conn):
+    """`(generation, rows, namespaces)` do `spark_catalog`; `rows` por `(db, tabela)` com os campos que o hook usa."""
+    row = conn.execute("SELECT value FROM nb_meta WHERE key = 'generation'").fetchone()
+    gen = int(row[0]) if row else 0
+    rows = {}
+    for db, name, fmt, loc, typ, cols, parts, dv, hi in conn.execute(
+        "SELECT namespace, table_name, format, location, table_type, columns_json, partition_cols, delta_version, "
+        "hudi_instant "
+        "FROM nb_tables WHERE catalog_name = 'spark_catalog'"
+    ):
+        rows[(db, name)] = {"fmt": fmt, "loc": loc, "type": typ, "cols": json.loads(cols),
+                            "parts": json.loads(parts), "dv": dv, "hi": hi}
+    namespaces = {r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = 'spark_catalog'")}
+    return gen, rows, namespaces
+
+
+def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
+    """Aplica o plano do hook dentro da transação aberta pelo chamador; não toca em arquivos nem na generation.
+
+    `plan`: `created` [(key, info)], `updated` [(key, rec_loc, rec_type, change)], `renamed` [(old, new, rec_loc, info)],
+    `dropped` [(key, rec_loc)], `new_dbs`, `gone_dbs`. `rec_loc` é a trava: só mexe na linha que ainda aponta para ele.
+    Com `type_from_row` o tipo de um update vem da linha do registro, não do plano (caminho HTTP).
+    `deletions` lista `(key, location)` de tabelas MANAGED sem outro uso, decididas pela própria linha.
+    """
+    out = {"changed": False, "adopted": [], "conflicts": [], "updated_ok": [], "renamed_ok": [],
+           "dropped_ok": [], "deletions": []}
+    changed = False
+
+    def row_of(key):
+        return conn.execute(
+            "SELECT location, table_type FROM nb_tables WHERE catalog_name = 'spark_catalog' "
+            "AND namespace = ? AND table_name = ?", key).fetchone()
+
+    for key, info in plan["created"]:
+        row = row_of(key)
+        if row is None:
+            conn.execute(
+                "INSERT INTO nb_tables (catalog_name, namespace, table_name, format, location, table_type, "
+                "columns_json, partition_cols, options_json, delta_version, hudi_instant, description, created_at, updated_at) "
+                "VALUES ('spark_catalog', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
+                (*key, info["fmt"], info["loc"], info["type"], json.dumps(info["cols"]), json.dumps(info["parts"]),
+                 info["dv"], info["hi"], info.get("description"), stamp, stamp))
+            changed = True
+            out["adopted"].append(key)
+        elif row[0] == info["loc"]:
+            out["adopted"].append(key)
+        else:
+            out["conflicts"].append(key)
+    for key, rec_loc, rec_type, change in plan["updated"]:
+        typ = rec_type
+        if type_from_row:
+            row = row_of(key)
+            typ = row[1] if row else rec_type
+        if typ == "MANAGED" and change["loc"] != rec_loc and not managed_shape(change["loc"]):
+            typ = "EXTERNAL"
+        cur = conn.execute(
+            "UPDATE nb_tables SET format = ?, location = ?, table_type = ?, columns_json = ?, partition_cols = ?, "
+            "delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
+            "AND namespace = ? AND table_name = ? AND location = ?",
+            (change["fmt"], change["loc"], typ, json.dumps(change["cols"]), json.dumps(change["parts"]),
+             change["dv"], change["hi"], stamp, *key, rec_loc))
+        if cur.rowcount:
+            changed = True
+            out["updated_ok"].append((key, {**change, "type": typ}))
+    for old, new, rec_loc, info in plan["renamed"]:
+        try:
+            cur = conn.execute(
+                "UPDATE nb_tables SET namespace = ?, table_name = ?, format = ?, location = ?, columns_json = ?, "
+                "partition_cols = ?, delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
+                "AND namespace = ? AND table_name = ? AND location = ?",
+                (*new, info["fmt"], info["loc"], json.dumps(info["cols"]), json.dumps(info["parts"]), info["dv"],
+                 info["hi"], stamp, *old, rec_loc))
+        except sqlite3.IntegrityError:
+            out["conflicts"].append(new)
+            continue
+        if cur.rowcount:
+            changed = True
+            out["renamed_ok"].append((old, new, info))
+    for key, rec_loc in plan["dropped"]:
+        row = row_of(key)
+        out["dropped_ok"].append(key)
+        if row is None or row[0] != rec_loc:
+            continue  # outro kernel já removeu ou recriou
+        conn.execute(
+            "DELETE FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ? AND table_name = ?", key)
+        changed = True
+        shared = conn.execute("SELECT count(*) FROM nb_tables WHERE location = ?", (row[0],)).fetchone()[0]
+        if row[1] == "MANAGED" and not shared:
+            out["deletions"].append((key, row[0]))
+    for ns in plan["new_dbs"]:
+        changed |= conn.execute(
+            "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "
+            "VALUES ('spark_catalog', ?, NULL, ?)", (ns, stamp)).rowcount > 0
+    for ns in plan["gone_dbs"]:
+        left = conn.execute(
+            "SELECT count(*) FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).fetchone()[0]
+        if not left:
+            changed |= conn.execute(
+                "DELETE FROM nb_namespaces WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).rowcount > 0
+    out["changed"] = changed
+    return out
+
+
+def read_generation(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT value FROM nb_meta WHERE key = 'generation'").fetchone()
+    return int(row[0]) if row else 0
+
+
+def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], managed_shape: Any) -> dict[str, Any]:
+    """Aplica o plano numa `BEGIN IMMEDIATE`, sobe a generation se algo mudou e devolve o resultado.
+
+    O tipo dos updates vem da linha do registro. `generation_before`/`generation` acompanham o resultado;
+    apagar pastas MANAGED (`deletions`) fica para o chamador, depois do COMMIT.
+    """
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        before = read_generation(conn)
+        result: dict[str, Any] = apply_plan(conn, plan, stamp, managed_shape, type_from_row=True)
+        if result["changed"]:
+            _bump_generation(conn)
+        after = read_generation(conn)
+        conn.execute("COMMIT")
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
+    result["generation_before"] = before
+    result["generation"] = after
+    return result

@@ -11,6 +11,8 @@ from .spark.kernelspec import ENVS_DIR
 # Bind is always loopback; there is intentionally no way to configure it.
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
+# Nome pelo qual o container (Colima) alcança o backend do Mac; só as rotas de runtime aceitam esse Host.
+RUNTIME_HOST = "host.lima.internal"
 
 
 def default_root(home: Path) -> Path:
@@ -78,3 +80,7 @@ class Settings:
     @property
     def allowed_hosts(self) -> frozenset[str]:
         return frozenset({f"127.0.0.1:{self.port}", f"localhost:{self.port}"})
+
+    @property
+    def runtime_allowed_hosts(self) -> frozenset[str]:
+        return self.allowed_hosts | {f"{RUNTIME_HOST}:{self.port}"}
