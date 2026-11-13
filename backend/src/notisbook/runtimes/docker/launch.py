@@ -15,6 +15,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ...config import default_home
+from ...spark.bundles import SPARK_WAREHOUSE_SUBDIR, WAREHOUSE_DIR
 from . import catalog, cli
 
 START_TIMEOUT_S = 60.0
@@ -35,6 +37,11 @@ def tag_for(connection_file: str) -> str:
     """Tag de kernel derivada do nome do connection file (aceita pelo `incontainer`)."""
     tag = re.sub(r"[^A-Za-z0-9_.-]", "-", Path(connection_file).stem).lstrip("-._")
     return tag[-80:] or "kernel"
+
+
+def warehouse_dir() -> Path:
+    """Warehouse Spark do app (`<home>/warehouse/spark`), a mesma pasta do runtime local e montada no container."""
+    return Path(os.path.abspath(default_home())) / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR
 
 
 def incontainer_source() -> bytes:
@@ -117,7 +124,7 @@ def launch(key: str, connection_file: str) -> None:
         "run",
         tag_for(connection_file),
     ]
-    argv += ["--cwd", os.getcwd()]
+    argv += ["--cwd", os.getcwd(), "--warehouse-dir", str(warehouse_dir())]
     # Arquivo anônimo 0600 como stdin: o payload (código + connection file) passa de um pipe pequeno.
     with tempfile.TemporaryFile() as payload:
         payload.write(header + source + Path(connection_file).read_bytes())
