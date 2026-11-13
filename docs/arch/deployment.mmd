@@ -1,0 +1,46 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    subgraph REPO["Repositório Notisbook-app"]
+        FRONT["frontend<br/>npm run build"]
+        BACK["backend<br/>pyproject hatchling"]
+        BUILD["build_release.py<br/>uv build"]
+        REL["release.sh<br/>Tag e fórmula"]
+    end
+
+    GH["GitHub Releases<br/>ROM-mm/Notisbook"]
+    TAP["Tap Homebrew<br/>rom-mm/tap"]
+
+    subgraph MAC["Máquina da pessoa usuária"]
+        BREW["Homebrew<br/>Fórmula notisbook"]
+        PROC["Processo notisbook<br/>127.0.0.1:8765"]
+        BROWSER["Navegador<br/>SPA embutida"]
+        DATA[("Pasta de dados<br/>~/.notisbook")]
+        KSPEC[("Kernelspecs<br/>Jupyter data dir")]
+    end
+
+    FRONT -->|"dist copiado para _frontend"| BUILD
+    BACK -->|"Fontes do pacote"| BUILD
+    BUILD -->|"sdist e wheel"| REL
+    REL -->|"gh release create"| GH
+    REL -->|"url e sha256"| TAP
+    TAP -->|"brew install"| BREW
+    GH -->|"Download do sdist"| BREW
+    BREW -->|"Instala comando"| PROC
+    BROWSER -->|"HTTP/WS loopback"| PROC
+    PROC -->|"envs, warehouse, catalog.db"| DATA
+    PROC -->|"kernel.json"| KSPEC
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class GH,TAP,BREW,BROWSER external
+    class FRONT,BACK,BUILD,REL support
+    class PROC processing
+    class DATA,KSPEC persistence

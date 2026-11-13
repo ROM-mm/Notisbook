@@ -1,0 +1,52 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    CLI["notisbook CLI<br/>__main__"]
+    HOME[("Pasta de dados<br/>ensure_home")]
+    CATINIT[("catalog.db<br/>ensure_catalog_db")]
+    ONB["Onboarding<br/>Exemplos na 1ª execução"]
+    NBDEF[("dados/notebooks<br/>delta, iceberg, hudi")]
+    ROOT["Resolução da raiz<br/>root, salva ou padrão"]
+    SRV["Servidor FastAPI<br/>Token e loopback"]
+    SPA["Interface web<br/>React"]
+    STORE["NotebookStore<br/>Escrita atômica"]
+    NB[("Notebooks .ipynb<br/>Raiz ativa")]
+    KSVC["KernelService<br/>Canal WS v1"]
+    KERNEL["Kernel IPython<br/>pyspark e duckdb"]
+    HOOK["Hook de catálogo<br/>_notisbook_catalog"]
+    WH[("Warehouse<br/>Delta, Iceberg, Hudi")]
+    EXP["Exportação<br/>py, ipynb, html"]
+
+    CLI -->|"Cria pastas"| HOME
+    CLI -->|"Cria e migra"| CATINIT
+    CLI -->|"Sem prefs nem root"| ONB
+    ONB -->|"Copia sem sobrescrever"| NBDEF
+    CLI -->|"Define raiz"| ROOT
+    ROOT -->|"Settings imutável"| SRV
+    SPA -->|"GET/PUT /api/contents"| SRV
+    SRV -->|"Caminho dentro da raiz"| STORE
+    STORE -->|"tmp, fsync, replace"| NB
+    SPA -->|"execute via WebSocket"| SRV
+    SRV -->|"Sessão"| KSVC
+    KSVC -->|"execute_request"| KERNEL
+    KERNEL -->|"output e status"| KSVC
+    KSVC -->|"Frames v1"| SPA
+    KERNEL -->|"getOrCreate e células"| HOOK
+    HOOK -->|"Registro nb_* e iceberg"| CATINIT
+    KERNEL -->|"Lê e grava tabelas"| WH
+    SPA -->|"POST /api/export"| EXP
+    EXP -->|"Download sem disco"| SPA
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class SPA external
+    class SRV integration
+    class CLI,ONB,ROOT,STORE,KSVC,KERNEL,HOOK,EXP processing
+    class HOME,CATINIT,NBDEF,NB,WH persistence

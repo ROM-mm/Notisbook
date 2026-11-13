@@ -1,0 +1,33 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    USER["Pessoa usuária<br/>Navegador local"]
+    NOTISBOOK["Notisbook<br/>App local de notebooks"]
+    PYPI["PyPI<br/>Índice de pacotes"]
+    MAVEN["Maven Central<br/>Repositório de jars"]
+    UV["uv<br/>Ferramenta local"]
+    JDK["JDK local<br/>java_home ou Homebrew"]
+    MACOS["macOS<br/>osascript"]
+    FS[("Sistema de arquivos<br/>Notebooks e dados")]
+
+    USER -->|"HTTP/WS com token"| NOTISBOOK
+    NOTISBOOK -->|"Versões do pyspark"| PYPI
+    NOTISBOOK -->|"Jars com sha256"| MAVEN
+    NOTISBOOK -->|"Python, venv e pip"| UV
+    UV -->|"Instala pacotes"| PYPI
+    NOTISBOOK -->|"Resolve JAVA_HOME"| JDK
+    NOTISBOOK -->|"Seletor de pasta"| MACOS
+    NOTISBOOK -->|"Lê e grava"| FS
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class USER,PYPI,MAVEN,UV,JDK,MACOS external
+    class NOTISBOOK processing
+    class FS persistence
