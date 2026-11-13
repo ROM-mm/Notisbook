@@ -40,6 +40,7 @@ from pyiceberg.table.sorting import UNSORTED_SORT_ORDER, SortOrder
 from pyiceberg.table.update import (
     AssertCreate,
     SetLocationUpdate,
+    SetPropertiesUpdate,
     TableRequirement,
     TableUpdate,
     UpgradeFormatVersionUpdate,
@@ -77,6 +78,7 @@ MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_UPDATES = 1000
 MAX_PROPERTIES = 200
 # Nomes novos viram pastas: mesmo padrão do catálogo de runtime.
+DATA_PATH_PROPERTIES = ("write.data.path", "write.metadata.path")
 NAME_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_$-]{0,127}")
 # Só o que o Spark 1.7 envia em CREATE/CTAS/INSERT/ALTER comuns; o resto (statistics, chaves de criptografia) é 400.
 ALLOWED_ACTIONS = frozenset(
@@ -509,6 +511,21 @@ def _check_updates(updates: tuple[Any, ...], root: str) -> None:
             _inside_root(update.location, root)
 
 
+def _check_data_paths(properties: dict[str, str], location: str) -> None:
+    """400 se `write.data.path`/`write.metadata.path` apontam para fora da pasta da própria tabela.
+
+    Outra tabela gravando dentro da pasta de A perderia os dados no purge de A (comparação com realpath e fold).
+    """
+    own = local_path(location)
+    for key in DATA_PATH_PROPERTIES:
+        value = properties.get(key)
+        if value is None:
+            continue
+        path = local_path(value)
+        if own is None or path is None or not is_within(Path(os.path.realpath(path)), Path(os.path.realpath(own)), fold=True):
+            raise _bad_request(f"{key} deve ficar dentro da location da própria tabela")
+
+
 def _empty_metadata() -> TableMetadata:
     """Base vazia para aplicar as atualizações de uma criação (V1 só até o `upgrade-format-version`)."""
     return TableMetadataV1.model_construct(last_column_id=-1, schema=Schema())
@@ -590,6 +607,7 @@ def _default_location(grant: RuntimeGrant, ns: str, table: str) -> str:
 
 
 def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
+    _new_namespace(ns.split("."))
     table = _new_name(body.get("name"), "Nome de tabela")
     properties = _string_map(body.get("properties"), "Propriedades")
     version = properties.get("format-version", "2")
@@ -600,6 +618,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
         raise _bad_request("location inválida")
     final_location = location or _default_location(grant, ns, table)
     _inside_root(final_location, grant.iceberg_root)
+    _check_data_paths(properties, final_location)
     try:
         schema = Schema.model_validate(body.get("schema"))
         spec = PartitionSpec.model_validate(body["partition-spec"]) if body.get("partition-spec") else UNPARTITIONED_PARTITION_SPEC
@@ -659,26 +678,47 @@ def _commit_table(
             raise IcebergError(422, "UnprocessableEntityException", "As atualizações não puderam ser aplicadas à tabela") from None
         if isinstance(new, TableMetadataV3) or new.format_version > MAX_FORMAT_VERSION:
             raise _bad_request("format-version acima de 2 não é suportado")
+        for update in updates:
+            if isinstance(update, SetPropertiesUpdate):
+                _check_data_paths(update.updates, new.location)
         return _persist(conn, has_type, grant, ns, table, new, location or None, commit=True)
 
     return run
 
 
-def _purge(conn: sqlite3.Connection, grant: RuntimeGrant, folder: Path | None) -> None:
-    """Remove a pasta da tabela só se estiver dentro da raiz Iceberg e nenhuma tabela restante a usar."""
+def _trash_folder(conn: sqlite3.Connection, grant: RuntimeGrant, folder: Path | None) -> tuple[Path, Path] | None:
+    """Move a pasta da tabela para uma lixeira irmã, só se estiver dentro da raiz e nenhuma tabela restante a usar.
+
+    Chamada dentro da transação do DELETE: o nome da tabela fica livre só no COMMIT, então recriar `ns.t` não
+    alcança o `rmtree`, que roda depois sobre a pasta renomeada. Devolve `(lixeira, origem)` ou None.
+    """
     if folder is None:
-        return
+        return None
     try:
         target = _inside_root(_file_uri(folder), grant.iceberg_root)
     except IcebergError:
-        return
+        return None
     for location in iceberg_jdbc.all_metadata_locations(conn):
         other = iceberg_jdbc.table_folder(location)
         if other is not None:
             real_other = Path(os.path.realpath(other))
             if is_within(real_other, target, fold=True) or is_within(target, real_other, fold=True):
-                return
-    shutil.rmtree(target, ignore_errors=True)
+                return None
+    trash = target.parent / f".{target.name}.dropped-{uuid.uuid4().hex}"
+    try:
+        target.rename(trash)
+    except OSError:
+        log.warning("não foi possível mover a pasta da tabela para a lixeira; o purge foi ignorado")
+        return None
+    return trash, target
+
+
+def _restore_folder(moved: tuple[Path, Path]) -> None:
+    trash, target = moved
+    try:
+        trash.rename(target)
+    except OSError:
+        log.warning("não foi possível restaurar a pasta da tabela após falha no DROP")
 
 
 def _require_inside_root(location: str, root: str) -> None:
@@ -706,10 +746,18 @@ def _drop_table(
                 folder = Path(str(_inside_root(iceberg_jdbc.read_metadata_within(location, grant.iceberg_root)["location"], grant.iceberg_root)))
             except (iceberg_jdbc.IcebergMetadataError, KeyError, TypeError, IcebergError):
                 folder = None
-        with _write_txn(conn):
-            if not iceberg_jdbc.delete_table_row(conn, ns, table, has_type):
-                raise _no_such_table()
-        _purge(conn, grant, folder)
+        moved: tuple[Path, Path] | None = None
+        try:
+            with _write_txn(conn):
+                if not iceberg_jdbc.delete_table_row(conn, ns, table, has_type):
+                    raise _no_such_table()
+                moved = _trash_folder(conn, grant, folder)
+        except BaseException:
+            if moved is not None:
+                _restore_folder(moved)
+            raise
+        if moved is not None:
+            shutil.rmtree(moved[0], ignore_errors=True)
 
     return run
 

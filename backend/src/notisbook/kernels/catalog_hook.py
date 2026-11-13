@@ -124,9 +124,15 @@ def allowed_location(location):
     return bool(path) and any(is_under(path, r) and path.rstrip("/") != r.rstrip("/") for r in ROOTS)
 
 
-def is_under(location, root):
-    """True when `location` is `root` or inside it (compared with a trailing separator: `a/iceberg` is not `a/iceberg_raw`)."""
-    return (location.rstrip("/") + "/").startswith(root.rstrip("/") + "/")
+def is_under(location, root, fold=False):
+    """True when `location` is `root` or inside it (compared with a trailing separator: `a/iceberg` is not `a/iceberg_raw`).
+
+    `fold` ignores case (APFS); use it only to refuse more, never to allow.
+    """
+    loc, base = location.rstrip("/") + "/", root.rstrip("/") + "/"
+    if fold:
+        loc, base = loc.casefold(), base.casefold()
+    return loc.startswith(base)
 
 
 def delta_versions(location):
@@ -430,7 +436,7 @@ def describe_new(session, key, table):
         warn(("format", skey, key), "table %s uses format '%s'; it is not saved in the persistent catalog." % (label, info["provider"]))
         return None
     loc = norm_loc(info["location"])
-    if is_under(loc, norm_loc(ICEBERG_WAREHOUSE)):
+    if is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True):
         return None
     if not allowed_location(loc):
         warn(("outside", skey, key), "table %s is outside the folders shared with the runtime; it is not saved in the persistent catalog." % label)

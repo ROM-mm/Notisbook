@@ -131,7 +131,7 @@ def _location_error(location: str, grant: RuntimeGrant) -> str | None:
         return "location_not_local"
     real = Path(os.path.realpath(path))
     iceberg = Path(os.path.realpath(grant.iceberg_root))
-    if is_within(real, iceberg):
+    if is_within(real, iceberg, fold=True):  # APFS ignora a caixa: `ICEBERG` é o mesmo warehouse
         return "location_in_iceberg_warehouse"
     for root in grant.roots:
         base = Path(os.path.realpath(root))
