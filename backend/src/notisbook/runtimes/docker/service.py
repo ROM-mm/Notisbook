@@ -308,9 +308,13 @@ class DockerRuntimes:
         }
         if not available:
             return state
-        size = await asyncio.to_thread(image_size, runtime)
-        state["image_present"] = size is not None
-        state["image_size"] = size
+        try:
+            size = await asyncio.to_thread(image_size, runtime)
+        except cli.DockerError as exc:
+            log.warning("falha ao inspecionar a imagem: %s", exc)
+        else:
+            state["image_present"] = size is not None
+            state["image_size"] = size
         try:
             info = await asyncio.to_thread(inspect_container, runtime)
         except cli.DockerError as exc:

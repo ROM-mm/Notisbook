@@ -76,7 +76,10 @@ def sweep(runtime: catalog.DockerRuntime) -> int:
     result = call(runtime, "sweep")
     if result.returncode != 0:
         raise LaunchError("falha ao varrer kernels no container")
-    return int(result.stdout.strip() or 0)
+    try:
+        return int(result.stdout.strip() or 0)
+    except ValueError as exc:
+        raise LaunchError("resposta inválida do sweep") from exc
 
 
 def packages(runtime: catalog.DockerRuntime) -> dict[str, Any]:

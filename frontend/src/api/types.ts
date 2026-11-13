@@ -170,7 +170,7 @@ export interface DockerRuntime {
   available: boolean;
   installed: boolean;
   busy: boolean;
-  job: { id: string; kind: "docker-install" | "docker-recreate" } | null;
+  job: { id: string; kind: "install" | "recreate" } | null;
   image_present: boolean | null;
   image_size: number | null;
   container: DockerContainer | null;
