@@ -8,6 +8,9 @@ desconhecido); 409 só para requisito violado ou CAS perdido, 500 só se o estad
 No protocolo REST quem grava o `metadata.json` é o servidor: o `pyiceberg` (sem extras) entra só como biblioteca
 de domínio (modelos, `validate`, `update_table_metadata`, serialização). A gravação do arquivo (criação exclusiva)
 e o CAS de `metadata_location` usam o SQLite do backend, com o mesmo predicado do JdbcCatalog do runtime local.
+
+Locations de tabela ficam no warehouse Iceberg ou numa pasta montada na sessão (tabela externa), nunca no
+warehouse Spark nem sobrepostas a outra tabela; o purge só apaga arquivos de tabela dentro do warehouse Iceberg.
 """
 
 import asyncio
@@ -47,7 +50,7 @@ from pyiceberg.table.update import (
 )
 
 from ..catalog import iceberg_jdbc
-from ..catalog.registry import local_path
+from ..catalog.registry import all_table_locations, local_path
 from ..catalog.store import catalog_db_path, connect
 from ..fs_safety import is_within
 from ..security import RuntimeGrant, require_runtime_host, require_runtime_token
@@ -279,11 +282,9 @@ def _load_table(grant: RuntimeGrant, ns: str, table: str) -> Callable[[sqlite3.C
         if location is None:
             raise _no_such_table()
         try:
-            metadata = iceberg_jdbc.read_metadata_within(location, grant.iceberg_root)
+            metadata = iceberg_jdbc.read_metadata_within(location, _allowed_roots(grant))
         except iceberg_jdbc.MetadataOutsideRoot:
-            raise IcebergError(
-                403, "ForbiddenException", "A tabela fica fora do warehouse Iceberg do Notisbook e não é acessível ao runtime Docker"
-            ) from None
+            raise _outside_mounts() from None
         except iceberg_jdbc.IcebergMetadataError:
             raise IcebergError(500, "ServiceFailureException", "Não foi possível ler o metadata da tabela") from None
         return {"metadata-location": location, "metadata": metadata, "config": {}}
@@ -427,6 +428,60 @@ def _inside_root(location: str, root: str) -> Path:
     return real
 
 
+def _allowed_roots(grant: RuntimeGrant) -> tuple[str, ...]:
+    """Raízes onde o runtime Docker pode ler tabelas: o warehouse Iceberg e as pastas montadas na sessão."""
+    return tuple(dict.fromkeys((grant.iceberg_root, *grant.roots)))
+
+
+def _outside_mounts() -> IcebergError:
+    return IcebergError(
+        403, "ForbiddenException", "A tabela fica fora do warehouse Iceberg e das pastas montadas no container e não é acessível ao runtime Docker"
+    )
+
+
+def _strictly_inside(real: Path, root: str) -> bool:
+    real_root = Path(os.path.realpath(root))
+    return real != real_root and is_within(real, real_root)
+
+
+def _table_path(location: str, grant: RuntimeGrant) -> Path:
+    """Pasta local (realpath) de uma tabela nova ou escrita: warehouse Iceberg ou pasta montada; 400 caso contrário.
+
+    Recusa, sem diferenciar caixa (APFS), o warehouse Spark (Delta), o próprio warehouse Iceberg e qualquer
+    ancestral deles; dentro do warehouse Iceberg só vale a grafia exata do caminho.
+    """
+    path = local_path(location)
+    if path is None:
+        raise _bad_request("A location deve ser um caminho local")
+    real = Path(os.path.realpath(path))
+    if _strictly_inside(real, grant.iceberg_root):
+        return real
+    if not any(_strictly_inside(real, root) for root in grant.roots):
+        raise _bad_request("A location deve ficar numa pasta montada no container ou no warehouse Iceberg do Notisbook")
+    managed, iceberg = Path(os.path.realpath(grant.managed_root)), Path(os.path.realpath(grant.iceberg_root))
+    if is_within(real, managed, fold=True) or is_within(managed, real, fold=True):
+        raise _bad_request("A location não pode ficar no warehouse Spark (Delta) do Notisbook nem conter esse warehouse")
+    if is_within(real, iceberg, fold=True) or is_within(iceberg, real, fold=True):
+        raise _bad_request("A location não pode ser o warehouse Iceberg do Notisbook, conter esse warehouse ou variar só a caixa dele")
+    return real
+
+
+def _require_no_overlap(conn: sqlite3.Connection, folder: Path | None) -> None:
+    """400 se `folder` é ancestral ou descendente (sem diferenciar caixa) da pasta de outra tabela registrada.
+
+    Vale para tabelas Iceberg e para locations Delta/Parquet do registro; outro dono da pasta perderia dados no purge.
+    """
+    if folder is None:
+        return
+    others = [iceberg_jdbc.table_folder(m) for m in iceberg_jdbc.all_metadata_locations(conn)]
+    others += [local_path(loc) for loc in all_table_locations(conn)]
+    for other in others:
+        if other is not None:
+            real_other = Path(os.path.realpath(other))
+            if is_within(real_other, folder, fold=True) or is_within(folder, real_other, fold=True):
+                raise _bad_request("A location se sobrepõe à pasta de outra tabela registrada")
+
+
 def _remove_quiet(path: Path | None) -> None:
     if path is None:
         return
@@ -447,24 +502,23 @@ def _next_version(previous_location: str | None) -> int:
 
 
 def _write_metadata_file(
-    metadata: TableMetadata, root: str, previous_location: str | None, commit: bool
+    metadata: TableMetadata, grant: RuntimeGrant, previous_location: str | None, commit: bool
 ) -> tuple[Path, str, bytes]:
     """Grava o `metadata.json` novo (nome único, criação exclusiva). Devolve caminho, URI e conteúdo.
 
-    Levanta 400 (location fora da raiz / grande demais) ou, na falha de E/S, 409 no commit e 503 no create;
+    Grava sempre em `<location>/metadata/`. Levanta 400 (location recusada / grande demais) ou, na falha de E/S, 409 no commit e 503 no create;
     nada é registrado aqui e o arquivo parcial é removido.
     """
     data = metadata.model_dump_json().encode("utf-8")
     if len(data) > iceberg_jdbc.MAX_METADATA_BYTES:
         raise _bad_request("O metadata resultante excede o limite suportado")
-    table_dir = _inside_root(metadata.location, root)
+    table_dir = _table_path(metadata.location, grant)
     name = f"{_next_version(previous_location):05d}-{uuid.uuid4()}.metadata.json"
     target = table_dir / "metadata" / name
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        real_root = Path(os.path.realpath(root))
-        if not is_within(Path(os.path.realpath(target.parent)), real_root):  # symlink dentro da pasta da tabela
-            raise _bad_request("A location deve ficar dentro do warehouse Iceberg do Notisbook")
+        if not is_within(Path(os.path.realpath(target.parent)), table_dir):  # `metadata/` é symlink para fora da tabela
+            raise _bad_request("A pasta metadata da tabela não pode ser um link para fora da location")
         fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
     except OSError:
         raise _unavailable("Não foi possível gravar o metadata da tabela", commit) from None
@@ -509,12 +563,12 @@ def _parse_requirements(raw: Any) -> tuple[Any, ...]:
     return tuple(parsed)
 
 
-def _check_updates(updates: tuple[Any, ...], root: str) -> None:
+def _check_updates(updates: tuple[Any, ...], grant: RuntimeGrant) -> None:
     for update in updates:
         if isinstance(update, UpgradeFormatVersionUpdate) and update.format_version > MAX_FORMAT_VERSION:
             raise _bad_request("format-version acima de 2 não é suportado")
         if isinstance(update, SetLocationUpdate):
-            _inside_root(update.location, root)
+            _table_path(update.location, grant)
 
 
 def _check_data_paths(properties: dict[str, str], location: str) -> None:
@@ -540,13 +594,11 @@ def _empty_metadata() -> TableMetadata:
     return TableMetadataV1.model_construct(last_column_id=-1, schema=Schema())
 
 
-def _load_current(location: str, root: str) -> TableMetadata:
+def _load_current(location: str, grant: RuntimeGrant) -> TableMetadata:
     try:
-        raw = iceberg_jdbc.read_metadata_within(location, root)
+        raw = iceberg_jdbc.read_metadata_within(location, _allowed_roots(grant))
     except iceberg_jdbc.MetadataOutsideRoot:
-        raise IcebergError(
-            403, "ForbiddenException", "A tabela fica fora do warehouse Iceberg do Notisbook e não é acessível ao runtime Docker"
-        ) from None
+        raise _outside_mounts() from None
     except iceberg_jdbc.IcebergMetadataError:
         raise IcebergError(422, "UnprocessableEntityException", "Não foi possível ler o metadata da tabela") from None
     try:
@@ -570,11 +622,13 @@ def _register(
 ) -> bool:
     """CAS (ou INSERT na criação) numa transação curta; `False` se perdeu a disputa.
 
-    Falha do `BEGIN IMMEDIATE` (nada aplicado): 409 no commit e 503 no create. Qualquer falha depois dele: 500.
+    Falha do `BEGIN IMMEDIATE` (nada aplicado): 409 no commit e 503 no create. Sobreposição de pasta na criação: 400.
+    Qualquer outra falha depois dele: 500.
     """
     try:
         with _write_txn(conn, lambda: _unavailable("Catálogo ocupado ou indisponível", commit)):
             if previous is None:
+                _require_no_overlap(conn, iceberg_jdbc.table_folder(new_location))
                 return iceberg_jdbc.insert_table(conn, ns, table, new_location, has_type)
             return iceberg_jdbc.swap_metadata_location(conn, ns, table, previous, new_location, has_type)
     except sqlite3.Error:
@@ -593,7 +647,9 @@ def _persist(
     commit: bool,
 ) -> dict[str, Any]:
     """Grava o metadata novo, registra (CAS) e, se perdeu, apaga o arquivo e responde 409."""
-    path, location, data = _write_metadata_file(metadata, grant.iceberg_root, previous, commit)
+    if previous is None:  # checagem prévia, antes de criar `metadata/` na pasta; a definitiva é a de `_register`
+        _require_no_overlap(conn, _table_path(metadata.location, grant))
+    path, location, data = _write_metadata_file(metadata, grant, previous, commit)
     try:
         registered = _register(conn, has_type, ns, table, previous, location, commit)
     except IcebergError as exc:
@@ -626,7 +682,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
     if location is not None and not isinstance(location, str):
         raise _bad_request("location inválida")
     final_location = location or _default_location(grant, ns, table)
-    _inside_root(final_location, grant.iceberg_root)
+    _table_path(final_location, grant)
     _check_data_paths(properties, final_location)
     try:
         schema = Schema.model_validate(body.get("schema"))
@@ -643,6 +699,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
         if iceberg_jdbc.table_row_exists(conn, ns, table, ignore_case=True):  # APFS: `T` e `t` são a mesma pasta
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         if staged:  # CTAS: nada é gravado nem registrado; a materialização chega no commit com `assert-create`
+            _require_no_overlap(conn, _table_path(final_location, grant))
             return _result(None, metadata.model_dump_json().encode("utf-8"))
         return _persist(conn, has_type, grant, ns, table, metadata, None, commit=False)
 
@@ -654,7 +711,7 @@ def _commit_table(
 ) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
     requirements = _parse_requirements(body.get("requirements", []))
     updates = _parse_updates(body.get("updates", []))
-    _check_updates(updates, grant.iceberg_root)
+    _check_updates(updates, grant)
     creating = any(isinstance(r, AssertCreate) for r in requirements)
     if creating:  # CTAS vira pasta como o create direto: mesmas regras de nome
         _new_name(table, "Nome de tabela")
@@ -672,7 +729,7 @@ def _commit_table(
             raise IcebergError(409, "AlreadyExistsException", "Já existe uma tabela ou view com esse nome")
         if location == "":
             raise IcebergError(422, "UnprocessableEntityException", "A tabela não tem metadata registrado")
-        base = _load_current(location, grant.iceberg_root) if location else None
+        base = _load_current(location, grant) if location else None
         for requirement in requirements:
             try:
                 requirement.validate(base)
@@ -732,12 +789,10 @@ def _restore_folder(moved: tuple[Path, Path]) -> None:
         log.warning("não foi possível restaurar a pasta da tabela após falha no DROP")
 
 
-def _require_inside_root(location: str, root: str) -> None:
-    """403 se o metadata da tabela está fora do warehouse Iceberg (mesma regra de load/commit)."""
-    if not iceberg_jdbc.location_within_root(location, root):
-        raise IcebergError(
-            403, "ForbiddenException", "A tabela fica fora do warehouse Iceberg do Notisbook e não é acessível ao runtime Docker"
-        )
+def _require_inside_roots(location: str, grant: RuntimeGrant) -> None:
+    """403 se o metadata da tabela está fora do warehouse Iceberg e das pastas montadas (mesma regra de load/commit)."""
+    if not iceberg_jdbc.location_within_roots(location, _allowed_roots(grant)):
+        raise _outside_mounts()
 
 
 def _drop_table(
@@ -748,13 +803,14 @@ def _drop_table(
         if location is None:
             raise _no_such_table()
         if location:
-            _require_inside_root(location, grant.iceberg_root)
+            _require_inside_roots(location, grant)
         folder = None
-        if purge and location:
+        # Tabela externa (metadata fora do warehouse Iceberg): o purge só remove a linha, nunca arquivos.
+        if purge and location and iceberg_jdbc.location_within_root(location, grant.iceberg_root):
             if iceberg_jdbc.gc_enabled(location) is False:
                 raise _bad_request("A tabela tem gc.enabled=false: o purge foi recusado e nada foi removido")
             try:
-                folder = Path(str(_inside_root(iceberg_jdbc.read_metadata_within(location, grant.iceberg_root)["location"], grant.iceberg_root)))
+                folder = Path(str(_inside_root(iceberg_jdbc.read_metadata_within(location, (grant.iceberg_root,))["location"], grant.iceberg_root)))
             except (iceberg_jdbc.IcebergMetadataError, KeyError, TypeError, IcebergError):
                 folder = None
         moved: tuple[Path, Path] | None = None
@@ -862,7 +918,7 @@ async def rename_table(request: Request, grant: Grant) -> Response:
     def run(conn: sqlite3.Connection, has_type: bool) -> None:
         current = iceberg_jdbc.table_metadata_location(conn, source[0], source[1], has_type)
         if current:
-            _require_inside_root(current, grant.iceberg_root)
+            _require_inside_roots(current, grant)
         with _write_txn(conn):
             if iceberg_jdbc.table_metadata_location(conn, source[0], source[1], has_type) is None:
                 raise _no_such_table()

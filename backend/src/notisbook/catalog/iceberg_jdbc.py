@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 import zlib
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,7 @@ class IcebergMetadataError(Exception):
 
 
 class MetadataOutsideRoot(IcebergMetadataError):
-    """O `metadata_location` aponta para fora da raiz permitida (ou não é um caminho local)."""
+    """O `metadata_location` aponta para fora das raízes permitidas (ou não é um caminho local)."""
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -356,14 +357,19 @@ def location_within_root(location: str, root: str) -> bool:
     return real != real_root and is_within(real, real_root)
 
 
-def read_metadata_within(location: str, root: str) -> dict[str, Any]:
-    """`metadata.json` em `location`, aberto só se o realpath estiver dentro de `root`.
+def location_within_roots(location: str, roots: Sequence[str]) -> bool:
+    """True se `location` fica estritamente dentro de alguma das `roots` (realpath)."""
+    return any(location_within_root(location, root) for root in roots)
 
-    Levanta `MetadataOutsideRoot` (fora da raiz / não local) ou `IcebergMetadataError` (ilegível).
+
+def read_metadata_within(location: str, roots: Sequence[str]) -> dict[str, Any]:
+    """`metadata.json` em `location`, aberto só se o realpath estiver dentro de alguma das `roots`.
+
+    Levanta `MetadataOutsideRoot` (fora das raízes / não local) ou `IcebergMetadataError` (ilegível).
     """
     path = local_path(location)
-    if path is None or not location_within_root(location, root):
-        raise MetadataOutsideRoot("metadata outside the Iceberg warehouse")
+    if path is None or not location_within_roots(location, roots):
+        raise MetadataOutsideRoot("metadata outside the allowed roots")
     return _read_metadata(str(Path(os.path.realpath(path))))
 
 
