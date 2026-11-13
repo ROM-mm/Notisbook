@@ -600,7 +600,7 @@ def refresh_table(session, key, rec, deep):
         cols = table_columns(session, key, parts)
         hi = cur
     new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
-    if loc != rec["loc"] and not allowed_location(loc):
+    if loc != rec["loc"] and (is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True) or not allowed_location(loc)):
         return None
     return None if all(new[f] == rec.get(f) for f in new) else new
 

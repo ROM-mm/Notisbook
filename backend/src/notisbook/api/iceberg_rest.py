@@ -40,7 +40,6 @@ from pyiceberg.table.sorting import UNSORTED_SORT_ORDER, SortOrder
 from pyiceberg.table.update import (
     AssertCreate,
     SetLocationUpdate,
-    SetPropertiesUpdate,
     TableRequirement,
     TableUpdate,
     UpgradeFormatVersionUpdate,
@@ -669,6 +668,10 @@ def _commit_table(
                 requirement.validate(base)
             except CommitFailedException:
                 raise IcebergError(409, "CommitFailedException", f"Requisito não atendido: {requirement.type}") from None
+        if base is not None:  # a pasta antiga deixaria de ser protegida no purge e os write.*.path gravados não seriam reavaliados
+            for update in updates:
+                if isinstance(update, SetLocationUpdate) and update.location.rstrip("/") != base.location.rstrip("/"):
+                    raise _bad_request("Alterar a location de uma tabela existente não é suportado")
         try:
             new = update_table_metadata(
                 base or _empty_metadata(), updates, enforce_validation=base is None, metadata_location=location or None
@@ -678,9 +681,7 @@ def _commit_table(
             raise IcebergError(422, "UnprocessableEntityException", "As atualizações não puderam ser aplicadas à tabela") from None
         if isinstance(new, TableMetadataV3) or new.format_version > MAX_FORMAT_VERSION:
             raise _bad_request("format-version acima de 2 não é suportado")
-        for update in updates:
-            if isinstance(update, SetPropertiesUpdate):
-                _check_data_paths(update.updates, new.location)
+        _check_data_paths(new.properties, new.location)
         return _persist(conn, has_type, grant, ns, table, new, location or None, commit=True)
 
     return run
