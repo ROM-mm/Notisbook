@@ -35,7 +35,7 @@ O `lifespan` limpa connection files órfãos e lixo de ambientes removidos na su
 | `security.py` | token, trusted host, guarda de WebSocket |
 | `static.py` | arquivos estáticos e fallback da SPA com CSP |
 | `api/` | rotas REST e WebSocket |
-| `notebooks/store.py` | leitura/escrita de `.ipynb` em sandbox, escrita atômica |
+| `../backend/notebooks` | leitura/escrita de `.ipynb` em sandbox, escrita atômica |
 | `kernels/` | sessões, protocolo WS v1, módulos ocultos injetados no kernel (`_notisbook_display`, `_notisbook_catalog`), introspecção de variáveis |
 | `catalog/` | esquema do `catalog.db`, registro `nb_*`, leitura/escrita do formato Iceberg JDBC, schemas |
 | `spark/` | instalador de ambientes, matriz de bundles, kernelspec, catálogo de versões, libs, pré-requisitos |
