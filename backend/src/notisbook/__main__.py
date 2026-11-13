@@ -12,6 +12,7 @@ import webbrowser
 from pathlib import Path
 
 import uvicorn
+from uvicorn.config import STARTUP_FAILURE
 
 from . import __version__
 from .app import create_app
@@ -141,12 +142,16 @@ def main(argv: list[str] | None = None) -> None:
     )
     try:
         server.run(sockets=[sock])
+    except KeyboardInterrupt:
+        # Como o `uvicorn.run`: o uvicorn re-emite o SIGINT capturado ao sair, e isso não é erro.
+        pass
     finally:
         sock.close()
-        # `finally`: o uvicorn re-emite o SIGINT capturado ao sair, o que vira KeyboardInterrupt aqui.
         # Só para containers se o servidor chegou a servir; senão o lifespan não rodou e o runtime não é nosso.
         if server.started:
             _stop_owned_containers()
+    if not server.started:
+        sys.exit(STARTUP_FAILURE)
 
 
 if __name__ == "__main__":
