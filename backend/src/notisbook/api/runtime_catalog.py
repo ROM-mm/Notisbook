@@ -106,11 +106,13 @@ class PlanBody(_Model):
     updated: list[Updated] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
     renamed: list[Renamed] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
     dropped: list[Dropped] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
+    # Sai só do registro (a tabela ainda existe no Spark): nunca apaga arquivos. Mesmo formato de `dropped`.
+    unregistered: list[Dropped] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
     new_dbs: list[Name] = Field(default_factory=list, max_length=MAX_DBS)
     gone_dbs: list[Name] = Field(default_factory=list, max_length=MAX_DBS)
 
     def item_count(self) -> int:
-        return len(self.created) + len(self.updated) + len(self.renamed) + len(self.dropped)
+        return len(self.created) + len(self.updated) + len(self.renamed) + len(self.dropped) + len(self.unregistered)
 
 
 def _info(item: TableInfo) -> dict[str, Any]:
@@ -169,6 +171,7 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> dict[str, Any]:
         "updated": updated,
         "renamed": renamed,
         "dropped": [((d.db, d.name), d.expected_loc) for d in body.dropped],
+        "unregistered": [((d.db, d.name), d.expected_loc) for d in body.unregistered],
         "new_dbs": sorted(set(body.new_dbs)),
         "gone_dbs": sorted(set(body.gone_dbs)),
     }
@@ -299,7 +302,7 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
     except sqlite3.Error as exc:
         raise _sqlite_http(exc) from exc
     log.info(
-        "runtime catalog plan: created=%d updated=%d renamed=%d dropped=%d",
-        len(body.created), len(body.updated), len(body.renamed), len(body.dropped),
+        "runtime catalog plan: created=%d updated=%d renamed=%d dropped=%d unregistered=%d",
+        len(body.created), len(body.updated), len(body.renamed), len(body.dropped), len(body.unregistered),
     )
     return result

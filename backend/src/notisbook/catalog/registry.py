@@ -232,7 +232,8 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
     """Aplica o plano do hook dentro da transação aberta pelo chamador; não toca em arquivos nem na generation.
 
     `plan`: `created` [(key, info)], `updated` [(key, rec_loc, rec_type, change)], `renamed` [(old, new, rec_loc, info)],
-    `dropped` [(key, rec_loc)], `new_dbs`, `gone_dbs`. `rec_loc` é a trava: só mexe na linha que ainda aponta para ele.
+    `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (opcional: remove só a linha, nunca gera `deletions`),
+    `new_dbs`, `gone_dbs`. `rec_loc` é a trava: só mexe na linha que ainda aponta para ele.
     Com `type_from_row` o tipo de um update vem da linha do registro, não do plano (caminho HTTP).
     `deletions` lista `(key, location)` de tabelas MANAGED sem outro uso, decididas pela própria linha.
     """
@@ -301,6 +302,16 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
         shared = conn.execute("SELECT count(*) FROM nb_tables WHERE location = ?", (row[0],)).fetchone()[0]
         if row[1] == "MANAGED" and not shared:
             out["deletions"].append((key, row[0]))
+    for key, rec_loc in plan.get("unregistered", ()):
+        if key in out["dropped_ok"]:
+            continue
+        row = row_of(key)
+        out["dropped_ok"].append(key)
+        if row is None or row[0] != rec_loc:
+            continue
+        conn.execute(
+            "DELETE FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ? AND table_name = ?", key)
+        changed = True
     for ns in plan["new_dbs"]:
         changed |= conn.execute(
             "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "

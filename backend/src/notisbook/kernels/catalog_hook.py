@@ -655,6 +655,7 @@ def commit_http(plan):
         "renamed": [{"old_db": o[0], "old_name": o[1], "new_db": n[0], "new_name": n[1], "expected_loc": loc,
                      **wire_info(i)} for o, n, loc, i in plan["renamed"]],
         "dropped": [{"db": k[0], "name": k[1], "expected_loc": loc} for k, loc in plan["dropped"]],
+        "unregistered": [{"db": k[0], "name": k[1], "expected_loc": loc} for k, loc in plan.get("unregistered", ())],
         "new_dbs": sorted(plan["new_dbs"]),
         "gone_dbs": sorted(plan["gone_dbs"]),
     }
@@ -691,7 +692,7 @@ def commit_plan(plan, stamp):
 def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, keep_files=frozenset()):
     """Write the plan in one transaction, then update `known`, delete files and warn.
 
-    `keep_files`: dropped keys that only leave the registry (the table still exists); their files are never deleted here.
+    `keep_files`: dropped keys that only leave the registry (the table still exists); sent as `unregistered`, so no transport deletes their files.
     """
     known = STATE["known"][skey]
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
@@ -700,7 +701,8 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
         "created": created,
         "updated": [(key, known[key]["loc"], known[key]["type"], change) for key, change in updated],
         "renamed": [(old, new, known[old]["loc"], info) for old, new, info in renamed],
-        "dropped": [(key, known[key]["loc"]) for key in dropped],
+        "dropped": [(key, known[key]["loc"]) for key in dropped if key not in keep_files],
+        "unregistered": [(key, known[key]["loc"]) for key in dropped if key in keep_files],
         "new_dbs": new_dbs,
         "gone_dbs": gone_dbs,
     }
