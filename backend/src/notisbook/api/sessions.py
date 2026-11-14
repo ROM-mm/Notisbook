@@ -4,7 +4,15 @@ import asyncio
 import contextlib
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from pydantic import BaseModel, ValidationError
 
 from ..kernels.protocol import (
@@ -16,8 +24,15 @@ from ..kernels.protocol import (
     StatusEvent,
     client_message_adapter,
 )
-from ..kernels.service import DockerRuntimeError, KernelNotFound, KernelService, NotislakeUnavailable, SessionNotFound
+from ..kernels.service import (
+    DockerRuntimeError,
+    KernelNotFound,
+    KernelService,
+    NotislakeUnavailable,
+    SessionNotFound,
+)
 from ..notebooks.store import NotebookStore, StoreError
+from ..notislake.settings_store import ConfigInvalid
 from ..security import guard_websocket, require_token
 from .notebooks_root import check_root_generation
 
@@ -75,6 +90,11 @@ async def create_session(
         session = await kernels.create(body.path, body.kernel_name, cwd if cwd.is_dir() else store.root, target)
     except KernelNotFound as exc:
         raise HTTPException(404, f"Kernel not found: {body.kernel_name}") from exc
+    except ConfigInvalid:
+        raise HTTPException(
+            409,
+            detail={"code": "config_invalid", "message": "A configuração manual do notislake está inválida; corrija ou remova-a."},
+        ) from None
     except NotislakeUnavailable as exc:
         raise HTTPException(503, f"Notislake (MinIO) is not available (state: {exc.state}); try again when it is running") from exc
     except DockerRuntimeError as exc:

@@ -5,7 +5,7 @@ Docker kernel (only `/api/runtime-catalog`, `require_runtime_token`); neither is
 """
 
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fastapi import HTTPException, Request, Response, WebSocket, status
 
@@ -54,6 +54,8 @@ class RuntimeGrant:
     roots: tuple[str, ...]
     managed_root: str
     iceberg_root: str
+    # Digest da conexão S3A com que o kernel abriu (None: sem S3A); só comparação interna, nunca em API/log.
+    s3a_fingerprint: str | None = field(default=None, repr=False)
 
 
 class RuntimeTokens:

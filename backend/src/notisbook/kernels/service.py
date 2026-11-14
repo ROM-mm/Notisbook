@@ -11,10 +11,11 @@ import os
 import sys
 import uuid
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Iterable, Iterator
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from jupyter_client.asynchronous.client import AsyncKernelClient
 from jupyter_client.kernelspec import KernelSpecManager, NoSuchKernel
@@ -24,7 +25,9 @@ from nbformat.v4 import output_from_msg
 
 from ..catalog.store import catalog_db_path
 from ..config import RUNTIME_HOST, Settings
-from ..notislake.supervisor import NotislakeSupervisor, State
+from ..notislake import objectstore, settings_store
+from ..notislake.sparkconf import fingerprint, s3a_options
+from ..notislake.supervisor import NotislakeSupervisor
 from ..runtimes.docker import catalog as docker_catalog
 from ..runtimes.docker import cli as docker_cli
 from ..runtimes.docker import kernelspec as docker_spec
@@ -65,8 +68,14 @@ from .protocol import (
     ServerEvent,
     StatusEvent,
 )
+from .sql_cell import (
+    DUCKDB_DOCKER_MESSAGE,
+    MODULE_NAME,
+    build_duckdb_code,
+    build_ensure_code,
+    build_unavailable_code,
+)
 from .sql_cell import build_code as build_sql_code
-from .sql_cell import DUCKDB_DOCKER_MESSAGE, MODULE_NAME, build_duckdb_code, build_ensure_code, build_unavailable_code
 
 log = logging.getLogger(__name__)
 
@@ -107,6 +116,16 @@ DOCKER_STOP_SKIPPED = (
 
 Sink = Callable[[ServerEvent], Awaitable[None]]
 
+# Avisos de S3A (texto fixo: nada da conexão ou da configuração entra na mensagem).
+S3A_DISABLED_NOTICE = (
+    "s3a_disabled",
+    "A conexão do notislake está indisponível ou inválida: o kernel reiniciou sem acesso a s3a://notislake/.",
+)
+S3A_LOOPBACK_HTTPS_NOTICE = (
+    "s3a_unsupported_endpoint",
+    "Endpoint https em localhost não é suportado no runtime Docker: a troca de host invalida o certificado.",
+)
+
 
 class KernelNotFound(Exception):
     """No kernelspec with the requested name."""
@@ -126,6 +145,22 @@ class NotislakeUnavailable(Exception):
     def __init__(self, state: str) -> None:
         super().__init__(f"notislake is not running (state: {state})")
         self.state = state
+
+
+@dataclass(frozen=True)
+class S3AResolution:
+    """Conexão S3A de uma abertura de kernel; sem `options` o kernel sobe sem S3A. Carrega o segredo: fora de `repr`."""
+
+    options: dict[str, str] | None = field(default=None, repr=False)
+    fingerprint: str | None = field(default=None, repr=False)
+    notice: tuple[str, str] | None = None
+
+
+class _NoLocalMinio:
+    """Supervisor ausente (testes, uso embutido): só a conexão manual pode resolver."""
+
+    def connection(self) -> None:
+        return None
 
 
 class DockerRuntimeError(Exception):
@@ -173,15 +208,21 @@ class KernelSession:
     # Pasta de extensões do DuckDB (derivada do home injetado no KernelService).
     duckdb_ext_dir: str = ""
     # Snippet that installs the catalog hook (paths derived from the home injected in KernelService).
-    catalog_ensure: str = ""
+    # Carrega o segredo S3A: fora do `repr` do dataclass.
+    catalog_ensure: str = field(default="", repr=False)
     # Runtime Docker da sessão (None no Local) e tag do kernel no container, usada pelo reaper do close.
     docker_runtime: docker_catalog.DockerRuntime | None = None
     docker_tag: str = ""
     # Token de runtime da sessão Docker: emitido na criação, trocado no restart, revogado no close.
     runtime_tokens: RuntimeTokens | None = None
     runtime_grant: RuntimeGrant | None = None
-    # Monta o snippet do hook de catálogo a partir do token; None deixa o hook desligado na sessão.
-    catalog_factory: Callable[[str], str] | None = None
+    # Monta o snippet do hook de catálogo a partir do token e das opções S3A; None deixa o hook desligado na sessão.
+    catalog_factory: Callable[[str, Mapping[str, str] | None], str] | None = None
+    # Sessão local: monta o snippet a partir das opções S3A (o hook local fala com o SQLite, sem token).
+    local_catalog_factory: Callable[[Mapping[str, str] | None], str] | None = None
+    # Reavalia a conexão S3A no restart sem levantar; None mantém a conexão com que a sessão abriu.
+    s3a_resolver: Callable[[], S3AResolution] | None = None
+    _s3a_options: dict[str, str] | None = field(default=None, repr=False)
     _restarting: bool = False
     _channel_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     _ready_task: asyncio.Task[None] | None = None
@@ -276,7 +317,22 @@ class KernelSession:
             return
         token = self.runtime_tokens.issue(self.runtime_grant)
         if self.catalog_factory is not None:
-            self.catalog_ensure = self.catalog_factory(token)
+            self.catalog_ensure = self.catalog_factory(token, self._s3a_options)
+
+    def refresh_s3a(self) -> tuple[str, str] | None:
+        """Reavalia a conexão S3A para o kernel novo (D-C): indisponível ou inválida reinicia sem S3A, nunca no automático.
+
+        Atualiza o fingerprint do grant e o snippet local; o snippet Docker sai de `issue_runtime_token`. Devolve o aviso, se houver.
+        """
+        if self.s3a_resolver is None:
+            return None
+        resolution = self.s3a_resolver()
+        self._s3a_options = resolution.options
+        if self.runtime_grant is not None:
+            self.runtime_grant = replace(self.runtime_grant, s3a_fingerprint=resolution.fingerprint)
+        if self.local_catalog_factory is not None:
+            self.catalog_ensure = self.local_catalog_factory(resolution.options)
+        return resolution.notice
 
     async def _await_ready(self, client: AsyncKernelClient) -> None:
         try:
@@ -552,10 +608,12 @@ class KernelSession:
             if self.closing:
                 return
             self._restarting = True
+            notice: tuple[str, str] | None = None
             try:
                 await self.set_state("restarting")
                 await self._abort_pending()
                 await self._close_channels()
+                notice = self.refresh_s3a()
                 self.issue_runtime_token()  # o kernel novo recebe um token novo; o do kernel antigo morre aqui
                 self._var_cache.clear()
                 self._var_gen += 1
@@ -568,6 +626,9 @@ class KernelSession:
                 await self.emit(ErrorEvent(code="restart_failed", message="Kernel restart failed"))
                 return
             self._restarting = False
+            if notice is not None:
+                log.warning("session %s restarted with S3A notice: %s", self.session_id, notice[0])
+                await self.emit(ErrorEvent(code=notice[0], message=notice[1]))
 
     async def close(self) -> None:
         async with self._lock:
@@ -614,7 +675,7 @@ class KernelService:
         self._runtime_dir = runtime_dir or Path(jupyter_runtime_dir()) / "notisbook"
         self._home = Path(os.path.abspath((home or Settings().home).expanduser()))
         self._duckdb_ext_dir = str((home or Settings().home) / "duckdb" / "extensions")
-        self._catalog_ensure = build_catalog_ensure_code(
+        self._catalog_paths = (
             str(catalog_db_path(self._home)),
             str(self._home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR),
             str(self._home / WAREHOUSE_DIR / "iceberg"),
@@ -712,7 +773,43 @@ class KernelService:
         await asyncio.to_thread(self._refresh_docker_spec, runtime)
         return plan
 
-    def _runtime_grant(self, session_id: str, plan: MountPlan) -> RuntimeGrant:
+    def _resolve_s3a(self, *, docker: bool, strict: bool) -> S3AResolution:
+        """Resolve a conexão S3A (`objectstore.resolve`) e gera as opções do kernel, local ou Docker.
+
+        `strict` (abertura): manual inválido levanta `ConfigInvalid`; automático sem MinIO `running` levanta
+        `NotislakeUnavailable`. Sem `strict` (restart) nunca levanta: devolve a resolução vazia com aviso.
+        """
+        supervisor = self._notislake
+        try:
+            conn = objectstore.resolve(self._home, supervisor or _NoLocalMinio())
+        except settings_store.ConfigInvalid:
+            if strict:
+                raise
+            return S3AResolution(notice=S3A_DISABLED_NOTICE)
+        except objectstore.Unavailable:
+            if supervisor is None:
+                return S3AResolution()
+            if strict:
+                raise NotislakeUnavailable(supervisor.snapshot().state.value) from None
+            return S3AResolution(notice=S3A_DISABLED_NOTICE)
+        notice: tuple[str, str] | None = None
+        if docker and conn.source == "manual":
+            parts = urlsplit(conn.endpoint)
+            if parts.scheme == "https" and parts.hostname and settings_store.is_loopback_host(parts.hostname):
+                notice = S3A_LOOPBACK_HTTPS_NOTICE
+                log.warning("manual notislake endpoint is https on loopback: not supported in the Docker runtime")
+        return S3AResolution(dict(s3a_options(conn, docker=docker)), fingerprint(conn), notice)
+
+    def _local_catalog_factory(self) -> Callable[[Mapping[str, str] | None], str]:
+        """Snippet do hook com transporte SQLite; as opções S3A entram por sessão."""
+        db_path, managed_root, iceberg_root = self._catalog_paths
+
+        def build(s3a: Mapping[str, str] | None) -> str:
+            return build_catalog_ensure_code(db_path, managed_root, iceberg_root, s3a=s3a)
+
+        return build
+
+    def _runtime_grant(self, session_id: str, plan: MountPlan, s3a_fingerprint: str | None = None) -> RuntimeGrant:
         """Raízes do token: todas as montagens do plano (por realpath), Connections inclusive quando montada."""
         roots = tuple(dict.fromkeys(os.path.realpath(p) for p in plan.paths))
         return RuntimeGrant(
@@ -720,14 +817,17 @@ class KernelService:
             roots=roots,
             managed_root=str(self._home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR),
             iceberg_root=str(self._home / WAREHOUSE_DIR / "iceberg"),
+            s3a_fingerprint=s3a_fingerprint,
         )
 
-    def _docker_catalog_factory(self, grant: RuntimeGrant) -> Callable[[str], str]:
+    def _docker_catalog_factory(self, grant: RuntimeGrant) -> Callable[[str, Mapping[str, str] | None], str]:
         """Snippet do hook com transporte HTTP; o container alcança o backend pelo `host.lima.internal`."""
         base_url = f"http://{RUNTIME_HOST}:{self._port}/api/runtime-catalog"
 
-        def build(token: str) -> str:
-            return build_catalog_http_ensure_code(base_url, token, grant.managed_root, grant.iceberg_root, grant.roots)
+        def build(token: str, s3a: Mapping[str, str] | None) -> str:
+            return build_catalog_http_ensure_code(
+                base_url, token, grant.managed_root, grant.iceberg_root, grant.roots, s3a=s3a
+            )
 
         return build
 
@@ -826,12 +926,11 @@ class KernelService:
     ) -> KernelSession:
         """Cria a sessão. O registro em `_starting*` é síncrono (sem await antes), o que o torna atômico no event loop.
 
-        Levanta `NotislakeUnavailable` se o MinIO local não está em `running`; só sessões novas são recusadas.
+        Levanta `ConfigInvalid` (conexão manual inválida) ou `NotislakeUnavailable` (automático sem MinIO `running`);
+        só sessões novas são recusadas. Uma conexão manual válida abre mesmo com o MinIO local fora.
         """
-        if self._notislake is not None:
-            state = self._notislake.snapshot().state
-            if state is not State.RUNNING:
-                raise NotislakeUnavailable(state.value)
+        is_docker = docker_catalog.by_kernel_name(kernel_name) is not None
+        s3a = self._resolve_s3a(docker=is_docker, strict=True)
         session_id = uuid.uuid4().hex
         # Registered before the spec lookup so has_session sees the session during the whole arranque.
         self._starting[session_id] = kernel_name
@@ -849,7 +948,9 @@ class KernelService:
                 raise KernelNotFound(kernel_name) from exc
             runtime_grant: RuntimeGrant | None = None
             if docker_runtime is not None:
-                runtime_grant = self._runtime_grant(session_id, await self._prepare_docker(docker_runtime))
+                runtime_grant = self._runtime_grant(
+                    session_id, await self._prepare_docker(docker_runtime), s3a.fingerprint
+                )
             else:
                 await asyncio.to_thread(self._ensure_log4j2, spec)
                 await asyncio.to_thread(self._ensure_spark_defaults, spec)
@@ -857,6 +958,7 @@ class KernelService:
             connection_file = str(self._runtime_dir / f"{self._prefix}{session_id}.json")
             manager = AsyncKernelManager(kernel_name=kernel_name, connection_file=connection_file)
             manager.shutdown_wait_time = SHUTDOWN_WAIT
+            local_factory = self._local_catalog_factory()
             session = KernelSession(
                 session_id,
                 path,
@@ -865,8 +967,11 @@ class KernelService:
                 target=target,
                 duckdb_ext_dir=self._duckdb_ext_dir,
                 # O container nunca toca o catalog.db: no Docker o hook fala com a API do backend (snippet vem do token).
-                catalog_ensure="" if docker_runtime is not None else self._catalog_ensure,
+                catalog_ensure="" if docker_runtime is not None else local_factory(s3a.options),
                 catalog_factory=self._docker_catalog_factory(runtime_grant) if runtime_grant is not None else None,
+                local_catalog_factory=None if docker_runtime is not None else local_factory,
+                s3a_resolver=lambda: self._resolve_s3a(docker=is_docker, strict=False),
+                _s3a_options=s3a.options,
                 docker_runtime=docker_runtime,
                 docker_tag=docker_launch.tag_for(connection_file) if docker_runtime is not None else "",
                 runtime_tokens=self.runtime_tokens if docker_runtime is not None else None,
