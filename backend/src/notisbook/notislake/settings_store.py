@@ -96,7 +96,7 @@ def _host_address(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | 
     return address
 
 
-def _is_loopback_host(host: str) -> bool:
+def is_loopback_host(host: str) -> bool:
     name = host.rstrip(".").lower()
     if name == "localhost" or name.endswith(".localhost"):
         return True
@@ -134,7 +134,7 @@ def normalize_endpoint(endpoint: object, *, backend_port: int | None = None) -> 
     if address is not None and address.is_link_local:
         raise ConfigInvalid("endpoint must not be a link-local address", "endpoint")
     effective = port if port is not None else _DEFAULT_PORTS[scheme]
-    if backend_port is not None and effective == backend_port and _is_loopback_host(host):
+    if backend_port is not None and effective == backend_port and is_loopback_host(host):
         raise ConfigInvalid("endpoint must not point to the Notisbook backend", "endpoint")
     shown = f"[{host.lower()}]" if ":" in host else host.lower()
     suffix = f":{port}" if port is not None and port != _DEFAULT_PORTS[scheme] else ""
