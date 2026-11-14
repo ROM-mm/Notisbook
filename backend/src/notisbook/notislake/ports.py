@@ -14,10 +14,16 @@ _MIN_PORT = 1024  # exclusivo
 
 
 def is_free(port: int) -> bool:
-    """True se `port` (faixa 1025–65535) pode ser ligada em 127.0.0.1 agora."""
+    """True se `port` (faixa 1025–65535) pode ser ligada em 127.0.0.1 agora.
+
+    Usa SO_REUSEADDR, como o servidor faz ao escutar: sem ele, o TIME_WAIT deixado pelo
+    MinIO morto reprova a porta e o restart nunca reaproveita as portas (D7). Um LISTEN
+    ativo continua reprovando o bind.
+    """
     if not _MIN_PORT < port < 65536:
         return False
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             sock.bind((LOOPBACK, port))
         except OSError:
