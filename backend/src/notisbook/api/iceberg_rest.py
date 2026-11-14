@@ -59,6 +59,8 @@ log = logging.getLogger(__name__)
 
 NAMESPACE_SEPARATOR = "\x1f"
 MAX_NAME_LENGTH = 255
+HADOOP_FILE_IO = "org.apache.iceberg.hadoop.HadoopFileIO"
+
 ENDPOINTS = (
     "GET /v1/{prefix}/namespaces",
     "GET /v1/{prefix}/namespaces/{namespace}",
@@ -225,8 +227,11 @@ def _require_namespace(conn: sqlite3.Connection, namespace: str) -> None:
 
 @router.get("/v1/config")
 async def get_config() -> dict[str, Any]:
-    """Sem `prefix`; `endpoints` explícito, porque o cliente trata a omissão como suporte a tudo."""
-    return {"defaults": {}, "overrides": {}, "endpoints": list(ENDPOINTS)}
+    """Sem `prefix`; `endpoints` explícito, porque o cliente trata a omissão como suporte a tudo.
+
+    `io-impl` em `overrides` impõe `HadoopFileIO` ao cliente, que assim lê e grava `s3a://`.
+    """
+    return {"defaults": {}, "overrides": {"io-impl": HADOOP_FILE_IO}, "endpoints": list(ENDPOINTS)}
 
 
 @router.get("/v1/namespaces")

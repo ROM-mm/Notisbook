@@ -23,6 +23,10 @@ from importlib import metadata
 from typing import Any, Callable
 
 KERNEL_TIMEOUT_S = 60
+S3A_FILESYSTEM_CLASS = "org.apache.hadoop.fs.s3a.S3AFileSystem"
+# Padrão do Spark para `spark.redaction.regex` quando a conf não está definida.
+DEFAULT_REDACTION_REGEX = "(?i)secret|password|token|access.key"
+S3A_SENSITIVE_KEYS = ("fs.s3a.bucket.notislake.secret.key", "fs.s3a.bucket.notislake.access.key")
 REQUIRED_PACKAGES = ("ipykernel", "jupyter_client", "pyspark")
 OPTIONAL_PACKAGES = ("ipython", "pyzmq", "tornado", "traitlets")
 
@@ -171,6 +175,26 @@ def check_spark_session(state: dict[str, Any]) -> Result:
     return result
 
 
+def check_s3a(state: dict[str, Any]) -> Result:
+    spark = state["spark"]
+    jvm = spark._jvm
+    jvm.java.lang.Class.forName(S3A_FILESYSTEM_CLASS)
+    hadoop_version = str(jvm.org.apache.hadoop.util.VersionInfo.getVersion())
+    configured = spark.sparkContext.getConf().get("spark.redaction.regex", None)
+    regex = configured or DEFAULT_REDACTION_REGEX
+    unredacted = [key for key in S3A_SENSITIVE_KEYS if not re.search(regex, key)]
+    result: Result = {
+        "ok": not unredacted,
+        "filesystem": S3A_FILESYSTEM_CLASS,
+        "hadoop_version": hadoop_version,
+        "redaction_regex": regex,
+        "redaction_regex_source": "conf" if configured else "default",
+    }
+    if unredacted:
+        result["error"] = f"chaves sem redação: {', '.join(unredacted)}"
+    return result
+
+
 def check_glue_context(state: dict[str, Any]) -> Result:
     from awsglue.context import GlueContext
 
@@ -219,6 +243,7 @@ def run_checks() -> dict[str, Result]:
         "ipykernel_exec": _guard(check_ipykernel_exec),
         "spark_session": _guard(lambda: check_spark_session(state)),
     }
+    results["s3a"] = _dependent(state, "spark", lambda: check_s3a(state))
     results["glue_context"] = _dependent(state, "spark", lambda: check_glue_context(state))
     results["dynamicframe"] = _dependent(
         state, "glue_context", lambda: check_dynamicframe(state)
