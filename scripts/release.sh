@@ -70,8 +70,8 @@ limpar() {
       elif [ "$PUSH_FEITO" -eq 1 ]; then
         printf 'O commit e a tag %s JÁ FORAM publicados em origin; a release pode não existir ou estar sem o asset. Não apague tag nem commit.\n' "$TAG"
         printf 'Confira: gh release view %s --repo %s\n' "$TAG" "$REPO_SLUG"
-        printf 'Se a release existir sem o asset (com o build em %s):\n' "$ROOT/$ASSET_PATH"
-        printf '  gh release upload %s %s --repo %s\n' "$TAG" "$ROOT/$ASSET_PATH" "$REPO_SLUG"
+        printf 'Se a release existir sem os assets (builds em %s e %s):\n' "$ROOT/$ASSET_PATH" "$ROOT/$MINIO_DIST"
+        printf '  gh release upload %s %s %s/*.tar.gz --repo %s --clobber\n' "$TAG" "$ROOT/$ASSET_PATH" "$ROOT/$MINIO_DIST" "$REPO_SLUG"
         printf 'Se não existir (a partir da raiz do repo):\n'
         printf '  cd %q\n' "$ROOT"
         printf '  %q' "${CMD_RELEASE[@]}"; printf '\n'
@@ -115,6 +115,9 @@ TAG="v$VERSION"
 ASSET="notisbook-$VERSION.tar.gz"
 ASSET_PATH="backend/dist/$ASSET"
 ASSET_URL="https://github.com/$REPO_SLUG/releases/download/$TAG/$ASSET"
+# notislake: tarballs do minio/mc compilados por scripts/build_minio.py (saem em backend/dist, ignorado pelo git)
+MINIO_MANIFEST="backend/src/notisbook/notislake/minio_manifest.json"
+MINIO_DIST="backend/dist/notislake"
 # Mesmo comando na publicação e na orientação de retomada (limpar)
 CMD_RELEASE=(gh release create "$TAG" "$ASSET_PATH" --repo "$REPO_SLUG"
   --title "Notisbook $VERSION" --generate-notes --verify-tag)
@@ -123,9 +126,14 @@ CMD_RELEASE=(gh release create "$TAG" "$ASSET_PATH" --repo "$REPO_SLUG"
 
 # Conferências (nenhuma escrita antes de todas passarem)
 info "Conferindo pré-requisitos"
-for cmd in git gh uv npm brew curl shasum; do
+for cmd in git gh uv npm brew curl shasum python3; do
   command -v "$cmd" >/dev/null 2>&1 || die "comando não encontrado: $cmd"
 done
+# O build do notislake roda num container; em --dry-run nada é compilado
+if [ "$DRY_RUN" -eq 0 ]; then
+  command -v docker >/dev/null 2>&1 || die "comando não encontrado: docker"
+  docker info >/dev/null 2>&1 || die "docker indisponível (daemon parado?)"
+fi
 
 cd "$ROOT"
 [ "$(git rev-parse --show-toplevel)" = "$ROOT" ] || die "$ROOT não é a raiz de um repositório git próprio"
@@ -237,6 +245,35 @@ if [ "$DRY_RUN" -eq 0 ] && [ ! -f "$ASSET_PATH" ]; then
   die "artefato esperado não encontrado: $ASSET_PATH"
 fi
 
+# notislake: antes do push, para que uma falha aqui ainda não tenha publicado nada
+ETAPA="build notislake"
+info "Compilando os binários do notislake"
+MINIO_NAMES=()
+MINIO_SHAS=()
+while read -r nome sha; do
+  MINIO_NAMES+=("$nome")
+  MINIO_SHAS+=("$sha")
+done < <(python3 -c 'import json, sys
+for _, a in sorted(json.load(open(sys.argv[1]))["archs"].items()):
+    print(a["tarball"], a["sha256"])' "$MINIO_MANIFEST")
+[ "${#MINIO_NAMES[@]}" -gt 0 ] || die "nenhum tarball listado em $MINIO_MANIFEST"
+# Criação da release e envio dos tarballs num passo só: não há estado "release sem os binários"
+for nome in "${MINIO_NAMES[@]}"; do
+  CMD_RELEASE+=("$MINIO_DIST/$nome")
+done
+if [ "$DRY_RUN" -eq 0 ]; then
+  rm -rf "$MINIO_DIST"
+fi
+run uv run --project backend python scripts/build_minio.py --out "$MINIO_DIST"
+if [ "$DRY_RUN" -eq 0 ]; then
+  # O build regrava o manifesto; ele precisa já estar commitado e igual ao que foi compilado
+  git diff --quiet -- "$MINIO_MANIFEST" || die "$MINIO_MANIFEST mudou após o build; revise, faça commit e rode a release de novo"
+  for i in "${!MINIO_NAMES[@]}"; do
+    [ -f "$MINIO_DIST/${MINIO_NAMES[$i]}" ] || die "tarball esperado não encontrado: $MINIO_DIST/${MINIO_NAMES[$i]}"
+    MINIO_SHAS[$i]="$(shasum -a 256 "$MINIO_DIST/${MINIO_NAMES[$i]}" | awk '{print $1}')"
+  done
+fi
+
 # Push e release
 ETAPA="push/release"
 info "Publicando commit, tag e release"
@@ -244,6 +281,16 @@ run git push --atomic origin main "$TAG"
 PUSH_FEITO=1
 run "${CMD_RELEASE[@]}"
 RELEASE_CRIADA=1
+
+# A fórmula do tap é atualizada à mão com estes sha256
+if [ "$DRY_RUN" -eq 1 ]; then
+  info "sha256 dos tarballs do notislake (valores do manifesto; em release real vêm dos arquivos)"
+else
+  info "sha256 dos tarballs do notislake (para a fórmula)"
+fi
+for i in "${!MINIO_NAMES[@]}"; do
+  echo "  ${MINIO_SHAS[$i]}  ${MINIO_NAMES[$i]}"
+done
 
 # sha256 do asset publicado
 ETAPA="sha256"

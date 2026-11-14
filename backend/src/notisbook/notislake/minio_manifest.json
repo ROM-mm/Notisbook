@@ -1,0 +1,33 @@
+{
+  "archs": {
+    "darwin-amd64": {
+      "mc": {
+        "sha256": "9c55aef5aaeca751b502a5f8f0abd4d018e053b1566123c5e07b3e37fc746298"
+      },
+      "minio": {
+        "sha256": "9f35577eb13c66895e3d02a1811d5411a8a6c9dbc015131511a5610507792b81"
+      },
+      "sha256": "b1329a9c4035da694fb142a4c9fb7fb5a72b214eddd2bbb05aad2f4f08eced1d",
+      "tarball": "notislake-minio-RELEASE.2025-10-15T17-29-55Z-darwin-amd64.tar.gz"
+    },
+    "darwin-arm64": {
+      "mc": {
+        "sha256": "d42ffd2749c9bc69756867c2f7a07ef4be7842ed781da14254650657a71b8dc9"
+      },
+      "minio": {
+        "sha256": "b78df8dc74c6880817bef97475f560ee1baf160d90639e192c4094be976b4f49"
+      },
+      "sha256": "ea93951ffda29675a92d423164d2b463749e48809554febb1cd92b79d51cb6f3",
+      "tarball": "notislake-minio-RELEASE.2025-10-15T17-29-55Z-darwin-arm64.tar.gz"
+    }
+  },
+  "commits": {
+    "mc": "7394ce0dd2a80935aded936b09fa12cbb3cb8096",
+    "minio": "9e49d5e7a648f00e26f2246f4dc28e6b07f8c84a"
+  },
+  "mc_tag": "RELEASE.2025-08-13T08-35-41Z",
+  "mc_version": "2025-08-13T08-35-41Z",
+  "schema": 1,
+  "tag": "RELEASE.2025-10-15T17-29-55Z",
+  "version": "2025-10-15T17-29-55Z"
+}
