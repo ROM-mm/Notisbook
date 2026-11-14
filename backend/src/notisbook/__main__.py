@@ -18,6 +18,7 @@ from . import __version__
 from .app import create_app
 from .catalog.store import ensure_catalog_db
 from .config import DEFAULT_PORT, HOST, Settings, default_root, ensure_home
+from .notislake.supervisor import NotislakeSupervisor, StartError
 from .onboarding import run_onboarding
 from .preferences import RootRejected, read_notebooks_root, validate_notebooks_root
 from .runtimes.docker import catalog as docker_catalog
@@ -90,6 +91,31 @@ def _stop_owned_containers() -> None:
         signal.signal(signal.SIGINT, previous)
 
 
+def _start_notislake(supervisor: NotislakeSupervisor, sock: socket.socket) -> None:
+    """Sobe o MinIO ou encerra o processo: falha de subida (exit 1) e Ctrl+C durante a subida (exit 130)."""
+    print("Notisbook: iniciando o MinIO (notislake)…", file=sys.stderr, flush=True)
+    try:
+        supervisor.start()
+    except StartError as exc:
+        # Sem `stop()`: o supervisor já encerrou o que subiu e, em `locked`, o pidfile e a trava são de outro Notisbook.
+        sock.close()
+        print(f"Notisbook: {exc}", file=sys.stderr)
+        sys.exit(1)
+    except KeyboardInterrupt:
+        sock.close()
+        _stop_notislake(supervisor)
+        sys.exit(130)
+
+
+def _stop_notislake(supervisor: NotislakeSupervisor) -> None:
+    """Para o MinIO; SIGINT é ignorado (como no fallback dos containers) para um Ctrl+C a mais não abortar a parada."""
+    previous = signal.signal(signal.SIGINT, signal.SIG_IGN)
+    try:
+        supervisor.stop()
+    finally:
+        signal.signal(signal.SIGINT, previous)
+
+
 def _bind_listener(port: int) -> socket.socket:
     """Abre o socket de escuta antes do uvicorn: porta ocupada falha aqui, sem lifespan, varredura ou parada de containers."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -127,29 +153,36 @@ def main(argv: list[str] | None = None) -> None:
     root, source, locked = _resolve_root(args.root, settings.home)
     settings = dataclasses.replace(settings, root=root, root_source=source, root_locked=locked)
     sock = _bind_listener(settings.port)
-    url = f"http://{HOST}:{settings.port}/?token={settings.token}"
-    print(f"Notisbook: {url}", flush=True)
-    if not args.no_browser:
-        threading.Timer(1.0, webbrowser.open, args=(url,)).start()
-    # Access log desligado: o token da sessão viaja em `?token=` e iria inteiro para o stdout.
-    server = uvicorn.Server(
-        uvicorn.Config(
-            create_app(settings),
-            log_level="info",
-            access_log=False,
-            timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
-        )
-    )
+    supervisor = NotislakeSupervisor(settings.home)
+    _start_notislake(supervisor, sock)
     try:
-        server.run(sockets=[sock])
-    except KeyboardInterrupt:
-        # Como o `uvicorn.run`: o uvicorn re-emite o SIGINT capturado ao sair, e isso não é erro.
-        pass
+        url = f"http://{HOST}:{settings.port}/?token={settings.token}"
+        print(f"Notisbook: {url}", flush=True)
+        if not args.no_browser:
+            threading.Timer(1.0, webbrowser.open, args=(url,)).start()
+        # Access log desligado: o token da sessão viaja em `?token=` e iria inteiro para o stdout.
+        server = uvicorn.Server(
+            uvicorn.Config(
+                create_app(settings, supervisor),
+                log_level="info",
+                access_log=False,
+                timeout_graceful_shutdown=GRACEFUL_SHUTDOWN_S,
+            )
+        )
+        try:
+            server.run(sockets=[sock])
+        except KeyboardInterrupt:
+            # Como o `uvicorn.run`: o uvicorn re-emite o SIGINT capturado ao sair, e isso não é erro.
+            pass
+        finally:
+            sock.close()
+            # Só para containers se o servidor chegou a servir; senão o lifespan não rodou e o runtime não é nosso.
+            if server.started:
+                _stop_owned_containers()
     finally:
+        # Depois dos containers e fora do lifespan: o duplo SIGINT do `uv run` pula o lifespan, o `finally` não.
         sock.close()
-        # Só para containers se o servidor chegou a servir; senão o lifespan não rodou e o runtime não é nosso.
-        if server.started:
-            _stop_owned_containers()
+        _stop_notislake(supervisor)
     if not server.started:
         sys.exit(STARTUP_FAILURE)
 

@@ -24,6 +24,7 @@ from nbformat.v4 import output_from_msg
 
 from ..catalog.store import catalog_db_path
 from ..config import RUNTIME_HOST, Settings
+from ..notislake.supervisor import NotislakeSupervisor, State
 from ..runtimes.docker import catalog as docker_catalog
 from ..runtimes.docker import cli as docker_cli
 from ..runtimes.docker import kernelspec as docker_spec
@@ -117,6 +118,14 @@ class KernelsBusy(Exception):
 
 class SessionNotFound(Exception):
     """No session with the requested id."""
+
+
+class NotislakeUnavailable(Exception):
+    """O MinIO local (notislake) não está em `running`; nenhuma sessão nova é aberta até ele voltar."""
+
+    def __init__(self, state: str) -> None:
+        super().__init__(f"notislake is not running (state: {state})")
+        self.state = state
 
 
 class DockerRuntimeError(Exception):
@@ -597,6 +606,7 @@ class KernelService:
         self._starting_paths: dict[str, Path | None] = {}  # session_id -> resolved target while `start` is pending
         self._reservations = 0
         self._docker: DockerRuntimes | None = None
+        self._notislake: NotislakeSupervisor | None = None
         self._sweep_task: asyncio.Task[None] | None = None
         self.runtime_tokens = RuntimeTokens()
         self._port = port
@@ -636,6 +646,10 @@ class KernelService:
     def bind_docker(self, docker: DockerRuntimes) -> None:
         """Liga o serviço dos runtimes Docker (criado depois deste, pois recebe `has_session`)."""
         self._docker = docker
+
+    def bind_notislake(self, notislake: NotislakeSupervisor | None) -> None:
+        """Liga o supervisor do MinIO; sem ele (testes, uso embutido) `create` não consulta o estado."""
+        self._notislake = notislake
 
     def start_docker_sweep(self) -> None:
         """Agenda a varredura de kernels órfãos nos containers do app; sessões Docker esperam por ela."""
@@ -810,7 +824,14 @@ class KernelService:
     async def create(
         self, path: str, kernel_name: str, cwd: Path | None = None, target: Path | None = None
     ) -> KernelSession:
-        """Cria a sessão. O registro em `_starting*` é síncrono (sem await antes), o que o torna atômico no event loop."""
+        """Cria a sessão. O registro em `_starting*` é síncrono (sem await antes), o que o torna atômico no event loop.
+
+        Levanta `NotislakeUnavailable` se o MinIO local não está em `running`; só sessões novas são recusadas.
+        """
+        if self._notislake is not None:
+            state = self._notislake.snapshot().state
+            if state is not State.RUNNING:
+                raise NotislakeUnavailable(state.value)
         session_id = uuid.uuid4().hex
         # Registered before the spec lookup so has_session sees the session during the whole arranque.
         self._starting[session_id] = kernel_name

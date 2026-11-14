@@ -11,6 +11,7 @@ from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
 from .notebooks.store import NotebookStore
+from .notislake.supervisor import NotislakeSupervisor
 from .preferences import protected_paths
 from .runtimes.docker.service import DockerRuntimes
 from .spark.catalog import CatalogService
@@ -35,13 +36,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await kernels.stop_docker_runtimes()
 
 
-def create_app(settings: Settings) -> FastAPI:
+def create_app(settings: Settings, notislake: NotislakeSupervisor | None = None) -> FastAPI:
     app = FastAPI(title="Notisbook", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
     app.state.store = NotebookStore(settings.root, protected_paths(settings.home))
     app.state.root_source = settings.root_source
     app.state.root_generation = 0
     app.state.kernels = KernelService(settings.port, home=settings.home)
+    app.state.notislake = notislake
     app.state.channels = {}
     app.state.jobs = JobRegistry()
     kernels = app.state.kernels
@@ -59,6 +61,7 @@ def create_app(settings: Settings) -> FastAPI:
         kernels.has_session,
     )
     kernels.bind_docker(app.state.docker)
+    kernels.bind_notislake(notislake)
     app.include_router(system.router)
     app.include_router(contents.router)
     app.include_router(export.router)
