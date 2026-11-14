@@ -9,11 +9,14 @@ No protocolo REST quem grava o `metadata.json` é o servidor: o `pyiceberg` (sem
 de domínio (modelos, `validate`, `update_table_metadata`, serialização). A gravação do arquivo (criação exclusiva)
 e o CAS de `metadata_location` usam o SQLite do backend, com o mesmo predicado do JdbcCatalog do runtime local.
 
-Locations de tabela ficam no warehouse Iceberg ou numa pasta montada na sessão (tabela externa), nunca no
-warehouse Spark nem sobrepostas a outra tabela; o purge só apaga arquivos de tabela dentro do warehouse Iceberg.
+Locations de tabela ficam no warehouse Iceberg, numa pasta montada na sessão (tabela externa) ou em
+`s3a://notislake/<camada>/<dataset>`, nunca no warehouse Spark nem sobrepostas a outra tabela; o purge só apaga
+arquivos de tabela dentro do warehouse Iceberg. Tabelas `s3a` têm o metadata gravado por criação exclusiva no
+bucket, só com a conexão com que o kernel abriu (fingerprint), e nunca têm arquivos apagados por purge.
 """
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -53,6 +56,9 @@ from ..catalog import iceberg_jdbc
 from ..catalog.registry import all_table_locations, local_path
 from ..catalog.store import catalog_db_path, connect
 from ..fs_safety import is_within
+from ..notislake import locations, objectstore
+from ..notislake.settings_store import ConfigInvalid
+from ..notislake.sparkconf import fingerprint
 from ..security import RuntimeGrant, require_runtime_host, require_runtime_token
 
 log = logging.getLogger(__name__)
@@ -128,6 +134,9 @@ ALLOWED_REQUIREMENTS = frozenset(
 MAX_FORMAT_VERSION = 2
 _UPDATE_ADAPTER: TypeAdapter[Any] = TypeAdapter(TableUpdate)
 _REQUIREMENT_ADAPTER: TypeAdapter[Any] = TypeAdapter(TableRequirement)
+S3A_PREFIX = f"{locations.SCHEME}://"
+
+
 class IcebergError(Exception):
     """Erro de protocolo REST do Iceberg, devolvido como `ErrorModel`."""
 
@@ -172,6 +181,10 @@ def _no_such_table() -> IcebergError:
     return IcebergError(404, "NoSuchTableException", "Tabela não encontrada")
 
 
+def _s3a_refused(message: str) -> IcebergError:
+    return IcebergError(409, "CommitFailedException", message)
+
+
 def parse_namespace(raw: str) -> str:
     """Namespace do protocolo (níveis separados por 0x1F) no formato pontuado do JdbcCatalog."""
     levels = raw.split(NAMESPACE_SEPARATOR)
@@ -196,6 +209,53 @@ def _levels(namespace: str) -> list[str]:
 def _home(request: Request) -> Path:
     home: Path = request.app.state.settings.home
     return home
+
+
+def _is_s3a(location: str) -> bool:
+    return location.startswith(S3A_PREFIX)
+
+
+class _NoLocalStore:
+    """Substituto quando o app sobe sem supervisor: nunca há MinIO local."""
+
+    def connection(self) -> None:
+        return None
+
+
+class _Store:
+    """Conexão do bucket notislake numa requisição; só é resolvida quando uma tabela `s3a` é tocada.
+
+    `opener` serve a leitura de metadata. A gravação só vale com a conexão com que o kernel abriu (D-D).
+    """
+
+    def __init__(self, grant: RuntimeGrant, opener: iceberg_jdbc.StoreOpener) -> None:
+        self.opener = opener
+        self._grant = grant
+        self._writer: objectstore.Connection | None = None
+
+    def writer(self, commit: bool) -> objectstore.Connection:
+        """Conexão para gravar; 409 se o kernel abriu sem S3A ou a conexão atual difere da dele."""
+        if self._writer is not None:
+            return self._writer
+        expected = self._grant.s3a_fingerprint
+        if expected is None:
+            raise _s3a_refused("O kernel foi aberto sem conexão S3A; reinicie-o para gravar em s3a")
+        try:
+            conn = self.opener()
+        except ConfigInvalid:
+            raise _s3a_refused("A configuração do notislake é inválida; corrija-a e reinicie o kernel") from None
+        except objectstore.Unavailable:
+            raise _unavailable("O armazenamento notislake está indisponível", commit) from None
+        if not hmac.compare_digest(expected, fingerprint(conn)):
+            raise _s3a_refused("A conexão do notislake mudou depois da abertura do kernel; reinicie-o para gravar em s3a")
+        self._writer = conn
+        return conn
+
+
+def _store(request: Request, grant: RuntimeGrant) -> _Store:
+    home = _home(request)
+    supervisor: Any = getattr(request.app.state, "notislake", None) or _NoLocalStore()
+    return _Store(grant, lambda: objectstore.resolve(home, supervisor))
 
 
 def _run_read[T](home: Path, func: Callable[[sqlite3.Connection, bool], T]) -> T:
@@ -282,7 +342,7 @@ async def list_tables(request: Request, namespace: str) -> dict[str, Any]:
 
 
 def _guard_external(grant: RuntimeGrant, metadata_location: str | None, metadata: dict[str, Any]) -> dict[str, Any]:
-    """Devolve `gc.enabled=false` ao cliente nas tabelas externas (metadata fora do warehouse Iceberg).
+    """Devolve `gc.enabled=false` ao cliente nas tabelas externas (metadata fora do warehouse Iceberg) e em `s3a`.
 
     O `SparkCatalog.purgeTable` (Iceberg 1.7.1) recusa o PURGE com essa propriedade, antes de qualquer drop; sem ela
     apagaria os arquivos no cliente, contornando `_drop_table`. Só vai na resposta: o metadata.json em disco e o CAS
@@ -291,19 +351,24 @@ def _guard_external(grant: RuntimeGrant, metadata_location: str | None, metadata
     o metadata dele (com as propriedades) no commit `assert-create`, e a propriedade seria gravada em disco.
     """
     reference = metadata_location or metadata.get("location")
-    if isinstance(reference, str) and not iceberg_jdbc.location_within_root(reference, grant.iceberg_root):
+    external = isinstance(reference, str) and (
+        _is_s3a(reference) or not iceberg_jdbc.location_within_root(reference, grant.iceberg_root)
+    )
+    if external:
         properties = metadata.get("properties")
         metadata["properties"] = {**(properties if isinstance(properties, dict) else {}), "gc.enabled": "false"}
     return metadata
 
 
-def _load_table(grant: RuntimeGrant, ns: str, table: str) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
+def _load_table(
+    grant: RuntimeGrant, ns: str, table: str, store: _Store
+) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
     def query(conn: sqlite3.Connection, has_type: bool) -> dict[str, Any]:
         location = iceberg_jdbc.table_metadata_location(conn, ns, table, has_type)
         if location is None:
             raise _no_such_table()
         try:
-            metadata = iceberg_jdbc.read_metadata_within(location, _allowed_roots(grant))
+            metadata = _read_raw_metadata(location, grant, store)
         except iceberg_jdbc.MetadataOutsideRoot:
             raise _outside_mounts() from None
         except iceberg_jdbc.IcebergMetadataError:
@@ -315,7 +380,7 @@ def _load_table(grant: RuntimeGrant, ns: str, table: str) -> Callable[[sqlite3.C
 
 @router.get("/v1/namespaces/{namespace}/tables/{table}")
 async def load_table(request: Request, namespace: str, table: str, grant: Grant) -> dict[str, Any]:
-    return await _read(request, _load_table(grant, parse_namespace(namespace), parse_table_name(table)))
+    return await _read(request, _load_table(grant, parse_namespace(namespace), parse_table_name(table), _store(request, grant)))
 
 
 @router.head("/v1/namespaces/{namespace}/tables/{table}")
@@ -460,6 +525,17 @@ def _outside_mounts() -> IcebergError:
     )
 
 
+def _read_raw_metadata(location: str, grant: RuntimeGrant, store: _Store) -> dict[str, Any]:
+    """`metadata.json` local (dentro das raízes permitidas) ou em `s3a://notislake/...` (lido com teto)."""
+    if not _is_s3a(location):
+        return iceberg_jdbc.read_metadata_within(location, _allowed_roots(grant))
+    try:
+        locations.parse_notislake(location)
+    except locations.InvalidLocation:
+        raise iceberg_jdbc.MetadataOutsideRoot("metadata outside the allowed roots") from None
+    return iceberg_jdbc._read_metadata(location, store.opener)  # leitor remoto limitado de iceberg_jdbc, sem equivalente público
+
+
 def _strictly_inside(real: Path, root: str) -> bool:
     real_root = Path(os.path.realpath(root))
     return real != real_root and is_within(real, real_root)
@@ -487,12 +563,61 @@ def _table_path(location: str, grant: RuntimeGrant) -> Path:
     return real
 
 
-def _require_no_overlap(conn: sqlite3.Connection, folder: Path | None) -> None:
+def _s3a_table(location: str) -> locations.NotislakeLocation:
+    """Location `s3a://notislake/<camada>/<dataset>[/...]` de uma tabela; 400 se inválida ou fora do notislake.
+
+    A raiz reservada do Iceberg (`bronze/iceberg`) hospeda tabelas, mas não pode ser uma delas.
+    """
+    try:
+        loc = locations.parse_notislake(location)
+    except locations.InvalidLocation:
+        raise _bad_request("A location s3a deve ser s3a://notislake/<camada>/<dataset> sem segmentos vazios, '.' ou '..'") from None
+    if loc.uri == locations.RESERVED_ICEBERG_PREFIX.rstrip("/"):
+        raise _bad_request("A location não pode ser a raiz reservada do Iceberg no notislake")
+    return loc
+
+
+def _table_target(location: str, grant: RuntimeGrant) -> Path | locations.NotislakeLocation:
+    """Destino de uma tabela nova ou escrita: pasta local (`_table_path`) ou location `s3a` do notislake."""
+    if _is_s3a(location):
+        return _s3a_table(location)
+    return _table_path(location, grant)
+
+
+def _registered_folder(metadata_location: str) -> Path | locations.NotislakeLocation | None:
+    """Pasta (local) ou prefixo (`s3a`) da tabela dona de `metadata_location`; `None` se não for reconhecível."""
+    folder = iceberg_jdbc.table_folder(metadata_location)
+    if folder is not None:
+        return folder
+    prefix = iceberg_jdbc.table_prefix(metadata_location)
+    return locations.parse_notislake(prefix) if prefix is not None else None
+
+
+def _notislake_uri(location: str) -> str | None:
+    try:
+        return locations.parse_notislake(location).uri
+    except locations.InvalidLocation:
+        return None
+
+
+def _require_no_s3a_overlap(conn: sqlite3.Connection, folder: locations.NotislakeLocation) -> None:
+    """400 se o prefixo `s3a` é ancestral ou descendente do prefixo de outra tabela (chaves S3 diferenciam caixa)."""
+    others = [iceberg_jdbc.table_prefix(m) for m in iceberg_jdbc.all_metadata_locations(conn)]
+    others += [_notislake_uri(loc) for loc in all_table_locations(conn)]
+    for other in others:
+        if other is not None and (locations.within(other, folder.uri) or locations.within(folder.uri, other)):
+            raise _bad_request("A location se sobrepõe à pasta de outra tabela registrada")
+
+
+def _require_no_overlap(conn: sqlite3.Connection, folder: Path | locations.NotislakeLocation | None) -> None:
     """400 se `folder` é ancestral ou descendente (sem diferenciar caixa) da pasta de outra tabela registrada.
 
     Vale para tabelas Iceberg e para locations Delta/Parquet do registro; outro dono da pasta perderia dados no purge.
     """
     if folder is None:
+        return
+    if isinstance(folder, locations.NotislakeLocation):
+        _require_no_s3a_overlap(conn, folder)
         return
     others = [iceberg_jdbc.table_folder(m) for m in iceberg_jdbc.all_metadata_locations(conn)]
     others += [local_path(loc) for loc in all_table_locations(conn)]
@@ -522,19 +647,43 @@ def _next_version(previous_location: str | None) -> int:
     return int(match.group(1)) + 1 if match else 0
 
 
-def _write_metadata_file(
-    metadata: TableMetadata, grant: RuntimeGrant, previous_location: str | None, commit: bool
-) -> tuple[Path, str, bytes]:
-    """Grava o `metadata.json` novo (nome único, criação exclusiva). Devolve caminho, URI e conteúdo.
+def _remove_remote_quiet(conn: objectstore.Connection, key: str) -> None:
+    """Remove só o objeto `key` (nunca por prefixo); falha vira aviso."""
+    try:
+        objectstore.delete_key(conn, key)
+    except objectstore.ObjectStoreError:
+        log.warning("não foi possível remover um metadata.json não registrado do bucket")
 
-    Grava sempre em `<location>/metadata/`. Levanta 400 (location recusada / grande demais) ou, na falha de E/S, 409 no commit e 503 no create;
-    nada é registrado aqui e o arquivo parcial é removido.
+
+def _write_remote_metadata(
+    table: locations.NotislakeLocation, name: str, data: bytes, store: _Store, commit: bool
+) -> tuple[Callable[[], None], str, bytes]:
+    """Grava `<prefixo>/metadata/<name>` no bucket por criação exclusiva, só com a conexão validada pelo fingerprint."""
+    conn = store.writer(commit)
+    key = f"{table.key}/metadata/{name}"
+    try:
+        objectstore.put_exclusive(conn, key, data)
+    except objectstore.ObjectStoreError:
+        raise _unavailable("Não foi possível gravar o metadata da tabela", commit) from None
+    return (lambda: _remove_remote_quiet(conn, key)), f"{table.uri}/metadata/{name}", data
+
+
+def _write_metadata_file(
+    metadata: TableMetadata, grant: RuntimeGrant, previous_location: str | None, commit: bool, store: _Store
+) -> tuple[Callable[[], None], str, bytes]:
+    """Grava o `metadata.json` novo (nome único, criação exclusiva). Devolve a remoção do arquivo, a URI e o conteúdo.
+
+    Grava sempre em `<location>/metadata/`, no disco ou no bucket (`s3a`). Levanta 400 (location recusada / grande demais)
+    ou, na falha de E/S, 409 no commit e 503 no create; nada é registrado aqui e o arquivo parcial é removido.
     """
     data = metadata.model_dump_json().encode("utf-8")
     if len(data) > iceberg_jdbc.MAX_METADATA_BYTES:
         raise _bad_request("O metadata resultante excede o limite suportado")
-    table_dir = _table_path(metadata.location, grant)
+    destination = _table_target(metadata.location, grant)
     name = f"{_next_version(previous_location):05d}-{uuid.uuid4()}.metadata.json"
+    if isinstance(destination, locations.NotislakeLocation):
+        return _write_remote_metadata(destination, name, data, store, commit)
+    table_dir = destination
     target = table_dir / "metadata" / name
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -551,7 +700,7 @@ def _write_metadata_file(
     except OSError:
         _remove_quiet(target)
         raise _unavailable("Não foi possível gravar o metadata da tabela", commit) from None
-    return target, _file_uri(target), data
+    return (lambda: _remove_quiet(target)), _file_uri(target), data
 
 
 def _parse_updates(raw: Any) -> tuple[Any, ...]:
@@ -589,7 +738,7 @@ def _check_updates(updates: tuple[Any, ...], grant: RuntimeGrant) -> None:
         if isinstance(update, UpgradeFormatVersionUpdate) and update.format_version > MAX_FORMAT_VERSION:
             raise _bad_request("format-version acima de 2 não é suportado")
         if isinstance(update, SetLocationUpdate):
-            _table_path(update.location, grant)
+            _table_target(update.location, grant)
 
 
 def _check_data_paths(properties: dict[str, str], location: str) -> None:
@@ -605,6 +754,10 @@ def _check_data_paths(properties: dict[str, str], location: str) -> None:
         value = properties.get(key)
         if value is None:
             continue
+        if _is_s3a(location):
+            if not locations.within(value, location):
+                raise _bad_request(f"{key} deve ficar dentro da location da própria tabela")
+            continue
         path = local_path(value)
         if own is None or path is None or not is_within(Path(os.path.realpath(path)), Path(os.path.realpath(own)), fold=True):
             raise _bad_request(f"{key} deve ficar dentro da location da própria tabela")
@@ -615,9 +768,9 @@ def _empty_metadata() -> TableMetadata:
     return TableMetadataV1.model_construct(last_column_id=-1, schema=Schema())
 
 
-def _load_current(location: str, grant: RuntimeGrant) -> TableMetadata:
+def _load_current(location: str, grant: RuntimeGrant, store: _Store) -> TableMetadata:
     try:
-        raw = iceberg_jdbc.read_metadata_within(location, _allowed_roots(grant))
+        raw = _read_raw_metadata(location, grant, store)
     except iceberg_jdbc.MetadataOutsideRoot:
         raise _outside_mounts() from None
     except iceberg_jdbc.IcebergMetadataError:
@@ -650,7 +803,7 @@ def _register(
     try:
         with _write_txn(conn, lambda: _unavailable("Catálogo ocupado ou indisponível", commit)):
             if previous is None:
-                _require_no_overlap(conn, iceberg_jdbc.table_folder(new_location))
+                _require_no_overlap(conn, _registered_folder(new_location))
                 return iceberg_jdbc.insert_table(conn, ns, table, new_location, has_type)
             return iceberg_jdbc.swap_metadata_location(conn, ns, table, previous, new_location, has_type)
     except sqlite3.Error:
@@ -665,24 +818,25 @@ def _persist(
     table: str,
     metadata: TableMetadata,
     previous: str | None,
+    store: _Store,
     *,
     commit: bool,
 ) -> dict[str, Any]:
     """Grava o metadata novo, registra (CAS) e, se perdeu, apaga o arquivo e responde 409."""
     if previous is None:  # checagem prévia, antes de criar `metadata/` na pasta; a definitiva é a de `_register`
-        _require_no_overlap(conn, _table_path(metadata.location, grant))
-    path, location, data = _write_metadata_file(metadata, grant, previous, commit)
+        _require_no_overlap(conn, _table_target(metadata.location, grant))
+    remove_file, location, data = _write_metadata_file(metadata, grant, previous, commit, store)
     try:
         registered = _register(conn, has_type, ns, table, previous, location, commit)
     except IcebergError as exc:
         if exc.status != 500:  # com 500 o estado é desconhecido: o arquivo pode estar referenciado
-            _remove_quiet(path)
+            remove_file()
         raise
     except BaseException:
-        _remove_quiet(path)
+        remove_file()
         raise
     if not registered:
-        _remove_quiet(path)
+        remove_file()
         if previous is None:
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         raise IcebergError(409, "CommitFailedException", "A tabela foi alterada por outro commit")
@@ -693,7 +847,7 @@ def _default_location(grant: RuntimeGrant, ns: str, table: str) -> str:
     return _file_uri(Path(os.path.realpath(grant.iceberg_root)).joinpath(*ns.split("."), table))
 
 
-def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
+def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any], store: _Store) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
     _new_namespace(ns.split("."))
     table = _new_name(body.get("name"), "Nome de tabela")
     properties = _string_map(body.get("properties"), "Propriedades")
@@ -704,7 +858,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
     if location is not None and not isinstance(location, str):
         raise _bad_request("location inválida")
     final_location = location or _default_location(grant, ns, table)
-    _table_path(final_location, grant)
+    _table_target(final_location, grant)
     _check_data_paths(properties, final_location)
     try:
         schema = Schema.model_validate(body.get("schema"))
@@ -721,15 +875,15 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any]) -> Callabl
         if iceberg_jdbc.table_row_exists(conn, ns, table, ignore_case=True):  # APFS: `T` e `t` são a mesma pasta
             raise IcebergError(409, "AlreadyExistsException", "A tabela já existe")
         if staged:  # CTAS: nada é gravado nem registrado; a materialização chega no commit com `assert-create`
-            _require_no_overlap(conn, _table_path(final_location, grant))
+            _require_no_overlap(conn, _table_target(final_location, grant))
             return _result(grant, None, metadata.model_dump_json().encode("utf-8"), guard=False)
-        return _persist(conn, has_type, grant, ns, table, metadata, None, commit=False)
+        return _persist(conn, has_type, grant, ns, table, metadata, None, store, commit=False)
 
     return run
 
 
 def _commit_table(
-    grant: RuntimeGrant, ns: str, table: str, body: dict[str, Any]
+    grant: RuntimeGrant, ns: str, table: str, body: dict[str, Any], store: _Store
 ) -> Callable[[sqlite3.Connection, bool], dict[str, Any]]:
     requirements = _parse_requirements(body.get("requirements", []))
     updates = _parse_updates(body.get("updates", []))
@@ -751,7 +905,9 @@ def _commit_table(
             raise IcebergError(409, "AlreadyExistsException", "Já existe uma tabela ou view com esse nome")
         if location == "":
             raise IcebergError(422, "UnprocessableEntityException", "A tabela não tem metadata registrado")
-        base = _load_current(location, grant) if location else None
+        if location and _is_s3a(location):  # recusa antes de ler: conexão divergente ou kernel sem S3A
+            store.writer(commit=True)
+        base = _load_current(location, grant, store) if location else None
         for requirement in requirements:
             try:
                 requirement.validate(base)
@@ -771,7 +927,7 @@ def _commit_table(
         if isinstance(new, TableMetadataV3) or new.format_version > MAX_FORMAT_VERSION:
             raise _bad_request("format-version acima de 2 não é suportado")
         _check_data_paths(new.properties, new.location)
-        return _persist(conn, has_type, grant, ns, table, new, location or None, commit=True)
+        return _persist(conn, has_type, grant, ns, table, new, location or None, store, commit=True)
 
     return run
 
@@ -812,7 +968,11 @@ def _restore_folder(moved: tuple[Path, Path]) -> None:
 
 
 def _require_inside_roots(location: str, grant: RuntimeGrant) -> None:
-    """403 se o metadata da tabela está fora do warehouse Iceberg e das pastas montadas (mesma regra de load/commit)."""
+    """403 se o metadata da tabela está fora do warehouse Iceberg, das pastas montadas e do notislake (como load/commit)."""
+    if _is_s3a(location):
+        if _notislake_uri(location) is None:
+            raise _outside_mounts()
+        return
     if not iceberg_jdbc.location_within_roots(location, _allowed_roots(grant)):
         raise _outside_mounts()
 
@@ -826,6 +986,8 @@ def _drop_table(
             raise _no_such_table()
         if location:
             _require_inside_roots(location, grant)
+        if purge and location and _is_s3a(location):  # D-F: S3 não tem rename; nada de `s3a` é apagado
+            raise _bad_request("O purge de tabelas em s3a não é suportado: o purge foi recusado e nada foi removido")
         folder = None
         # Tabela externa (metadata fora do warehouse Iceberg): o purge só remove a linha, nunca arquivos.
         if purge and location and iceberg_jdbc.location_within_root(location, grant.iceberg_root):
@@ -913,13 +1075,13 @@ async def update_namespace_properties(request: Request, namespace: str) -> dict[
 @router.post("/v1/namespaces/{namespace}/tables")
 async def create_table(request: Request, namespace: str, grant: Grant) -> dict[str, Any]:
     ns = parse_namespace(namespace)
-    return await _write(request, _create_table(grant, ns, await _json_body(request)))
+    return await _write(request, _create_table(grant, ns, await _json_body(request), _store(request, grant)))
 
 
 @router.post("/v1/namespaces/{namespace}/tables/{table}")
 async def commit_table(request: Request, namespace: str, table: str, grant: Grant) -> dict[str, Any]:
     ns, name = parse_namespace(namespace), parse_table_name(table)
-    result = await _write(request, _commit_table(grant, ns, name, await _json_body(request)), commit=True)
+    result = await _write(request, _commit_table(grant, ns, name, await _json_body(request), _store(request, grant)), commit=True)
     result.pop("config", None)
     return result
 
