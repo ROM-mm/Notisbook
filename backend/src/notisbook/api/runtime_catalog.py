@@ -32,6 +32,7 @@ from ..catalog import registry
 from ..catalog.managed import delete_managed_table, managed_table_dir
 from ..catalog.store import catalog_db_path, connect, ensure_catalog_db
 from ..fs_safety import is_within
+from ..notislake import locations as notislake_locations
 from ..security import RuntimeGrant, require_runtime_host, require_runtime_token
 
 log = logging.getLogger(__name__)
@@ -130,7 +131,9 @@ def _info(item: TableInfo) -> dict[str, Any]:
 
 
 def _location_error(location: str, grant: RuntimeGrant) -> str | None:
-    """Código do erro se a `location` não é uma pasta local estritamente dentro das pastas montadas da sessão."""
+    """Código do erro se a `location` não é local dentro das pastas montadas nem `s3a` válida do notislake."""
+    if location.startswith(f"{notislake_locations.SCHEME}://"):
+        return _s3a_location_error(location)
     path = registry.local_path(location)
     if path is None:
         return "location_not_local"
@@ -143,6 +146,16 @@ def _location_error(location: str, grant: RuntimeGrant) -> str | None:
         if real != base and is_within(real, base):
             return None
     return "location_outside_mounts"
+
+
+def _s3a_location_error(location: str) -> str | None:
+    try:
+        notislake_locations.parse_notislake(location)
+    except notislake_locations.InvalidLocation:
+        return "location_not_notislake"
+    if notislake_locations.is_reserved_iceberg(location):
+        return "location_in_iceberg_prefix"  # D-G: o prefixo é do Iceberg, como o warehouse local
+    return None
 
 
 LIMIT_ERRORS = frozenset({"string_too_long", "too_long", "string_pattern_mismatch"})
