@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from ..catalog import iceberg_jdbc, registry, schemas
 from ..catalog.store import catalog_db_path, connect
 from ..kernels.service import KernelsBusy
+from ..notislake import objectstore
 from ..security import require_token, require_trusted_host
 from ..spark.bundles import WAREHOUSE_DIR
 from .deps import Kernels
@@ -73,7 +74,23 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
         conn.close()
 
 
-def _read_columns(home: Path, catalog: str, database: str, table: str) -> list[dict[str, Any]] | None:
+class _NoLocalStore:
+    """Substituto quando o app sobe sem supervisor: nunca há MinIO local."""
+
+    def connection(self) -> None:
+        return None
+
+
+def _store_opener(request: Request) -> iceberg_jdbc.StoreOpener:
+    """Resolve a conexão do bucket só quando a tabela Iceberg está em `s3a` (o metadata é lido do bucket)."""
+    home = _get_home(request)
+    supervisor: Any = getattr(request.app.state, "notislake", None) or _NoLocalStore()
+    return lambda: objectstore.resolve(home, supervisor)
+
+
+def _read_columns(
+    home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
+) -> list[dict[str, Any]] | None:
     conn = _open(home)
     if conn is None:
         return None
@@ -83,7 +100,7 @@ def _read_columns(home: Path, catalog: str, database: str, table: str) -> list[d
         if catalog == registry.HUDI_CATALOG:
             return registry.read_columns(conn, database, table, hudi_only=True)
         if catalog == iceberg_jdbc.ICEBERG_CATALOG:
-            return iceberg_jdbc.read_columns(conn, database, table)
+            return iceberg_jdbc.read_columns(conn, database, table, open_store)
         return None
     finally:
         conn.close()
@@ -99,10 +116,10 @@ async def get_catalog(home: Home) -> dict[str, Any]:
 
 
 @router.get("/columns")
-async def get_columns(home: Home, catalog: Name, database: Name, table: Name) -> list[dict[str, Any]]:
+async def get_columns(request: Request, home: Home, catalog: Name, database: Name, table: Name) -> list[dict[str, Any]]:
     """Colunas de uma tabela; 404 se inexistente, 409 se o formato do catálogo ou do metadata não for legível."""
     try:
-        columns = await asyncio.to_thread(_read_columns, home, catalog, database, table)
+        columns = await asyncio.to_thread(_read_columns, home, catalog, database, table, _store_opener(request))
     except iceberg_jdbc.UnsupportedIcebergSchema as exc:
         raise HTTPException(409, iceberg_jdbc.ERR_UNSUPPORTED) from exc
     except iceberg_jdbc.IcebergMetadataError as exc:

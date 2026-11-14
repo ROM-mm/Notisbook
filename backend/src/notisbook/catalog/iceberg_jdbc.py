@@ -11,11 +11,13 @@ import json
 import os
 import sqlite3
 import zlib
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from ..fs_safety import is_within
+from ..notislake import locations, objectstore
+from ..notislake.settings_store import ConfigInvalid
 from .registry import MAX_TABLES, is_available, local_path
 
 ICEBERG_CATALOG = "iceberg"
@@ -24,6 +26,8 @@ ERR_UNREADABLE = "iceberg_catalog_unreadable"
 # Teto do `metadata.json` (já descomprimido): evita carregar um arquivo gigante ou uma bomba gzip.
 MAX_METADATA_BYTES = 16 * 1024 * 1024
 _MAX_TYPE_DEPTH = 8
+# Entrega a conexão do bucket sob demanda: tabelas locais nunca resolvem (nem exigem) o MinIO.
+StoreOpener = Callable[[], objectstore.Connection]
 
 _REQUIRED_COLUMNS = {
     "iceberg_tables": {"catalog_name", "table_namespace", "table_name", "metadata_location"},
@@ -82,16 +86,35 @@ def _table_type(metadata_location: str, warehouse: Path, namespace: str, table: 
         return "EXTERNAL"
 
 
+def table_prefix(location: str | None) -> str | None:
+    """Prefixo `s3a://notislake/...` da tabela (pai de `metadata/`); `None` se não for uma location notislake válida."""
+    try:
+        segments = locations.parse_notislake(location or "").segments[:-1]
+    except locations.InvalidLocation:
+        return None
+    if segments and segments[-1] == "metadata":
+        segments = segments[:-1]
+    try:
+        return locations.parse_notislake(f"{locations.SCHEME}://{locations.BUCKET}/{'/'.join(segments)}").uri
+    except locations.InvalidLocation:
+        return None
+
+
 def _node(row: tuple[Any, ...], warehouse: Path) -> dict[str, Any]:
     namespace, name, metadata_location = row[0], row[1], row[2] or ""
     folder = _table_dir(metadata_location)
+    if folder is not None:
+        shown: str | None = folder.as_uri()
+    else:
+        shown = table_prefix(metadata_location) or metadata_location or None
     return {
         "name": name,
         "namespace": namespace.split("."),
         "format": "iceberg",
         "table_type": _table_type(metadata_location, warehouse, namespace, name),
         "is_temporary": False,
-        "location": folder.as_uri() if folder is not None else metadata_location or None,
+        "location": shown,
+        # Fora do disco local (s3a) a disponibilidade é desconhecida: não se sonda o bucket na listagem.
         "available": is_available(metadata_location),
         "description": None,
     }
@@ -138,7 +161,7 @@ def check_schema(conn: sqlite3.Connection) -> bool:
 
 
 def table_folder(metadata_location: str | None) -> Path | None:
-    """Pasta da tabela a partir do `metadata_location` (None se não for um caminho local)."""
+    """Pasta da tabela a partir do `metadata_location` (None se não for um caminho local, como em `s3a`)."""
     return _table_dir(metadata_location or "")
 
 
@@ -234,10 +257,10 @@ def drop_namespace_rows(conn: sqlite3.Connection, namespace: str) -> None:
     )
 
 
-def gc_enabled(metadata_location: str) -> bool | None:
+def gc_enabled(metadata_location: str, open_store: StoreOpener | None = None) -> bool | None:
     """`gc.enabled` do metadata atual (padrão true); `None` se o metadata não pôde ser lido."""
     try:
-        props = _read_metadata(metadata_location).get("properties")
+        props = _read_metadata(metadata_location, open_store).get("properties")
     except IcebergMetadataError:
         return None
     if not isinstance(props, dict):
@@ -250,23 +273,47 @@ def error_entry(code: str) -> dict[str, Any]:
     return {"name": ICEBERG_CATALOG, "databases": [], "error": code}
 
 
-def _read_metadata(location: str) -> dict[str, Any]:
-    path = local_path(location)
-    if path is None:
-        raise IcebergMetadataError("metadata is not on the local disk")
+def _parse_metadata(raw: bytes) -> dict[str, Any]:
+    """Interpreta o conteúdo do `metadata.json` (gzip é detectado pelo cabeçalho), respeitando o teto descomprimido."""
     try:
-        with path.open("rb") as handle:
-            raw = handle.read(MAX_METADATA_BYTES + 1)
         if raw[:2] == b"\x1f\x8b":
             raw = zlib.decompressobj(wbits=31).decompress(raw, MAX_METADATA_BYTES + 1)
         if len(raw) > MAX_METADATA_BYTES:
             raise IcebergMetadataError("metadata too large")
         meta = json.loads(raw)
-    except (OSError, ValueError, zlib.error, EOFError) as exc:
+    except (ValueError, zlib.error, EOFError) as exc:
         raise IcebergMetadataError(type(exc).__name__) from exc
     if not isinstance(meta, dict):
         raise IcebergMetadataError("unexpected metadata layout")
     return meta
+
+
+def _read_remote(location: str, open_store: StoreOpener | None) -> bytes:
+    """Bytes do metadata em `s3a://notislake/...`, lidos com teto; só a conexão do notislake é usada."""
+    try:
+        key = locations.parse_notislake(location).key
+    except locations.InvalidLocation as exc:
+        raise IcebergMetadataError("metadata is not on the local disk") from exc
+    if open_store is None:
+        raise IcebergMetadataError("object store not provided")
+    try:
+        return objectstore.get_bounded(open_store(), key, max_bytes=MAX_METADATA_BYTES)
+    except objectstore.ObjectStoreError as exc:
+        raise IcebergMetadataError(exc.code) from None
+    except (objectstore.Unavailable, ConfigInvalid):
+        raise IcebergMetadataError("object store unavailable") from None
+
+
+def _read_metadata(location: str, open_store: StoreOpener | None = None) -> dict[str, Any]:
+    path = local_path(location)
+    if path is None:
+        return _parse_metadata(_read_remote(location, open_store))
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_METADATA_BYTES + 1)
+    except OSError as exc:
+        raise IcebergMetadataError(type(exc).__name__) from exc
+    return _parse_metadata(raw)
 
 
 def _type_name(spec: Any, depth: int = 0) -> str:
@@ -330,10 +377,12 @@ def _columns_from_metadata(meta: dict[str, Any]) -> list[dict[str, Any]]:
         raise IcebergMetadataError("unexpected schema layout") from exc
 
 
-def read_columns(conn: sqlite3.Connection, database: str, table: str) -> list[dict[str, Any]] | None:
+def read_columns(
+    conn: sqlite3.Connection, database: str, table: str, open_store: StoreOpener | None = None
+) -> list[dict[str, Any]] | None:
     """Colunas de uma tabela Iceberg pelo `metadata.json` atual; `None` se a tabela não existir.
 
-    Levanta `UnsupportedIcebergSchema` ou `IcebergMetadataError`.
+    `open_store` devolve a conexão do bucket e só é chamado para metadata em `s3a`. Levanta `UnsupportedIcebergSchema` ou `IcebergMetadataError`.
     """
     has_type = _check_schema(conn)
     row = conn.execute(
@@ -345,7 +394,7 @@ def read_columns(conn: sqlite3.Connection, database: str, table: str) -> list[di
         return None
     if not row[0]:
         raise IcebergMetadataError("table has no metadata location")
-    return _columns_from_metadata(_read_metadata(row[0]))
+    return _columns_from_metadata(_read_metadata(row[0], open_store))
 
 
 def location_within_root(location: str, root: str) -> bool:
