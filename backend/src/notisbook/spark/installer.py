@@ -76,6 +76,7 @@ SMOKE_TIMEOUT = 300
 # Loads the session with the env's spark-defaults.conf, resolves one class per extension/catalog and
 # lists the Iceberg namespaces, which opens the JDBC connection (argv[1] is the URI of a throwaway
 # SQLite file that already has the Iceberg tables: the catalog is configured not to create them).
+# argv[2] is the AWS SDK probe class and argv[3] the Hadoop version the S3A jars were built for.
 SMOKE_SCRIPT = """
 import sys
 from pyspark.sql import SparkSession
@@ -91,6 +92,11 @@ loader = spark.sparkContext._jvm.Thread.currentThread().getContextClassLoader()
 for key in ("spark.sql.extensions", "spark.sql.catalog.spark_catalog", "spark.sql.catalog.iceberg", "spark.kryo.registrator"):
     for cls in spark.conf.get(key).split(","):
         loader.loadClass(cls)
+loader.loadClass("org.apache.hadoop.fs.s3a.S3AFileSystem")
+loader.loadClass(sys.argv[2])
+hadoop = spark.sparkContext._jvm.org.apache.hadoop.util.VersionInfo.getVersion()
+if hadoop != sys.argv[3]:
+    raise SystemExit(f"Hadoop {hadoop} in pyspark does not match the S3A jars ({sys.argv[3]})")
 spark.sql("SELECT 1").collect()
 spark.sql("SHOW NAMESPACES IN iceberg").collect()
 spark.stop()
@@ -507,7 +513,7 @@ class SparkInstaller:
             try:
                 # `wait_for` cancela o `run_command`, cujo `finally` mata o processo.
                 lines = await asyncio.wait_for(
-                    self._cmd(job, "validate", [python, "-I", "-c", SMOKE_SCRIPT, uri], smoke_env), SMOKE_TIMEOUT
+                    self._cmd(job, "validate", [python, "-I", "-c", SMOKE_SCRIPT, uri, bundle.sdk_probe_class, bundle.hadoop], smoke_env), SMOKE_TIMEOUT
                 )
             except TimeoutError as exc:
                 raise InstallError(f"bundle smoke test timed out after {SMOKE_TIMEOUT}s") from exc

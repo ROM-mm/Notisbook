@@ -57,6 +57,10 @@ class Bundle:
     artifacts: tuple[Artifact, ...]
     # Jars for the driver JVM classpath (not `spark.jars`): the JDBC catalog finds its driver via DriverManager.
     driver_artifacts: tuple[Artifact, ...] = ()
+    # Hadoop line that the jars of `driver_artifacts` were built against (the pyspark wheel bundles the same one).
+    hadoop: str = ""
+    # Class that only exists in the AWS SDK jar of this bundle; the smoke test loads it to prove the SDK is wired.
+    sdk_probe_class: str = ""
     min_patch: int = 0
     max_patch: int | None = None
 
@@ -71,6 +75,22 @@ SQLITE_JDBC = Artifact(
     "f8dce420a6016278497f4f0560f65602b9db858de141b541cf91a4644ebe4639",
 )
 
+# S3A jars must match the Hadoop that ships inside each pyspark line; mixing versions breaks S3AFileSystem.
+HADOOP_35 = "3.3.4"
+HADOOP_41 = "3.4.2"
+S3A_35 = (
+    Artifact("org.apache.hadoop", "hadoop-aws", HADOOP_35, "53f9ae03c681a30a50aa17524bd9790ab596b28481858e54efd989a826ed3a4a"),
+    Artifact("com.amazonaws", "aws-java-sdk-bundle", "1.12.262", "873fe7cf495126619997bec21c44de5d992544aea7e632fdc77adb1a0915bae5"),
+    Artifact("org.wildfly.openssl", "wildfly-openssl", "1.0.7.Final", "9f7058778978ec2ad90c7224401a4b0013d93e0dd3fa0f72b25244ffa3507ca8"),
+)
+S3A_41 = (
+    Artifact("org.apache.hadoop", "hadoop-aws", HADOOP_41, "d2d24e6b715b5656b9d238bf13b6682a07e2004dd36aad74a73aeb854319f4d9"),
+    Artifact("software.amazon.awssdk", "bundle", "2.29.52", "62638f33045690c6bc5e496b54b0b2e89a9ad38cbedacdf6e017fea6bc85f55c"),
+    Artifact("org.wildfly.openssl", "wildfly-openssl", "2.1.4.Final", "95decbc5d088b40e85f58d7726b8c8f4e3be6312a0f2660c2d714a23cee80279"),
+)
+SDK_PROBE_35 = "com.amazonaws.services.s3.AmazonS3"
+SDK_PROBE_41 = "software.amazon.awssdk.services.s3.S3Client"
+
 
 MATRIX: dict[str, Bundle] = {
     # Delta 3.2.0 is the last release whose pyspark requirement still admits 3.5.0-3.5.2
@@ -78,7 +98,7 @@ MATRIX: dict[str, Bundle] = {
     "3.5.0-3.5.2": Bundle(
         key="3.5.0-3.5.2",
         line="3.5",
-        revision=3,
+        revision=4,
         formats=("delta", "iceberg", "hudi"),
         pip=("delta-spark==3.2.0",),
         max_patch=2,
@@ -98,13 +118,15 @@ MATRIX: dict[str, Bundle] = {
                 "b815831290bb2e9b32001619217e42b5c72c0ca7fb862045c5dc366365de5be2",
             ),
         ),
-        driver_artifacts=(SQLITE_JDBC,),
+        driver_artifacts=(SQLITE_JDBC, *S3A_35),
+        hadoop=HADOOP_35,
+        sdk_probe_class=SDK_PROBE_35,
     ),
     # Scala 2.12 builds; Delta 3.3.x is the Delta line built for Spark 3.5.
     "3.5": Bundle(
         key="3.5",
         line="3.5",
-        revision=3,
+        revision=4,
         formats=("delta", "iceberg", "hudi"),
         pip=("delta-spark==3.3.3",),
         min_patch=3,
@@ -124,13 +146,15 @@ MATRIX: dict[str, Bundle] = {
                 "b815831290bb2e9b32001619217e42b5c72c0ca7fb862045c5dc366365de5be2",
             ),
         ),
-        driver_artifacts=(SQLITE_JDBC,),
+        driver_artifacts=(SQLITE_JDBC, *S3A_35),
+        hadoop=HADOOP_35,
+        sdk_probe_class=SDK_PROBE_35,
     ),
     # Scala 2.13 builds; Delta 4.1.0 is compiled against Spark 4.1.0.
     "4.1": Bundle(
         key="4.1",
         line="4.1",
-        revision=3,
+        revision=4,
         formats=("delta", "iceberg", "hudi"),
         pip=("delta-spark==4.1.0",),
         artifacts=(
@@ -149,7 +173,9 @@ MATRIX: dict[str, Bundle] = {
                 "dd4cfcc5994fa4889b98b4c07716db0a46a894d31b714e7a6e6579b89e683bb5",
             ),
         ),
-        driver_artifacts=(SQLITE_JDBC,),
+        driver_artifacts=(SQLITE_JDBC, *S3A_41),
+        hadoop=HADOOP_41,
+        sdk_probe_class=SDK_PROBE_41,
     ),
 }
 
@@ -212,6 +238,8 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
         f"spark.sql.catalog.iceberg.uri {catalog_uri(home)}",
         f"spark.sql.catalog.iceberg.warehouse {home / WAREHOUSE_DIR / 'iceberg'}",
         "spark.sql.catalog.iceberg.jdbc.schema-version V1",
+        # Data files go through Hadoop's FileSystem (local and `s3a://`); the default S3FileIO would need the SDK's own wiring.
+        "spark.sql.catalog.iceberg.io-impl org.apache.iceberg.hadoop.HadoopFileIO",
         # The backend creates the Iceberg tables; the catalog's own init pins a read snapshot in its
         # pooled SQLite connection and breaks the next commit after any external write (BUSY_SNAPSHOT).
         "spark.sql.catalog.iceberg.jdbc.init-catalog-tables false",
