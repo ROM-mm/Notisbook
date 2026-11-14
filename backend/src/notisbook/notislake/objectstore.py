@@ -34,6 +34,9 @@ REDIRECT_REFUSED = "redirect_refused"
 BUCKET_MISSING = "bucket_missing"
 INVALID_TOKEN = "invalid_continuation_token"
 UPSTREAM_ERROR = "upstream_error"
+OBJECT_MISSING = "object_missing"
+ALREADY_EXISTS = "already_exists"
+TOO_LARGE = "too_large"
 
 _MESSAGES = {
     AUTH_FAILED: "o destino S3 recusou as credenciais",
@@ -43,6 +46,9 @@ _MESSAGES = {
     BUCKET_MISSING: f"o bucket '{BUCKET}' não existe no destino S3",
     INVALID_TOKEN: "token de continuação inválido",
     UPSTREAM_ERROR: "o destino S3 respondeu com erro",
+    OBJECT_MISSING: "o objeto não existe no destino S3",
+    ALREADY_EXISTS: "o objeto já existe no destino S3",
+    TOO_LARGE: "o objeto excede o limite de leitura",
 }
 _AUTH_CODES = frozenset(
     {
@@ -63,6 +69,11 @@ _BUCKET_MISSING_CODES = frozenset({"NoSuchBucket", "404"})
 # O MinIO responde 501 NotImplemented a um ContinuationToken que ele não reconhece.
 _TOKEN_CODES = frozenset({"InvalidArgument", "InvalidContinuationToken", "NotImplemented"})
 _TOKEN_STATUSES = frozenset({400, 501})
+_OBJECT_MISSING_CODES = frozenset({"NoSuchKey"})
+# 412 quando a chave existe; 409 quando outra gravação condicional concorre pela mesma chave.
+_EXISTS_CODES = frozenset({"PreconditionFailed", "ConditionalRequestConflict"})
+_EXISTS_STATUSES = frozenset({409, 412})
+_PUT_RETRIES = 0  # um retry após timeout com sucesso no servidor viraria um falso "já existe"
 
 
 class Unavailable(Exception):
@@ -239,6 +250,66 @@ def probe(connection: Connection) -> None:
         make_client(connection, retries=_PROBE_RETRIES).head_bucket(Bucket=BUCKET)
     except _upstream_errors() as exc:
         raise _classify(exc) from None
+
+
+def get_bounded(connection: Connection, key: str, *, max_bytes: int) -> bytes:
+    """Conteúdo de `key` com no máximo `max_bytes`; `OBJECT_MISSING` se não existe, `TOO_LARGE` se excede."""
+    _check_key(key)
+    if max_bytes < 0:
+        raise ValueError("max_bytes deve ser >= 0")
+    try:
+        response = make_client(connection).get_object(Bucket=BUCKET, Key=key)
+        body = response["Body"]
+        try:
+            declared = response.get("ContentLength")
+            if declared is not None and int(declared) > max_bytes:
+                raise ObjectStoreError(TOO_LARGE)
+            data = body.read(max_bytes + 1)
+        finally:
+            body.close()
+    except _upstream_errors() as exc:
+        raise _classify_object(exc) from None
+    if len(data) > max_bytes:
+        raise ObjectStoreError(TOO_LARGE)
+    return data
+
+
+def put_exclusive(connection: Connection, key: str, body: bytes) -> None:
+    """Grava `key` só se ela não existir (`IfNoneMatch="*"`); se existir levanta `ObjectStoreError(ALREADY_EXISTS)`."""
+    _check_key(key)
+    try:
+        make_client(connection, retries=_PUT_RETRIES).put_object(Bucket=BUCKET, Key=key, Body=body, IfNoneMatch="*")
+    except _upstream_errors() as exc:
+        raise _classify_object(exc, exclusive=True) from None
+
+
+def delete_key(connection: Connection, key: str) -> None:
+    """Remove um único objeto; é idempotente (chave ausente não é erro). Não há exclusão por prefixo."""
+    _check_key(key)
+    try:
+        make_client(connection).delete_object(Bucket=BUCKET, Key=key)
+    except _upstream_errors() as exc:
+        raise _classify_object(exc) from None
+
+
+def _check_key(key: str) -> None:
+    """Recusa chave vazia, com `/` inicial ou final e segmentos vazios, `.` ou `..` (nunca um prefixo)."""
+    if not key or any(part in ("", ".", "..") for part in key.split("/")):
+        raise ValueError("chave de objeto inválida")
+
+
+def _classify_object(exc: Exception, *, exclusive: bool = False) -> ObjectStoreError:
+    """Como `_classify`, mas distingue chave ausente e, com `exclusive`, gravação recusada por 409/412."""
+    from botocore.exceptions import ClientError
+
+    if isinstance(exc, ClientError):
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        status = int(exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) or 0)
+        if code in _OBJECT_MISSING_CODES:
+            return ObjectStoreError(OBJECT_MISSING)
+        if exclusive and (code in _EXISTS_CODES or status in _EXISTS_STATUSES):
+            return ObjectStoreError(ALREADY_EXISTS)
+    return _classify(exc)
 
 
 def _upstream_errors() -> tuple[type[Exception], ...]:
