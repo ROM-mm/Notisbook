@@ -18,6 +18,7 @@ With `transport: "http"` (Docker runtime) the registry is read and written throu
 import hashlib
 import inspect
 import json
+from collections.abc import Mapping
 
 from ..catalog.managed import managed_table_dir
 from ..catalog.registry import apply_plan, read_snapshot
@@ -45,6 +46,9 @@ WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session")
 SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
+S3A = CONFIG.get("s3a") or {}
+S3A_PREFIX = "fs.s3a.bucket.notislake."
+S3A_ROOT = "s3a://notislake/"
 HTTP_TIMEOUT = 8.0
 HTTP_PAUSE = 30.0
 HTTP_MAX_BYTES = 32 * 1024 * 1024
@@ -528,11 +532,54 @@ def set_iceberg_token(session):
         guarded("iceberg-token", session.conf.set, "spark.sql.catalog.iceberg.token", TOKEN)
 
 
+def s3a_status(session=None):
+    """`off` without `s3a` in the config, else `pending`, `ok` or `failed` for the session's SparkContext."""
+    if not S3A:
+        return "off"
+    session = session or current_session()
+    if session is None:
+        return "pending"
+    return STATE.get("s3a_status", {}).get(session_key(session), "pending")
+
+
+def set_s3a(session):
+    """Write the S3A options of the `notislake` bucket in the Hadoop conf, once per SparkContext.
+
+    Runs after the original `getOrCreate`: through the builder `.config()` the secret would become a
+    `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystem of the bucket is closed
+    so the new credentials apply. The warning is fixed text: Hadoop messages may echo the key.
+    """
+    if not S3A:
+        return
+    skey = session_key(session)
+    done = STATE.setdefault("s3a_done", set())
+    if skey in done:
+        return
+    done.add(skey)
+    status = "ok"
+    try:
+        if not all(key.startswith(S3A_PREFIX) for key in S3A):
+            raise ValueError("unexpected S3A key")
+        sc = session.sparkContext
+        hadoop_conf = sc._jsc.hadoopConfiguration()
+        for key, value in S3A.items():
+            hadoop_conf.set(key, str(value))
+        jvm = sc._jvm
+        jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI.create(S3A_ROOT), hadoop_conf).close()
+    except Exception as exc:
+        status = "failed"
+        STATE.setdefault("errors", []).append("s3a: %s" % type(exc).__name__)
+        del STATE["errors"][:-MAX_ERRORS]
+        warn(("s3a", skey), "S3A setup failed; s3a://notislake/ may be unavailable in this session.")
+    STATE.setdefault("s3a_status", {})[skey] = status
+
+
 def attach(session):
     if getattr(session, "_jsparkSession", None) is None:
         return
     # Sessions made by `SparkSession(sc)` or `newSession()` never pass through getOrCreate.
     set_iceberg_token(session)
+    guarded("s3a", set_s3a, session)
     skey = session_key(session)
     if skey in STATE.setdefault("attached", set()) or skey in STATE.setdefault("off", set()):
         return
@@ -859,7 +906,8 @@ def wrap_stop(original):
             if getattr(self, "_jsparkSession", None) is not None:
                 reconcile(self, None)
                 STATE.get("attached", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones"):
+                STATE.get("s3a_done", set()).discard(session_key(self))
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
@@ -995,25 +1043,37 @@ def _render(config: dict[str, object]) -> str:
     return f"exec({ensure!r}, {{}})"
 
 
-def build_ensure_code(db_path: str, managed_root: str, iceberg_warehouse: str) -> str:
+def _with_s3a(config: dict[str, object], s3a: Mapping[str, str] | None) -> dict[str, object]:
+    """Add the resolved `fs.s3a.bucket.notislake.*` options to the config; the secret lives only in the snippet literal."""
+    return {**config, "s3a": dict(s3a)} if s3a else config
+
+
+def build_ensure_code(
+    db_path: str, managed_root: str, iceberg_warehouse: str, s3a: Mapping[str, str] | None = None
+) -> str:
     """Return the idempotent snippet that installs the catalog hook with the given paths (SQLite transport)."""
-    return _render({"db_path": db_path, "managed_root": managed_root, "iceberg_warehouse": iceberg_warehouse})
+    config = {"db_path": db_path, "managed_root": managed_root, "iceberg_warehouse": iceberg_warehouse}
+    return _render(_with_s3a(config, s3a))
 
 
 def build_http_ensure_code(
-    base_url: str, token: str, managed_root: str, iceberg_warehouse: str, roots: tuple[str, ...]
+    base_url: str,
+    token: str,
+    managed_root: str,
+    iceberg_warehouse: str,
+    roots: tuple[str, ...],
+    s3a: Mapping[str, str] | None = None,
 ) -> str:
     """Snippet for the Docker runtime: the hook talks to the backend API with the session token, never to SQLite.
 
     The token travels only in the JSON literal of this code (not in env vars nor in the Spark submit args).
     """
-    return _render(
-        {
-            "transport": "http",
-            "base_url": base_url,
-            "token": token,
-            "managed_root": managed_root,
-            "iceberg_warehouse": iceberg_warehouse,
-            "roots": list(roots),
-        }
-    )
+    config = {
+        "transport": "http",
+        "base_url": base_url,
+        "token": token,
+        "managed_root": managed_root,
+        "iceberg_warehouse": iceberg_warehouse,
+        "roots": list(roots),
+    }
+    return _render(_with_s3a(config, s3a))
