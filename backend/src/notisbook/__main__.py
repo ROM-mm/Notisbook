@@ -97,9 +97,9 @@ def _start_notislake(supervisor: NotislakeSupervisor, sock: socket.socket) -> No
     try:
         supervisor.start()
     except StartError as exc:
-        # Sem `stop()`: o supervisor já encerrou o que subiu e, em `locked`, o pidfile e a trava são de outro Notisbook.
         sock.close()
         print(f"Notisbook: {exc}", file=sys.stderr)
+        _stop_notislake(supervisor)
         sys.exit(1)
     except KeyboardInterrupt:
         sock.close()

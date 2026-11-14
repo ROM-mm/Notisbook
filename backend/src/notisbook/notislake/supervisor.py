@@ -550,6 +550,9 @@ class NotislakeSupervisor:
             _say(f"não foi possível gravar o pidfile do MinIO ({type(exc).__name__}); órfãos serão achados por varredura.")
 
     def _remove_pidfile(self) -> None:
+        """Remove o pidfile só se esta instância detém o flock; sem ele o arquivo é de outro Notisbook."""
+        if self._lock_fd is None:
+            return
         self._paths.pidfile.unlink(missing_ok=True)
 
     # ---- monitor -----------------------------------------------------------------------------
