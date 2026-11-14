@@ -6,7 +6,8 @@ hydrates the session from the `nb_*` registry inside `getOrCreate`, reconciles c
 renames and drops after every cell (`post_run_cell`) and picks up other kernels' writes before a
 cell (`pre_run_cell`, by `nb_meta.generation`). Only Delta/Parquet/Hudi tables of `spark_catalog` are
 registered (Hudi advances are detected by the latest completed timeline instant); the backend owns
-the schema and Iceberg lives in its own JDBC catalog.
+the schema and Iceberg lives in its own JDBC catalog. `s3a://notislake/...` tables are probed through the
+session's Hadoop FileSystem, bounded by a timeout and a 30 s circuit breaker (see `s3a_call`).
 
 The config reaches the kernel as JSON literals (the kernel reads no env vars). Hook errors never
 reach the user's cell: they are kept in `STATE["errors"]` and warned once, briefly, on stderr.
@@ -22,12 +23,13 @@ from collections.abc import Mapping
 
 from ..catalog.managed import managed_table_dir
 from ..catalog.registry import apply_plan, read_snapshot
+from ..notislake import locations as notislake_locations
 
 MODULE_NAME = "_notisbook_catalog"
 
-# Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__ and __MANAGED_HELPERS__.
+# Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__, __MANAGED_HELPERS__ and __LOCATIONS_SOURCE__.
 _KERNEL_TEMPLATE = r'''
-import functools, importlib.abc, importlib.util, json, os, re, shutil, sqlite3, sys, time
+import functools, importlib.abc, importlib.util, json, os, re, shutil, sqlite3, sys, threading, time, types
 import urllib.error, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +51,9 @@ ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
 S3A_PREFIX = "fs.s3a.bucket.notislake."
 S3A_ROOT = "s3a://notislake/"
+S3A_SCHEME = "s3a://"
+S3A_PROBE_TIMEOUT = 5.0  # one JVM call; the cell hooks (before + after) stay well under 15 s with MinIO down
+S3A_PAUSE = 30.0  # circuit breaker: s3a probes stay suspended this long after a failure
 HTTP_TIMEOUT = 8.0
 HTTP_PAUSE = 30.0
 HTTP_MAX_BYTES = 32 * 1024 * 1024
@@ -58,6 +63,8 @@ REJECTED = {
     "location_in_iceberg_warehouse": "its location is inside the Iceberg warehouse",
     "location_not_local": "its location is not a local folder",
     "managed_location_rejected": "its managed location is not in the Spark warehouse",
+    "location_not_notislake": "its s3a location is not s3a://notislake/<layer>/<dataset>",
+    "location_in_iceberg_prefix": "its location is inside the Iceberg prefix of the notislake bucket",
     "item_limits": "its name, schema or description exceeds the allowed limits",
 }
 DEFAULT_DB = "default"
@@ -74,6 +81,20 @@ OUTDATED = "This Spark environment predates the persistent catalog; reinstall Sp
 MAX_ERRORS = 50
 STATE = {}
 BUSY = set()
+
+
+def _load_locations():
+    # Same source as `notislake/locations.py` (one rule set). `@dataclass` looks its module up in `sys.modules`, so it is there only while the source runs.
+    module = types.ModuleType("_notisbook_locations")
+    sys.modules[module.__name__] = module
+    try:
+        exec(__LOCATIONS_SOURCE__, module.__dict__)
+    finally:
+        sys.modules.pop(module.__name__, None)
+    return module
+
+
+LOCATIONS = _load_locations()
 
 
 def warn(key, message):
@@ -103,6 +124,8 @@ def guarded(where, fn, *args):
     # A hook failure must never surface in the user's cell.
     try:
         return fn(*args)
+    except S3AUnavailable:
+        return None  # already warned once by the breaker; the next cell retries
     except Exception as exc:
         note_error(where, exc)
         return None
@@ -122,14 +145,41 @@ def local_path(location):
     return location if os.path.isabs(location) else None
 
 
+def is_s3a(location):
+    return isinstance(location, str) and location.startswith(S3A_SCHEME)
+
+
+def notislake_uri(location):
+    """Canonical `s3a://notislake/<a>/<b>[/...]` of a valid location, else None."""
+    try:
+        return LOCATIONS.parse_notislake(location).uri
+    except LOCATIONS.InvalidLocation:
+        return None
+
+
+def in_iceberg(location):
+    """True when the location is inside the Iceberg warehouse (local) or the reserved Iceberg prefix of the bucket (s3a)."""
+    if is_s3a(location):
+        return LOCATIONS.is_reserved_iceberg(location)
+    return is_under(location, norm_loc(ICEBERG_WAREHOUSE), fold=True)
+
+
 def norm_loc(location):
     # Same form the backend's Iceberg reader returns (`Path.as_uri()`): one location format in the API.
+    if is_s3a(location):
+        return notislake_uri(location) or location
     path = local_path(location)
     return Path(path).as_uri() if path else location
 
 
+def outside_text(location):
+    return "s3a://notislake/<layer>/<dataset>" if is_s3a(location) else "the folders shared with the runtime"
+
+
 def allowed_location(location):
-    """True unless (http only) the location is not strictly inside a folder shared with the runtime."""
+    """True unless the location is not `s3a://notislake/...`, or (http only) not strictly inside a folder shared with the runtime."""
+    if is_s3a(location):
+        return notislake_uri(location) is not None
     if not ROOTS:
         return True
     path = local_path(location)
@@ -147,7 +197,79 @@ def is_under(location, root, fold=False):
     return loc.startswith(base)
 
 
-def delta_versions(location):
+class S3AUnavailable(Exception):
+    """s3a probes are suspended (circuit breaker open) or the call failed/timed out; callers keep the last known state."""
+
+
+def s3a_trip(session):
+    STATE["s3a_open_until"] = time.monotonic() + S3A_PAUSE
+    # Fixed text: Hadoop messages may echo the endpoint or the key.
+    warn(("s3a-down", session_key(session)), "s3a://notislake/ did not answer; its tables are not checked for %d s." % S3A_PAUSE)
+
+
+def s3a_call(session, fn):
+    """Run `fn(fs_for)` (JVM calls on the session's Hadoop FileSystem) bounded by `S3A_PROBE_TIMEOUT`; raises S3AUnavailable.
+
+    A Hadoop call to a dead endpoint retries for minutes and py4j cannot interrupt it, so it runs in a daemon
+    thread that is abandoned on timeout. Any failure opens the breaker (no probe for `S3A_PAUSE`, one warning).
+    A missing path is not a failure: `fn` reports it by its return value (`exists` is False, not an exception).
+    """
+    if time.monotonic() < STATE.get("s3a_open_until", 0.0):
+        raise S3AUnavailable()
+    sc = session.sparkContext
+    box = {}
+
+    def run():
+        try:
+            jvm, conf = sc._jvm, sc._jsc.hadoopConfiguration()
+
+            def open_path(uri):
+                path = jvm.org.apache.hadoop.fs.Path(uri)
+                return path, path.getFileSystem(conf)
+            box["value"] = fn(open_path)
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=run, name="notisbook-s3a-probe", daemon=True)
+    thread.start()
+    thread.join(S3A_PROBE_TIMEOUT)
+    if thread.is_alive() or "error" in box:
+        s3a_trip(session)
+        raise S3AUnavailable()
+    STATE["s3a_open_until"] = 0.0
+    return box["value"]
+
+
+def s3a_names(session, location, sub=""):
+    """Entry names of `<location>/<sub>` in the bucket; None when the folder does not exist."""
+    base = notislake_uri(location) if session is not None else None
+    if base is None:
+        raise S3AUnavailable()
+    target = base + "/" + sub if sub else base
+
+    def listing(open_path):
+        path, fs = open_path(target)
+        if not fs.exists(path):
+            return None
+        return [status.getPath().getName() for status in fs.listStatus(path)]
+    return s3a_call(session, listing)
+
+
+def s3a_exists(session, location, sub=""):
+    base = notislake_uri(location) if session is not None else None
+    if base is None:
+        raise S3AUnavailable()
+    target = base + "/" + sub if sub else base
+
+    def check(open_path):
+        path, fs = open_path(target)
+        return bool(fs.exists(path))
+    return s3a_call(session, check)
+
+
+def delta_versions(location, session=None):
+    if is_s3a(location):
+        return [int(m.group(1)) for m in map(LOG_RE.match, s3a_names(session, location, "_delta_log") or []) if m]
     base = local_path(location)
     if not base:
         return []
@@ -158,12 +280,16 @@ def delta_versions(location):
     return [int(m.group(1)) for m in map(LOG_RE.match, names) if m]
 
 
-def delta_version(location):
-    versions = delta_versions(location)
+def delta_version(location, session=None):
+    versions = delta_versions(location, session)
     return max(versions) if versions else None
 
 
-def delta_advanced(location, version):
+def delta_advanced(location, version, session=None):
+    if is_s3a(location):
+        if version is None:
+            return delta_version(location, session) is not None
+        return s3a_exists(session, location, "_delta_log/%020d.json" % (version + 1))
     base = local_path(location)
     if not base:
         return False
@@ -172,13 +298,24 @@ def delta_advanced(location, version):
     return os.path.exists(os.path.join(base, "_delta_log", "%020d.json" % (version + 1)))
 
 
-def hudi_instant(location):
+def hudi_instant(location, session=None):
     """Marker of the latest completed Hudi instant, or None (`.requested`/`.inflight` and dotfiles never match).
 
     Layout v2 (`.hoodie/timeline/<req>_<comp>.<action>`): ordered by completion time, so a commit that finishes
     out of order still moves the marker; returns `<req>_<comp>`. Layout v1 (no `timeline/` folder, Hudi 0.x):
     `.hoodie/<ts>.<action>`, returns `<ts>`.
     """
+    if is_s3a(location):
+        names = s3a_names(session, location, ".hoodie/timeline")
+        if names is None:
+            names = s3a_names(session, location, ".hoodie")
+            legacy = [m.group(1) for m in map(HUDI_V1_INSTANT_RE.match, names or []) if m]
+            return max(legacy, key=int) if legacy else None
+        done = [m.groups() for m in map(HUDI_INSTANT_RE.match, names) if m]
+        if not done:
+            return None
+        req, comp = max(done, key=lambda g: (int(g[1]), int(g[0])))
+        return "%s_%s" % (req, comp)
     base = local_path(location)
     if not base:
         return None
@@ -460,17 +597,26 @@ def describe_new(session, key, table):
         warn(("format", skey, key), "table %s uses format '%s'; it is not saved in the persistent catalog." % (label, info["provider"]))
         return None
     loc = norm_loc(info["location"])
-    if is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True):
+    if in_iceberg(loc):
         warn(("warehouse", skey, key), "table %s is inside the Iceberg warehouse; it is not saved in the persistent catalog." % label)
         return None
     if not allowed_location(loc):
-        warn(("outside", skey, key), "table %s is outside the folders shared with the runtime; it is not saved in the persistent catalog." % label)
+        warn(("outside", skey, key), "table %s is outside %s; it is not saved in the persistent catalog." % (label, outside_text(loc)))
         return None
     fmt = info["provider"]
     parts = [c["name"] for c in info["columns"] if c["is_partition"]]
     return {"fmt": fmt, "loc": loc, "type": table.tableType, "cols": info["columns"], "parts": parts,
-            "dv": delta_version(loc) if fmt == "delta" else None,
-            "hi": hudi_instant(loc) if fmt == "hudi" else None, "description": table.description}
+            "dv": delta_version(loc, session) if fmt == "delta" else None,
+            "hi": hudi_instant(loc, session) if fmt == "hudi" else None, "description": table.description}
+
+
+def s3a_reachable(session, location):
+    """True when the bucket answers; the Spark reads that follow (schema, `DESCRIBE`) have no timeout of their own."""
+    try:
+        s3a_exists(session, location)
+    except S3AUnavailable:
+        return False
+    return True
 
 
 def hydrate(session, skey, rows, namespaces, listing=None):
@@ -493,6 +639,15 @@ def hydrate(session, skey, rows, namespaces, listing=None):
         if path is not None and not os.path.exists(path):
             skipped.append(key)
             continue
+        if is_s3a(row["loc"]):
+            try:
+                present = s3a_exists(session, row["loc"])
+            except S3AUnavailable:
+                STATE["resync"] = True  # not a final verdict (and no second warning): look again once the breaker reopens
+                continue
+            if not present:
+                skipped.append(key)
+                continue
         try:
             session.catalog.createTable(ident(*key), path=path or row["loc"], source=row["fmt"])
             if row["parts"] and row["fmt"] == "parquet":
@@ -591,7 +746,7 @@ def attach(session):
         warn(("outdated", skey), OUTDATED % session.version)
     gen, rows, namespaces = read_registry()
     refresh = hydrate(session, skey, rows, namespaces | {k[0] for k in rows})
-    STATE["gen"] = gen
+    STATE["gen"] = None if STATE.pop("resync", False) else gen
     STATE["attached"].add(skey)
     guarded("refresh", refresh_hydrated, session, skey, refresh)
 
@@ -635,6 +790,18 @@ def drop_removed_db(session, ns, session_dbs, known_dbs, tombstones):
     known_dbs.discard(ns)
 
 
+def files_exist(session, location):
+    """True when the table's files exist (local folder, or s3a objects); an unreachable bucket counts as existing, so nothing is dropped blindly."""
+    if is_s3a(location):
+        try:
+            return s3a_exists(session, location)
+        except S3AUnavailable:
+            STATE["resync"] = True
+            return True
+    path = local_path(location)
+    return bool(path and os.path.exists(path))
+
+
 def sync_registry(session, skey):
     """Before a cell: bring in what other kernels registered or dropped since the last look."""
     if current_generation() == STATE.get("gen"):
@@ -647,8 +814,7 @@ def sync_registry(session, skey):
         if key in rows:
             continue
         # A table this session created as MANAGED would take its files with it on DROP: keep it while they exist.
-        path = local_path(rec["loc"])
-        if not (rec.get("sess_managed") and path and os.path.exists(path)):
+        if not (rec.get("sess_managed") and files_exist(session, rec["loc"])):
             try:
                 session.sql("DROP TABLE IF EXISTS " + ident(*key))
             except Exception:
@@ -661,7 +827,7 @@ def sync_registry(session, skey):
     for ns in sorted(known_dbs - all_ns - tombstones):
         drop_removed_db(session, ns, listing[0], known_dbs, tombstones)
     refresh = hydrate(session, skey, rows, all_ns, listing)
-    STATE["gen"] = gen
+    STATE["gen"] = None if STATE.pop("resync", False) else gen
     guarded("refresh", refresh_hydrated, session, skey, refresh)
 
 
@@ -671,9 +837,19 @@ LEAVE = "leave"
 def refresh_table(session, key, rec, deep):
     """Changed fields of a known table, None, or LEAVE. `deep` rereads location/format/schema from Spark.
 
-    LEAVE: the location moved into the Iceberg warehouse or out of the shared folders; the caller unregisters
-    the table (warned once) so no session rehydrates the old path.
+    LEAVE: the location moved into the Iceberg warehouse/prefix or out of the allowed places; the caller
+    unregisters the table (warned once) so no session rehydrates the old path. While s3a probes are
+    suspended the table keeps its last known state (None).
     """
+    try:
+        if deep and is_s3a(rec["loc"]) and not s3a_reachable(session, rec["loc"]):
+            return None
+        return probe_table(session, key, rec, deep)
+    except S3AUnavailable:
+        return None
+
+
+def probe_table(session, key, rec, deep):
     fmt, loc, cols, parts, dv = rec["fmt"], rec["loc"], rec["cols"], rec["parts"], rec["dv"]
     hi = rec.get("hi")  # absent in records carried over from a hook version that predates Hudi
     if deep:
@@ -681,21 +857,21 @@ def refresh_table(session, key, rec, deep):
         if info["provider"] in SUPPORTED:
             fmt, loc, cols = info["provider"], norm_loc(info["location"]), info["columns"]
             parts = [c["name"] for c in cols if c["is_partition"]]
-    if fmt == "delta" and (deep or delta_advanced(loc, dv)):
+    if fmt == "delta" and (deep or delta_advanced(loc, dv, session)):
         cols = table_columns(session, key, parts)
-        dv = delta_version(loc)
-    cur = hudi_instant(loc) if fmt == "hudi" else None  # read before the schema: a commit in between is seen next time
+        dv = delta_version(loc, session)
+    cur = hudi_instant(loc, session) if fmt == "hudi" else None  # read before the schema: a commit in between is seen next time
     if fmt == "hudi" and (deep or cur != hi):
         cols = table_columns(session, key, parts)
         hi = cur
     new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
     if loc != rec["loc"]:
         skey, label = session_key(session), "%s.%s" % key
-        if is_under(loc, norm_loc(ICEBERG_WAREHOUSE), fold=True):
+        if in_iceberg(loc):
             warn(("warehouse", skey, key), "table %s moved into the Iceberg warehouse; it is no longer saved in the persistent catalog." % label)
             return LEAVE
         if not allowed_location(loc):
-            warn(("outside", skey, key), "table %s moved outside the folders shared with the runtime; it is no longer saved in the persistent catalog." % label)
+            warn(("outside", skey, key), "table %s moved outside %s; it is no longer saved in the persistent catalog." % (label, outside_text(loc)))
             return LEAVE
     return None if all(new[f] == rec.get(f) for f in new) else new
 
@@ -865,7 +1041,10 @@ def reconcile(session, raw_cell):
             elif change:
                 updated.append((key, change))
         elif key not in ignored:
-            info = describe_new(session, key, table)
+            try:
+                info = describe_new(session, key, table)
+            except S3AUnavailable:
+                continue  # undecided, not rejected: seen again in the next cell
             if info is None:
                 ignored.add(key)
             else:
@@ -1028,10 +1207,12 @@ mod.register()
 
 
 def _render(config: dict[str, object]) -> str:
+    locations_source = inspect.getsource(notislake_locations)
     helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, apply_plan))
     source = (
         _KERNEL_TEMPLATE.replace("__MANAGED_HELPERS__", inspect.getsource(managed_table_dir).rstrip())
         .replace("__REGISTRY_HELPERS__", helpers)
+        .replace("__LOCATIONS_SOURCE__", repr(locations_source))
         .replace("__CONFIG__", repr(json.dumps(config)))
     )
     version = hashlib.sha1(source.encode()).hexdigest()[:12]
