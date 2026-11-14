@@ -73,7 +73,7 @@ def ensure_layout(port: int, credentials: Credentials) -> None:
         read_timeout=10,
         retries={"max_attempts": 3, "mode": "standard"},
     )
-    client = boto3.client(
+    client = boto3.session.Session().client(
         "s3",
         endpoint_url=f"http://{LOOPBACK}:{port}",
         aws_access_key_id=credentials.user,

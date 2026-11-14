@@ -211,7 +211,6 @@ class NotislakeSupervisor:
     def home(self) -> Path:
         return self._home
 
-    # ---- API pública -------------------------------------------------------------------------
 
     def start(self) -> None:
         """Sobe o MinIO e só retorna em `running`; levanta `StartError` (estado fica `failed`).
@@ -233,7 +232,7 @@ class NotislakeSupervisor:
             exc = StartError("start_failed", "subida interrompida por stop()")
             self._fail(exc)
             raise exc from None
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             self._fail(StartError("internal"))
             raise StartError("internal", f"erro interno ao subir o MinIO ({type(exc).__name__})") from None
         self._spawn_thread(self._monitor, proc)
@@ -292,7 +291,6 @@ class NotislakeSupervisor:
         self._spawn_thread(self._retry_main)
         return True
 
-    # ---- estado ------------------------------------------------------------------------------
 
     def _force_state(self, state: State) -> None:
         with self._lock:
@@ -327,7 +325,6 @@ class NotislakeSupervisor:
             self._thread = thread
         thread.start()
 
-    # ---- subida ------------------------------------------------------------------------------
 
     def _bring_up(self) -> tuple[subprocess.Popen, tuple[int, int]]:
         """Prepara pastas, trava, encerra órfãos, instala o binário e sobe o MinIO até a prontidão."""
@@ -398,7 +395,6 @@ class NotislakeSupervisor:
         except OSError as exc:
             raise StartError("io_error", f"falha ao instalar o binário ({exc.strerror})") from None
 
-    # ---- órfãos ------------------------------------------------------------------------------
 
     def _reap_orphans(self) -> None:
         victims: dict[int, psutil.Process] = {}
@@ -448,7 +444,6 @@ class NotislakeSupervisor:
         if alive:
             raise StartError("orphan", f"não foi possível encerrar o MinIO órfão (pid {proc.pid})")
 
-    # ---- spawn -------------------------------------------------------------------------------
 
     def _launch(self, preferred: tuple[int, int] | None) -> tuple[subprocess.Popen, tuple[int, int]]:
         """Sobe o processo e espera a prontidão; repete com portas novas se alguém tomou as escolhidas."""
@@ -457,7 +452,7 @@ class NotislakeSupervisor:
             proc = self._spawn(ports)
             ok = False
             try:
-                alive = lambda p=proc: p.poll() is None and not self._stop_event.is_set()  # noqa: E731
+                alive = lambda p=proc: p.poll() is None and not self._stop_event.is_set()
                 if wait_ready(ports[0], READY_TIMEOUT_S, is_alive=alive):
                     self._ensure_layout(ports[0])
                     ok = True
@@ -555,7 +550,6 @@ class NotislakeSupervisor:
             return
         self._paths.pidfile.unlink(missing_ok=True)
 
-    # ---- monitor -----------------------------------------------------------------------------
 
     def _retry_main(self) -> None:
         try:
@@ -567,7 +561,7 @@ class NotislakeSupervisor:
             _say(f"nova tentativa do MinIO falhou: {exc}")
             self._fail(exc)
             return
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _say(f"erro interno ao tentar subir o MinIO ({type(exc).__name__}).")
             self._fail(StartError("internal"))
             return
@@ -579,7 +573,7 @@ class NotislakeSupervisor:
             self._watch(proc)
         except _StopRequested:
             return
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             _say(f"erro interno no monitor do MinIO ({type(exc).__name__}).")
             self._fail(StartError("internal"))
 

@@ -175,7 +175,7 @@ def _build_client(connection: Connection, retries: int) -> Any:
         retries={"max_attempts": retries, "mode": "standard"},
         **options,
     )
-    client = boto3.client(
+    client = boto3.session.Session().client(
         "s3",
         endpoint_url=connection.endpoint,
         aws_access_key_id=connection.access_key,
