@@ -153,6 +153,16 @@ def resolve(home: Path, supervisor: _Supervisor) -> Connection:
     )
 
 
+class _NoSupervisor:
+    def connection(self) -> None:
+        return None
+
+
+def resolve_from_app(home: Path, supervisor: _Supervisor | None) -> Connection:
+    """`resolve` para quem pode estar sem supervisor (app embutido, testes): só a conexão manual vale."""
+    return resolve(home, supervisor if supervisor is not None else _NoSupervisor())
+
+
 _cache_lock = threading.Lock()
 _cache: tuple[tuple[Connection, int], Any] | None = None
 

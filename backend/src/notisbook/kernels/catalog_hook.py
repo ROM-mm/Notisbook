@@ -211,10 +211,15 @@ def s3a_call(session, fn):
     """Run `fn(fs_for)` (JVM calls on the session's Hadoop FileSystem) bounded by `S3A_PROBE_TIMEOUT`; raises S3AUnavailable.
 
     A Hadoop call to a dead endpoint retries for minutes and py4j cannot interrupt it, so it runs in a daemon
-    thread that is abandoned on timeout. Any failure opens the breaker (no probe for `S3A_PAUSE`, one warning).
+    thread that is abandoned on timeout; while that thread lives no other probe starts (they would pile up).
+    Any failure opens the breaker (no probe for `S3A_PAUSE`, one warning).
     A missing path is not a failure: `fn` reports it by its return value (`exists` is False, not an exception).
     """
     if time.monotonic() < STATE.get("s3a_open_until", 0.0):
+        raise S3AUnavailable()
+    previous = STATE.get("s3a_probe")
+    if previous is not None and previous.is_alive():
+        s3a_trip(session)
         raise S3AUnavailable()
     sc = session.sparkContext
     box = {}
@@ -231,6 +236,7 @@ def s3a_call(session, fn):
             box["error"] = exc
 
     thread = threading.Thread(target=run, name="notisbook-s3a-probe", daemon=True)
+    STATE["s3a_probe"] = thread
     thread.start()
     thread.join(S3A_PROBE_TIMEOUT)
     if thread.is_alive() or "error" in box:

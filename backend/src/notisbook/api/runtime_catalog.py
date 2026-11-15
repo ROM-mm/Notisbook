@@ -154,7 +154,7 @@ def _s3a_location_error(location: str) -> str | None:
     except notislake_locations.InvalidLocation:
         return "location_not_notislake"
     if notislake_locations.is_reserved_iceberg(location):
-        return "location_in_iceberg_prefix"  # D-G: o prefixo é do Iceberg, como o warehouse local
+        return "location_in_iceberg_prefix"  # o prefixo é do Iceberg, como o warehouse local
     return None
 
 

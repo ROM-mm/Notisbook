@@ -74,18 +74,11 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
         conn.close()
 
 
-class _NoLocalStore:
-    """Substituto quando o app sobe sem supervisor: nunca há MinIO local."""
-
-    def connection(self) -> None:
-        return None
-
-
 def _store_opener(request: Request) -> iceberg_jdbc.StoreOpener:
     """Resolve a conexão do bucket só quando a tabela Iceberg está em `s3a` (o metadata é lido do bucket)."""
     home = _get_home(request)
-    supervisor: Any = getattr(request.app.state, "notislake", None) or _NoLocalStore()
-    return lambda: objectstore.resolve(home, supervisor)
+    supervisor = getattr(request.app.state, "notislake", None)
+    return lambda: objectstore.resolve_from_app(home, supervisor)
 
 
 def _read_columns(
@@ -117,11 +110,13 @@ async def get_catalog(home: Home) -> dict[str, Any]:
 
 @router.get("/columns")
 async def get_columns(request: Request, home: Home, catalog: Name, database: Name, table: Name) -> list[dict[str, Any]]:
-    """Colunas de uma tabela; 404 se inexistente, 409 se o formato do catálogo ou do metadata não for legível."""
+    """Colunas de uma tabela; 404 se inexistente, 409 se o formato do catálogo ou do metadata não for legível, 503 se o bucket estiver fora do ar."""
     try:
         columns = await asyncio.to_thread(_read_columns, home, catalog, database, table, _store_opener(request))
     except iceberg_jdbc.UnsupportedIcebergSchema as exc:
         raise HTTPException(409, iceberg_jdbc.ERR_UNSUPPORTED) from exc
+    except iceberg_jdbc.MetadataStoreUnavailable as exc:
+        raise HTTPException(503, "Object store unavailable") from exc
     except iceberg_jdbc.IcebergMetadataError as exc:
         raise HTTPException(409, "Table metadata unavailable") from exc
     except sqlite3.Error as exc:

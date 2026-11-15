@@ -215,17 +215,10 @@ def _is_s3a(location: str) -> bool:
     return location.startswith(S3A_PREFIX)
 
 
-class _NoLocalStore:
-    """Substituto quando o app sobe sem supervisor: nunca há MinIO local."""
-
-    def connection(self) -> None:
-        return None
-
-
 class _Store:
     """Conexão do bucket notislake numa requisição; só é resolvida quando uma tabela `s3a` é tocada.
 
-    `opener` serve a leitura de metadata. A gravação só vale com a conexão com que o kernel abriu (D-D).
+    `opener` serve a leitura de metadata. A gravação só vale com a conexão com que o kernel abriu.
     """
 
     def __init__(self, grant: RuntimeGrant, opener: iceberg_jdbc.StoreOpener) -> None:
@@ -254,8 +247,8 @@ class _Store:
 
 def _store(request: Request, grant: RuntimeGrant) -> _Store:
     home = _home(request)
-    supervisor: Any = getattr(request.app.state, "notislake", None) or _NoLocalStore()
-    return _Store(grant, lambda: objectstore.resolve(home, supervisor))
+    supervisor = getattr(request.app.state, "notislake", None)
+    return _Store(grant, lambda: objectstore.resolve_from_app(home, supervisor))
 
 
 def _run_read[T](home: Path, func: Callable[[sqlite3.Connection, bool], T]) -> T:
@@ -371,6 +364,8 @@ def _load_table(
             metadata = _read_raw_metadata(location, grant, store)
         except iceberg_jdbc.MetadataOutsideRoot:
             raise _outside_mounts() from None
+        except iceberg_jdbc.MetadataStoreUnavailable:
+            raise _unavailable("O armazenamento notislake está indisponível", False) from None
         except iceberg_jdbc.IcebergMetadataError:
             raise IcebergError(500, "ServiceFailureException", "Não foi possível ler o metadata da tabela") from None
         return {"metadata-location": location, "metadata": _guard_external(grant, location, metadata), "config": {}}
@@ -533,7 +528,7 @@ def _read_raw_metadata(location: str, grant: RuntimeGrant, store: _Store) -> dic
         locations.parse_notislake(location)
     except locations.InvalidLocation:
         raise iceberg_jdbc.MetadataOutsideRoot("metadata outside the allowed roots") from None
-    return iceberg_jdbc._read_metadata(location, store.opener)  # leitor remoto limitado de iceberg_jdbc, sem equivalente público
+    return iceberg_jdbc.read_metadata(location, store.opener)
 
 
 def _strictly_inside(real: Path, root: str) -> bool:
@@ -773,6 +768,8 @@ def _load_current(location: str, grant: RuntimeGrant, store: _Store) -> TableMet
         raw = _read_raw_metadata(location, grant, store)
     except iceberg_jdbc.MetadataOutsideRoot:
         raise _outside_mounts() from None
+    except iceberg_jdbc.MetadataStoreUnavailable:
+        raise _unavailable("O armazenamento notislake está indisponível", False) from None
     except iceberg_jdbc.IcebergMetadataError:
         raise IcebergError(422, "UnprocessableEntityException", "Não foi possível ler o metadata da tabela") from None
     try:
@@ -986,7 +983,7 @@ def _drop_table(
             raise _no_such_table()
         if location:
             _require_inside_roots(location, grant)
-        if purge and location and _is_s3a(location):  # D-F: S3 não tem rename; nada de `s3a` é apagado
+        if purge and location and _is_s3a(location):  # S3 não tem rename: nada de `s3a` é apagado
             raise _bad_request("O purge de tabelas em s3a não é suportado: o purge foi recusado e nada foi removido")
         folder = None
         # Tabela externa (metadata fora do warehouse Iceberg): o purge só remove a linha, nunca arquivos.

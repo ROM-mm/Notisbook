@@ -156,13 +156,6 @@ class S3AResolution:
     notice: tuple[str, str] | None = None
 
 
-class _NoLocalMinio:
-    """Supervisor ausente (testes, uso embutido): só a conexão manual pode resolver."""
-
-    def connection(self) -> None:
-        return None
-
-
 class DockerRuntimeError(Exception):
     """O runtime Docker não pode abrir a sessão agora; `status_code` é o HTTP correspondente e a mensagem vai ao operador."""
 
@@ -320,7 +313,7 @@ class KernelSession:
             self.catalog_ensure = self.catalog_factory(token, self._s3a_options)
 
     def refresh_s3a(self) -> tuple[str, str] | None:
-        """Reavalia a conexão S3A para o kernel novo (D-C): indisponível ou inválida reinicia sem S3A, nunca no automático.
+        """Reavalia a conexão S3A para o kernel novo: indisponível ou inválida reinicia sem S3A, nunca no automático.
 
         Atualiza o fingerprint do grant e o snippet local; o snippet Docker sai de `issue_runtime_token`. Devolve o aviso, se houver.
         """
@@ -781,7 +774,7 @@ class KernelService:
         """
         supervisor = self._notislake
         try:
-            conn = objectstore.resolve(self._home, supervisor or _NoLocalMinio())
+            conn = objectstore.resolve_from_app(self._home, supervisor)
         except settings_store.ConfigInvalid:
             if strict:
                 raise

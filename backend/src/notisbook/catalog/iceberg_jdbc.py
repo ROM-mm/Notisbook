@@ -45,6 +45,10 @@ class IcebergMetadataError(Exception):
     """O `metadata.json` da tabela não pôde ser lido ou interpretado."""
 
 
+class MetadataStoreUnavailable(IcebergMetadataError):
+    """O bucket do metadata está fora do ar ou sem configuração válida (distinto de metadata ilegível)."""
+
+
 class MetadataOutsideRoot(IcebergMetadataError):
     """O `metadata_location` aponta para fora das raízes permitidas (ou não é um caminho local)."""
 
@@ -260,7 +264,7 @@ def drop_namespace_rows(conn: sqlite3.Connection, namespace: str) -> None:
 def gc_enabled(metadata_location: str, open_store: StoreOpener | None = None) -> bool | None:
     """`gc.enabled` do metadata atual (padrão true); `None` se o metadata não pôde ser lido."""
     try:
-        props = _read_metadata(metadata_location, open_store).get("properties")
+        props = read_metadata(metadata_location, open_store).get("properties")
     except IcebergMetadataError:
         return None
     if not isinstance(props, dict):
@@ -301,10 +305,11 @@ def _read_remote(location: str, open_store: StoreOpener | None) -> bytes:
     except objectstore.ObjectStoreError as exc:
         raise IcebergMetadataError(exc.code) from None
     except (objectstore.Unavailable, ConfigInvalid):
-        raise IcebergMetadataError("object store unavailable") from None
+        raise MetadataStoreUnavailable("object store unavailable") from None
 
 
-def _read_metadata(location: str, open_store: StoreOpener | None = None) -> dict[str, Any]:
+def read_metadata(location: str, open_store: StoreOpener | None = None) -> dict[str, Any]:
+    """`metadata.json` local ou em `s3a://notislake/...` (lido com teto). Levanta `IcebergMetadataError` ou `MetadataStoreUnavailable`."""
     path = local_path(location)
     if path is None:
         return _parse_metadata(_read_remote(location, open_store))
@@ -394,7 +399,7 @@ def read_columns(
         return None
     if not row[0]:
         raise IcebergMetadataError("table has no metadata location")
-    return _columns_from_metadata(_read_metadata(row[0], open_store))
+    return _columns_from_metadata(read_metadata(row[0], open_store))
 
 
 def location_within_root(location: str, root: str) -> bool:
@@ -419,7 +424,7 @@ def read_metadata_within(location: str, roots: Sequence[str]) -> dict[str, Any]:
     path = local_path(location)
     if path is None or not location_within_roots(location, roots):
         raise MetadataOutsideRoot("metadata outside the allowed roots")
-    return _read_metadata(str(Path(os.path.realpath(path))))
+    return read_metadata(str(Path(os.path.realpath(path))))
 
 
 def list_child_namespaces(conn: sqlite3.Connection, parent: str | None) -> list[str]:

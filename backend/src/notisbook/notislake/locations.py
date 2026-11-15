@@ -11,7 +11,7 @@ from dataclasses import dataclass
 BUCKET = "notislake"
 SCHEME = "s3a"
 MIN_DEPTH = 2  # `<camada>/<dataset>`: a raiz do bucket e uma camada sozinha não são locations de tabela
-RESERVED_ICEBERG_PREFIX = f"{SCHEME}://{BUCKET}/bronze/iceberg/"  # D-G
+RESERVED_ICEBERG_PREFIX = f"{SCHEME}://{BUCKET}/bronze/iceberg/"
 
 _PREFIX = f"{SCHEME}://{BUCKET}/"
 
@@ -70,7 +70,7 @@ def within(child: str, parent: str) -> bool:
 
 
 def is_reserved_iceberg(uri: str) -> bool:
-    """`uri` é válida e é `s3a://notislake/bronze/iceberg` ou está abaixo dele (D-G)."""
+    """`uri` é válida e é `s3a://notislake/bronze/iceberg` ou está abaixo dele."""
     try:
         loc = parse_notislake(uri)
     except InvalidLocation:
