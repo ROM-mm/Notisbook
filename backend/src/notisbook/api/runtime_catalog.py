@@ -2,10 +2,12 @@
 
 O backend é o único escritor do `catalog.db` para o lado Docker. Autenticação por token de runtime da
 sessão (nunca o token da UI) e regra de Host própria. O plano do hook é validado antes de tocar o banco:
-formato, nomes, tamanho e `location` por realpath dentro das pastas montadas na sessão. Corpo malformado
+formato, nomes, tamanho e `location`: local por realpath dentro das pastas montadas na sessão, ou `s3a` do
+notislake em forma estrita. Não há warehouse local: MANAGED só existe em `s3a`. Corpo malformado
 recusa o plano (422); item inválido por regra ou limite sai em `rejected` e os demais são gravados numa só
-transação. A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT; respostas e logs
-não carregam segredo.
+transação. A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT: as s3a o backend
+devolve em `deletions` para o kernel apagar; ele nunca apaga arquivos (uma linha MANAGED legada com location
+local volta em `files_kept`). Respostas e logs não carregam segredo.
 """
 
 import asyncio
@@ -13,7 +15,6 @@ import json
 import logging
 import os
 import sqlite3
-from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -29,7 +30,6 @@ from pydantic import (
 )
 
 from ..catalog import registry
-from ..catalog.managed import delete_managed_table, managed_table_dir
 from ..catalog.store import catalog_db_path, connect, ensure_catalog_db
 from ..fs_safety import is_within
 from ..notislake import locations as notislake_locations
@@ -130,17 +130,18 @@ def _info(item: TableInfo) -> dict[str, Any]:
     }
 
 
-def _location_error(location: str, grant: RuntimeGrant) -> str | None:
-    """Código do erro se a `location` não é local dentro das pastas montadas nem `s3a` válida do notislake."""
+def _location_error(location: str, grant: RuntimeGrant, managed: bool = False) -> str | None:
+    """Código do erro se a `location` não é local dentro das pastas montadas nem `s3a` válida do notislake.
+
+    O ramo local só vê caminhos do usuário (montagens); uma URI `s3a` nunca chega ao `os.path`.
+    `managed` libera o warehouse do Spark (a forma MANAGED é validada por quem chama).
+    """
     if location.startswith(f"{notislake_locations.SCHEME}://"):
-        return _s3a_location_error(location)
+        return _s3a_location_error(location, managed)
     path = registry.local_path(location)
     if path is None:
         return "location_not_local"
     real = Path(os.path.realpath(path))
-    iceberg = Path(os.path.realpath(grant.iceberg_root))
-    if is_within(real, iceberg, fold=True):  # APFS ignora a caixa: `ICEBERG` é o mesmo warehouse
-        return "location_in_iceberg_warehouse"
     for root in grant.roots:
         base = Path(os.path.realpath(root))
         if real != base and is_within(real, base):
@@ -148,13 +149,15 @@ def _location_error(location: str, grant: RuntimeGrant) -> str | None:
     return "location_outside_mounts"
 
 
-def _s3a_location_error(location: str) -> str | None:
+def _s3a_location_error(location: str, managed: bool = False) -> str | None:
     try:
         notislake_locations.parse_notislake(location)
     except notislake_locations.InvalidLocation:
         return "location_not_notislake"
     if notislake_locations.is_reserved_iceberg(location):
-        return "location_in_iceberg_prefix"  # o prefixo é do Iceberg, como o warehouse local
+        return "location_in_iceberg_prefix"  # área reservada do Iceberg (`RESERVED_ICEBERG_PREFIX`)
+    if not managed and notislake_locations.is_reserved_spark(location):
+        return "location_in_spark_warehouse"  # a pasta de uma MANAGED é apagada em cascata: nada externo dentro dela
     return None
 
 
@@ -189,13 +192,10 @@ def _parse_items[M: BaseModel](
 
 
 def _created_error(item: Created, grant: RuntimeGrant) -> str | None:
-    error = _location_error(item.loc, grant)
+    error = _location_error(item.loc, grant, managed=item.type == "MANAGED")
     if error or item.type != "MANAGED":
         return error
-    path = registry.local_path(item.loc)
-    if path is None or managed_table_dir(str(path), grant.managed_root)[1] is not None:
-        return "managed_location_rejected"
-    return None
+    return None if notislake_locations.managed_table(item.loc) else "managed_location_rejected"
 
 
 def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -209,13 +209,13 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], li
             continue
         created.append(((item.db, item.name), {**_info(item), "type": item.type, "description": item.description}))
     for u in _parse_items("updated", body.updated, Updated, rejected):
-        error = _location_error(u.loc, grant)
+        error = _location_error(u.loc, grant, managed=_managed_shape(u.loc))
         if error:
             rejected.append({"key": [u.db, u.name], "reason": error})
             continue
         updated.append(((u.db, u.name), u.expected_loc, "EXTERNAL", _info(u)))
     for r in _parse_items("renamed", body.renamed, Renamed, rejected):
-        error = _location_error(r.loc, grant)
+        error = _location_error(r.loc, grant, managed=_managed_shape(r.loc))
         if error:
             rejected.append({"key": [r.new_db, r.new_name], "reason": error})
             continue
@@ -232,12 +232,9 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], li
     return plan, rejected
 
 
-def _managed_shape(grant: RuntimeGrant) -> Callable[[str], bool]:
-    def shape(location: str) -> bool:
-        path = registry.local_path(location)
-        return path is not None and managed_table_dir(str(path), grant.managed_root)[1] is None
-
-    return shape
+def _managed_shape(location: str) -> bool:
+    """Só `s3a://notislake/bronze/spark/<t>` ou `<db>.db/<t>` é MANAGED; nenhum caminho local o é."""
+    return notislake_locations.managed_table(location)
 
 
 async def _read_body(request: Request) -> bytes:
@@ -295,28 +292,36 @@ def _registry(home: Path) -> dict[str, Any]:
     return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces)}
 
 
-def _apply(home: Path, grant: RuntimeGrant, plan: dict[str, Any]) -> dict[str, Any]:
-    """Transação do plano e, depois do COMMIT, a exclusão das pastas MANAGED que a própria linha autoriza."""
+def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
+    """Transação do plano; depois do COMMIT devolve as exclusões MANAGED que a própria linha autoriza.
+
+    As s3a voltam em `deletions` (`key`, `loc`): quem apaga é o kernel. Uma location local MANAGED (legada) é
+    mantida e vai em `files_kept`: o backend não apaga arquivos.
+    """
     if not catalog_db_path(home).exists():
         ensure_catalog_db(home)
     conn = connect(home)
     try:
-        result = registry.commit_plan(conn, plan, _managed_shape(grant))
+        result = registry.commit_plan(conn, plan, _managed_shape)
     finally:
         conn.close()
-    kept = []
+    kept = list(result["files_kept"])
+    s3a_deletions = []
     for key, location in result["deletions"]:
-        path = registry.local_path(location)
-        if path is None or delete_managed_table(str(path), grant.managed_root):
-            kept.append(key)
+        if location.startswith(f"{notislake_locations.SCHEME}://"):
+            s3a_deletions.append({"key": key, "loc": location})
+            continue
+        kept.append(key)
     return {
         "changed": result["changed"],
         "adopted": result["adopted"],
         "conflicts": result["conflicts"],
+        "rejected": [{"key": list(key), "reason": reason} for key, reason in result["rejected"]],
         "updated_ok": [{"key": key, "type": change["type"]} for key, change in result["updated_ok"]],
         "renamed_ok": [{"old": old, "new": new} for old, new, _ in result["renamed_ok"]],
         "dropped_ok": result["dropped_ok"],
         "files_kept": kept,
+        "deletions": s3a_deletions,
         "generation_before": result["generation_before"],
         "generation": result["generation"],
     }
@@ -356,7 +361,7 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         raise HTTPException(422, "plan_too_large")
     plan, rejected = _build_plan(body, grant)
     try:
-        result = await asyncio.to_thread(_apply, _home(request), grant, plan)
+        result = await asyncio.to_thread(_apply, _home(request), plan)
     except sqlite3.Error as exc:
         raise _sqlite_http(exc) from exc
     log.info(
@@ -364,4 +369,4 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         len(plan["created"]), len(plan["updated"]), len(plan["renamed"]), len(plan["dropped"]),
         len(plan["unregistered"]), len(rejected),
     )
-    return {**result, "rejected": rejected}
+    return {**result, "rejected": [*rejected, *result["rejected"]]}

@@ -78,16 +78,15 @@ def _table_dir(metadata_location: str) -> Path | None:
     return parent.parent if parent.name == "metadata" else parent
 
 
-def _table_type(metadata_location: str, warehouse: Path, namespace: str, table: str) -> str:
-    """MANAGED se a pasta é `<warehouse>/<ns…>/<t>`; informativo (o Iceberg não distingue)."""
-    folder = _table_dir(metadata_location)
-    if folder is None:
-        return "EXTERNAL"
-    expected = warehouse.joinpath(*namespace.split("."), table)
-    try:
-        return "MANAGED" if folder.resolve() == expected.resolve() else "EXTERNAL"
-    except OSError:
-        return "EXTERNAL"
+def is_managed_s3a(metadata_location: str | None, namespace: str, table: str) -> bool:
+    """O metadata está em `<ICEBERG_WAREHOUSE>/<ns…>/<t>` (grafia exata); só sintático, sem consultar o bucket."""
+    expected = "/".join((locations.ICEBERG_WAREHOUSE, *namespace.split("."), table))
+    return table_prefix(metadata_location) == expected
+
+
+def _table_type(metadata_location: str, namespace: str, table: str) -> str:
+    """MANAGED só em `<ICEBERG_WAREHOUSE>/<ns…>/<t>` (s3a); qualquer caminho local é EXTERNAL; informativo."""
+    return "MANAGED" if is_managed_s3a(metadata_location, namespace, table) else "EXTERNAL"
 
 
 def table_prefix(location: str | None) -> str | None:
@@ -104,7 +103,7 @@ def table_prefix(location: str | None) -> str | None:
         return None
 
 
-def _node(row: tuple[Any, ...], warehouse: Path) -> dict[str, Any]:
+def _node(row: tuple[Any, ...]) -> dict[str, Any]:
     namespace, name, metadata_location = row[0], row[1], row[2] or ""
     folder = _table_dir(metadata_location)
     if folder is not None:
@@ -115,7 +114,7 @@ def _node(row: tuple[Any, ...], warehouse: Path) -> dict[str, Any]:
         "name": name,
         "namespace": namespace.split("."),
         "format": "iceberg",
-        "table_type": _table_type(metadata_location, warehouse, namespace, name),
+        "table_type": _table_type(metadata_location, namespace, name),
         "is_temporary": False,
         "location": shown,
         # Fora do disco local (s3a) a disponibilidade é desconhecida: não se sonda o bucket na listagem.
@@ -124,7 +123,7 @@ def _node(row: tuple[Any, ...], warehouse: Path) -> dict[str, Any]:
     }
 
 
-def list_databases(conn: sqlite3.Connection, warehouse: Path, max_total: int) -> tuple[list[dict[str, Any]], int]:
+def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[str, Any]], int]:
     """Databases (namespaces) do `iceberg` e o total de tabelas listadas.
 
     Namespaces = união de `iceberg_namespace_properties` e `iceberg_tables`: o Iceberg só grava propriedades
@@ -151,7 +150,7 @@ def list_databases(conn: sqlite3.Connection, warehouse: Path, max_total: int) ->
             f"WHERE catalog_name = ? AND table_namespace = ? {_type_filter(has_type)} ORDER BY table_name LIMIT ?",
             (ICEBERG_CATALOG, db, limit + 1),
         ).fetchall()
-        entry: dict[str, Any] = {"name": db, "tables": [_node(r, warehouse) for r in rows[:limit]]}
+        entry: dict[str, Any] = {"name": db, "tables": [_node(r) for r in rows[:limit]]}
         if len(rows) > limit:
             entry["truncated"] = True
         used += len(entry["tables"])

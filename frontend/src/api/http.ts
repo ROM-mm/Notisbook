@@ -13,17 +13,32 @@ const CODE_MESSAGES: Record<string, string> = {
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: unknown;
+  /** `detail.code` quando o backend devolve `{code, message}`; senão `null`. */
+  readonly code: string | null;
 
   constructor(status: number, detail: unknown) {
     super(ApiError.describe(status, detail));
     this.name = "ApiError";
     this.status = status;
     this.detail = detail;
+    this.code = ApiError.codeOf(detail);
   }
 
-  /** FastAPI devolve `detail` como string ou lista de erros de validação. */
+  private static codeOf(detail: unknown): string | null {
+    if (detail && typeof detail === "object" && !Array.isArray(detail) && "code" in detail) {
+      const code = (detail as { code: unknown }).code;
+      return typeof code === "string" ? code : null;
+    }
+    return null;
+  }
+
+  /** FastAPI devolve `detail` como string, lista de erros de validação ou objeto `{code, message}`. */
   static describe(status: number, detail: unknown): string {
     if (typeof detail === "string") return CODE_MESSAGES[detail] ?? detail;
+    if (detail && typeof detail === "object" && !Array.isArray(detail) && "message" in detail) {
+      const message = (detail as { message: unknown }).message;
+      if (typeof message === "string" && message.length > 0) return message;
+    }
     if (Array.isArray(detail)) {
       const msgs = detail
         .map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : null))

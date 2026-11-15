@@ -252,6 +252,12 @@
   color: var(--color-danger);
 }
 
+.treeRetry {
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: var(--font-size-xs);
+}
+
 .copyFeedback {
   position: sticky;
   bottom: 0;
@@ -277,6 +283,17 @@
 
 .treeUnavailable .treeDetail {
   color: var(--color-warning);
+}
+
+/* Tamanho do objeto na árvore do Notislake. */
+.treeSize {
+  margin-left: var(--space-2);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.treeRow[aria-selected="true"] .treeSize {
+  color: var(--color-text);
 }
 
 /* Diálogos de confirmação e de criação (Catalog e Files); o cartão vem de dialog.module.css. */
@@ -352,6 +369,83 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
 }
 
 .connectionName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Diálogo de conexão do Notislake. */
+.connectionDialog {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.dialogFieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.dialogHint {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs, var(--font-size-sm));
+}
+
+.dialogOk {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-panel);
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+
+.dialogFootStart {
+  margin-right: auto;
+}
+
+/* Raiz fixa do Notislake no painel Files. */
+.notislakeRoot {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.notislakeConfigure {
+  margin-left: auto;
+  font-size: var(--font-size-xs);
+}
+
+.notislakeStatus {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.notislakeFooter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-1);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.notislakeLink {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+.notislakeCreds {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.notislakePath {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -233,10 +233,14 @@ function Empty({ title, hint, testId }: { title: string; hint?: string; testId?:
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
+const KEPT_REASONS: Record<string, string> = { s3a_kept: "folder stays in the notislake bucket" };
+
+const keptLabel = (k: { table: string; reason: string }) => `${k.table} (${KEPT_REASONS[k.reason] ?? k.reason})`;
+
 /** Aviso quando a exclusão deixou arquivos ou a pasta do schema no disco; null se nada ficou. */
 function deletionNotice(schema: string, res: SchemaDeletion): string | null {
   const kept: string[] = [];
-  if (res.files_kept.length > 0) kept.push(`files kept for ${res.files_kept.map((k) => k.table).join(", ")}`);
+  if (res.files_kept.length > 0) kept.push(`files kept for ${res.files_kept.map(keptLabel).join(", ")}`);
   if (res.folder_kept) kept.push("schema folder kept");
   return kept.length > 0 ? `Schema ${schema} deleted; ${kept.join("; ")}.` : null;
 }
@@ -314,7 +318,9 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
             Delete schema <code>{schema}</code> and its {plural(catalog === HUDI_CATALOG ? preview.hudi : preview.tables, "table", "tables")}?
           </p>
           <p>
-            {plural(preview.managed, "managed table folder", "managed table folders")} will be deleted;{" "}
+            {preview.managed_kept > 0
+              ? `${plural(preview.managed_kept, "managed table folder", "managed table folders")} will stay in the notislake bucket; `
+              : ""}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
           {catalog !== HUDI_CATALOG && preview.hudi > 0 ? (

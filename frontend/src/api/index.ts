@@ -3,5 +3,6 @@ export * from "./contents";
 export * from "./http";
 export * from "./kernels";
 export * from "./nbformat";
+export * from "./notislake";
 export * from "./spark";
 export * from "./types";

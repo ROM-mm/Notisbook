@@ -76,13 +76,16 @@ SMOKE_TIMEOUT = 300
 # Loads the session with the env's spark-defaults.conf, resolves one class per extension/catalog and
 # lists the Iceberg namespaces, which opens the JDBC connection (argv[1] is the URI of a throwaway
 # SQLite file that already has the Iceberg tables: the catalog is configured not to create them).
-# argv[2] is the AWS SDK probe class and argv[3] the Hadoop version the S3A jars were built for.
+# argv[2] is the AWS SDK probe class and argv[3] the Hadoop version the S3A jars were built for;
+# argv[4] is a throwaway local warehouse, so the smoke never touches s3a (works with MinIO stopped).
 SMOKE_SCRIPT = """
 import sys
 from pyspark.sql import SparkSession
 spark = (
     SparkSession.builder.master("local[1]")
     .config("spark.sql.catalog.iceberg.uri", sys.argv[1])
+    .config("spark.sql.warehouse.dir", sys.argv[4])
+    .config("spark.sql.catalog.iceberg.warehouse", sys.argv[4] + "/iceberg")
     .config("spark.ui.enabled", "false")
     .config("spark.driver.bindAddress", "127.0.0.1")
     .config("spark.driver.host", "127.0.0.1")
@@ -431,7 +434,12 @@ class SparkInstaller:
         """Write `spark-defaults.conf`; with a bundle also download the verified jars (otherwise only a warning)."""
         progress = self._progress("bundle")
         if bundle is None:
-            await job.emit("bundle", f"warning: no Delta/Iceberg/Hudi bundle for Spark {version}; installed Spark only", progress)
+            await job.emit(
+                "bundle",
+                f"warning: no Delta/Iceberg/Hudi/S3A bundle for Spark {version}; installed Spark only, "
+                "kernels of this env are refused (spark_env_outdated)",
+                progress,
+            )
             conf = conf_dir(env_dir)
             await asyncio.to_thread(conf.mkdir, parents=True, exist_ok=True)
             content = self._render_defaults(None, jars_dir(env_dir))
@@ -510,10 +518,11 @@ class SparkInstaller:
             except sqlite3.Error as exc:
                 raise InstallError(f"bundle smoke test could not prepare its catalog: {exc}") from exc
             uri = f"jdbc:sqlite:{Path(scratch) / 'catalog.db'}"
+            warehouse = (Path(scratch) / "warehouse").as_uri()
             try:
                 # `wait_for` cancela o `run_command`, cujo `finally` mata o processo.
                 lines = await asyncio.wait_for(
-                    self._cmd(job, "validate", [python, "-I", "-c", SMOKE_SCRIPT, uri, bundle.sdk_probe_class, bundle.hadoop], smoke_env), SMOKE_TIMEOUT
+                    self._cmd(job, "validate", [python, "-I", "-c", SMOKE_SCRIPT, uri, bundle.sdk_probe_class, bundle.hadoop, warehouse], smoke_env), SMOKE_TIMEOUT
                 )
             except TimeoutError as exc:
                 raise InstallError(f"bundle smoke test timed out after {SMOKE_TIMEOUT}s") from exc

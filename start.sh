@@ -47,4 +47,9 @@ if [[ "$needs_build" -eq 1 ]]; then
   npm --prefix "$FRONTEND" run build
 fi
 
+# O backend aceita um diretório e escolhe o tarball da arquitetura pelo manifesto; o valor do operador prevalece.
+if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/minio" ]]; then
+  export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/minio"
+fi
+
 exec uv run --project "$ROOT_DIR/backend" notisbook "$@"

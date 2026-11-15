@@ -1,26 +1,23 @@
 """Criar, pré-visualizar e excluir schemas (spark_catalog, nó de exibição hudi e iceberg) sem SparkSession.
 
-Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das linhas -> COMMIT -> apaga as pastas
-MANAGED -> `rmdir` não recursivo da pasta do schema. Nenhum I/O de arquivo com o lock aberto, e o catálogo
-nunca aponta para dado já apagado. Falha ao apagar arquivo não é erro: volta em `files_kept`/`folder_kept`.
+Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das linhas -> COMMIT. Não existe
+warehouse local: as tabelas MANAGED vivem no bucket (`s3a`) e o backend nunca apaga por prefixo, então a
+cascata só remove linhas e devolve os arquivos mantidos em `files_kept` (`s3a_kept`; `outside_warehouse` para
+uma linha MANAGED legada com location local). `folder_kept` é sempre falso: não há pasta de schema a remover.
 Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 """
 
 import hashlib
 import json
-import os
 import re
-import shutil
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from ..fs_safety import is_within
-from ..spark.bundles import SPARK_WAREHOUSE_SUBDIR, WAREHOUSE_DIR
+from ..notislake import locations
 from . import iceberg_jdbc, registry
-from .managed import managed_table_dir
 from .store import catalog_db_path, connect, ensure_catalog_db
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
@@ -106,66 +103,6 @@ def _immediate(conn: sqlite3.Connection) -> Iterator[None]:
     conn.execute("COMMIT")
 
 
-def _spark_root(home: Path) -> Path:
-    return home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR
-
-
-def _iceberg_root(home: Path) -> Path:
-    return home / WAREHOUSE_DIR / "iceberg"
-
-
-def _iceberg_managed_dir(location: str, warehouse: Path, namespace: str, table: str) -> str | None:
-    """Pasta MANAGED de uma tabela Iceberg: realpath == `<warehouse>/<ns>/<t>` (nunca outra pasta do warehouse)."""
-    folder = iceberg_jdbc.table_folder(location)
-    if folder is None:
-        return None
-    real, error = managed_table_dir(folder, warehouse / namespace)
-    if error or real is None:
-        return None
-    expected = os.path.join(os.path.realpath(warehouse), namespace, table)
-    return real if real == expected else None
-
-
-def _in_use(real: str, others: list[str]) -> bool:
-    """True se alguma outra pasta é igual, está dentro ou contém `real`; sem caixa (APFS), na dúvida mantém."""
-    target = Path(real)
-    return any(is_within(Path(o), target, fold=True) or is_within(target, Path(o), fold=True) for o in others)
-
-
-def _remaining_folders(spark_locations: list[str], iceberg_locations: list[str]) -> list[str]:
-    """Pastas (realpath) ainda referenciadas por tabelas do registro e do Iceberg."""
-    paths: list[Path | None] = [registry.local_path(loc) for loc in spark_locations]
-    paths += [iceberg_jdbc.table_folder(loc) for loc in iceberg_locations]
-    return [os.path.realpath(p) for p in paths if p is not None]
-
-
-def _remove_folder(real: str, others: list[str], table: str, deleted: list[str], kept: list[dict[str, str]]) -> None:
-    if _in_use(real, others):
-        kept.append({"table": table, "reason": "in_use"})
-        return
-    if not os.path.isdir(real):
-        return
-    try:
-        shutil.rmtree(real)
-    except OSError:
-        kept.append({"table": table, "reason": "delete_failed"})
-        return
-    deleted.append(table)
-
-
-def _rmdir_schema_folder(folder: Path, root: Path) -> bool:
-    """`rmdir` não recursivo da pasta do schema; devolve `folder_kept` (existe e ficou)."""
-    if not os.path.lexists(folder):
-        return False
-    if os.path.realpath(folder) != os.path.join(os.path.realpath(root), folder.name):
-        return True
-    try:
-        os.rmdir(folder)
-    except OSError:
-        return True
-    return False
-
-
 def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
     """Cria o schema; `spark_catalog` e `hudi` gravam em minúsculas (`hudi` fixa a origem de exibição). Levanta `SchemaError`, `sqlite3.Error`."""
     validate(catalog, name)
@@ -205,13 +142,16 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         rows = registry.namespace_tables(conn, key)
         hudi = registry.namespace_hudi_count(conn, key)
     managed = sum(1 for r in rows if r[2] == "MANAGED")
+    kept = sum(1 for r in rows if r[2] == "MANAGED" and locations.managed_table(r[1]))
     is_default = key == registry.DEFAULT_DATABASE
-    # `tables` = não-Hudi e `hudi` = Hudi; a exclusão age sobre todas, e `managed`/`external` cobrem todas as linhas.
+    # `tables` = não-Hudi e `hudi` = Hudi. O backend não apaga arquivos: `managed` (apagadas) é sempre 0 e as pastas
+    # MANAGED s3a ficam no bucket (`managed_kept`); `external` segue sendo as linhas que não são MANAGED.
     return {
         "tables": len(rows) - hudi,
         "hudi": hudi,
         "views": 0,
-        "managed": managed,
+        "managed": 0,
+        "managed_kept": kept,
         "external": len(rows) - managed,
         "can_delete": not is_default,
         "reason": "cannot_drop_default" if is_default else None,
@@ -219,7 +159,7 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
     }
 
 
-def _preview_iceberg(home: Path, schema: str, conn: sqlite3.Connection | None) -> dict[str, Any]:
+def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, Any]:
     if conn is None:
         raise SchemaError("schema_not_found")
     try:
@@ -229,16 +169,16 @@ def _preview_iceberg(home: Path, schema: str, conn: sqlite3.Connection | None) -
     if not iceberg_jdbc.namespace_exists(conn, schema):
         raise SchemaError("schema_not_found")
     entries = iceberg_jdbc.namespace_entries(conn, schema, has_type)
-    warehouse = _iceberg_root(home)
     tables = [e for e in entries if e[1] != "VIEW"]
-    managed = sum(1 for n, _, loc in tables if _iceberg_managed_dir(loc, warehouse, schema, n) is not None)
+    kept = sum(1 for n, _, loc in tables if iceberg_jdbc.is_managed_s3a(loc, schema, n))
     children = iceberg_jdbc.has_child_namespaces(conn, schema)
     return {
         "tables": len(tables),
         "hudi": 0,
         "views": len(entries) - len(tables),
-        "managed": managed,
-        "external": len(tables) - managed,
+        "managed": 0,  # o backend não apaga arquivos do bucket
+        "managed_kept": kept,
+        "external": len(tables) - kept,
         "can_delete": not children,
         "reason": "has_child_namespaces" if children else None,
         "etag": _iceberg_etag(entries),
@@ -252,7 +192,7 @@ def preview_schema(home: Path, catalog: str, schema: str) -> dict[str, Any]:
     try:
         if catalog in _SPARK_NODES:
             return _preview_spark(home, schema, conn)
-        return _preview_iceberg(home, schema, conn)
+        return _preview_iceberg(schema, conn)
     finally:
         if conn is not None:
             conn.close()
@@ -262,7 +202,6 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
     key = schema.lower()
     if key == registry.DEFAULT_DATABASE:
         raise SchemaError("cannot_drop_default")
-    root = _spark_root(home)
     conn = _open_existing_for_delete(home)
     try:
         with _immediate(conn):
@@ -272,47 +211,30 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
             if _spark_etag(rows) != etag:
                 raise SchemaError("catalog_changed")
             registry.drop_namespace(conn, key)
-            spark_left = registry.all_table_locations(conn)
-            iceberg_left = iceberg_jdbc.all_metadata_locations(conn)
     finally:
         conn.close()
 
-    others = _remaining_folders(spark_left, iceberg_left)
-    deleted: list[str] = []
     kept: list[dict[str, str]] = []
     for table, location, table_type in rows:
-        if table_type != "MANAGED":
-            continue
-        path = registry.local_path(location)
-        real, error = managed_table_dir(path, root) if path is not None else (None, "not local")
-        expected = os.path.join(os.path.realpath(root), f"{key}.db", table)
-        if real is None or error or real != expected:
-            kept.append({"table": table, "reason": "outside_warehouse"})
-            continue
-        _remove_folder(real, others, table, deleted, kept)
-    folder_kept = _rmdir_schema_folder(root / f"{key}.db", root)
+        if table_type == "MANAGED":
+            reason = "s3a_kept" if locations.managed_table(location) else "outside_warehouse"
+            kept.append({"table": table, "reason": reason})
     return {
         "dropped_tables": len(rows),
         "dropped_views": 0,
-        "files_deleted": deleted,
+        "files_deleted": [],
         "files_kept": kept,
-        "folder_kept": folder_kept,
+        "folder_kept": False,
     }
 
 
 def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
-    warehouse = _iceberg_root(home)
     conn = _open_existing_for_delete(home)
     try:
         try:
             has_type = iceberg_jdbc.check_schema(conn)
         except iceberg_jdbc.UnsupportedIcebergSchema as exc:
             raise SchemaError("unsupported_iceberg_catalog_schema") from exc
-        # Leitura do metadata.json (gc.enabled) fica fora da transação: sem I/O de arquivo com o lock aberto.
-        gc: dict[str, bool | None] = {}
-        for name, kind, loc in iceberg_jdbc.namespace_entries(conn, schema, has_type):
-            if kind != "VIEW" and _iceberg_managed_dir(loc, warehouse, schema, name) is not None:
-                gc[name] = iceberg_jdbc.gc_enabled(loc)
         with _immediate(conn):
             if not iceberg_jdbc.namespace_exists(conn, schema):
                 raise SchemaError("schema_not_found")
@@ -322,33 +244,21 @@ def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
             if _iceberg_etag(entries) != etag:
                 raise SchemaError("catalog_changed")
             iceberg_jdbc.drop_namespace_rows(conn, schema)
-            iceberg_left = iceberg_jdbc.all_metadata_locations(conn)
-            spark_left = registry.all_table_locations(conn)
     finally:
         conn.close()
 
-    others = _remaining_folders(spark_left, iceberg_left)
-    deleted: list[str] = []
-    kept: list[dict[str, str]] = []
     tables = [e for e in entries if e[1] != "VIEW"]
-    for name, _, loc in tables:
-        real = _iceberg_managed_dir(loc, warehouse, schema, name)
-        if real is None:
-            continue
-        enabled = gc.get(name)
-        if enabled is None:
-            kept.append({"table": name, "reason": "metadata_unreadable"})
-        elif not enabled:
-            kept.append({"table": name, "reason": "gc_disabled"})
-        else:
-            _remove_folder(real, others, name, deleted, kept)
-    folder_kept = _rmdir_schema_folder(warehouse / schema, warehouse)
+    kept = [
+        {"table": name, "reason": "s3a_kept"}  # o backend não apaga por prefixo no bucket
+        for name, _, loc in tables
+        if iceberg_jdbc.is_managed_s3a(loc, schema, name)
+    ]
     return {
         "dropped_tables": len(tables),
         "dropped_views": len(entries) - len(tables),
-        "files_deleted": deleted,
+        "files_deleted": [],
         "files_kept": kept,
-        "folder_kept": folder_kept,
+        "folder_kept": False,
     }
 
 

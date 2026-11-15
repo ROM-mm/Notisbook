@@ -13,7 +13,6 @@ from ..catalog.store import catalog_db_path, connect
 from ..kernels.service import KernelsBusy
 from ..notislake import objectstore
 from ..security import require_token, require_trusted_host
-from ..spark.bundles import WAREHOUSE_DIR
 from .deps import Kernels
 
 # Token is checked first (401), then Host (403).
@@ -60,9 +59,8 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
         hudi_dbs, hudi_used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES - used, hudi=True)
         used += hudi_used
         spark_node: dict[str, Any] = {"name": registry.SPARK_CATALOG, "databases": databases}
-        warehouse = home / WAREHOUSE_DIR / "iceberg"
         try:
-            ice_dbs, _ = iceberg_jdbc.list_databases(conn, warehouse, registry.MAX_TOTAL_TABLES - used)
+            ice_dbs, _ = iceberg_jdbc.list_databases(conn, registry.MAX_TOTAL_TABLES - used)
             iceberg_node: dict[str, Any] = {"name": iceberg_jdbc.ICEBERG_CATALOG, "databases": ice_dbs}
         except iceberg_jdbc.UnsupportedIcebergSchema:
             iceberg_node = iceberg_jdbc.error_entry(iceberg_jdbc.ERR_UNSUPPORTED)

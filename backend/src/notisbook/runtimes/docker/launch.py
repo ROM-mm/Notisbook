@@ -15,8 +15,9 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ...config import RUNTIME_HOST, default_home
-from ...spark.bundles import SPARK_WAREHOUSE_SUBDIR, WAREHOUSE_DIR
+from ...config import RUNTIME_HOST
+from ...notislake.locations import ICEBERG_WAREHOUSE, SPARK_WAREHOUSE
+from ...notislake.sparkconf import closed_options
 from . import catalog, cli
 
 # Porta do backend para o container alcançar o catálogo Iceberg REST; o KernelService a põe no env do kernel.
@@ -41,18 +42,12 @@ def tag_for(connection_file: str) -> str:
     return tag[-80:] or "kernel"
 
 
-def warehouse_dir() -> Path:
-    """Warehouse Spark do app (`<home>/warehouse/spark`), a mesma pasta do runtime local e montada no container."""
-    return Path(os.path.abspath(default_home())) / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR
-
-
 def iceberg_options() -> list[str]:
     """Opções do catálogo `iceberg` (REST do backend); vazio se a porta do backend não veio no ambiente."""
     port = os.environ.get(PORT_ENV, "")
     if not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
         return []
-    warehouse = Path(os.path.abspath(default_home())) / WAREHOUSE_DIR / "iceberg"
-    return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", str(warehouse)]
+    return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", ICEBERG_WAREHOUSE]
 
 
 def incontainer_source() -> bytes:
@@ -135,7 +130,15 @@ def launch(key: str, connection_file: str) -> None:
         "run",
         tag_for(connection_file),
     ]
-    argv += ["--cwd", os.getcwd(), "--warehouse-dir", str(warehouse_dir()), *iceberg_options()]
+    argv += [
+        "--cwd",
+        os.getcwd(),
+        "--warehouse-dir",
+        SPARK_WAREHOUSE,
+        *iceberg_options(),
+        "--s3a-closed",
+        json.dumps(closed_options(), sort_keys=True),
+    ]
     # Arquivo anônimo 0600 como stdin: o payload (código + connection file) passa de um pipe pequeno.
     with tempfile.TemporaryFile() as payload:
         payload.write(header + source + Path(connection_file).read_bytes())

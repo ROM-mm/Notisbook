@@ -25,11 +25,17 @@ from ..kernels.protocol import (
     client_message_adapter,
 )
 from ..kernels.service import (
+    CONFIG_INVALID_CODE,
+    CONFIG_INVALID_MESSAGE,
+    NOTISLAKE_UNAVAILABLE_CODE,
+    SPARK_ENV_OUTDATED_CODE,
+    SPARK_ENV_OUTDATED_MESSAGE,
     DockerRuntimeError,
     KernelNotFound,
     KernelService,
     NotislakeUnavailable,
     SessionNotFound,
+    SparkEnvOutdated,
 )
 from ..notebooks.store import NotebookStore, StoreError
 from ..notislake.settings_store import ConfigInvalid
@@ -91,12 +97,11 @@ async def create_session(
     except KernelNotFound as exc:
         raise HTTPException(404, f"Kernel not found: {body.kernel_name}") from exc
     except ConfigInvalid:
-        raise HTTPException(
-            409,
-            detail={"code": "config_invalid", "message": "A configuração manual do notislake está inválida; corrija ou remova-a."},
-        ) from None
+        raise HTTPException(409, detail={"code": CONFIG_INVALID_CODE, "message": CONFIG_INVALID_MESSAGE}) from None
     except NotislakeUnavailable as exc:
-        raise HTTPException(503, f"Notislake (MinIO) is not available (state: {exc.state}); try again when it is running") from exc
+        raise HTTPException(503, detail={"code": NOTISLAKE_UNAVAILABLE_CODE, "message": exc.message}) from exc
+    except SparkEnvOutdated:
+        raise HTTPException(409, detail={"code": SPARK_ENV_OUTDATED_CODE, "message": SPARK_ENV_OUTDATED_MESSAGE}) from None
     except DockerRuntimeError as exc:
         # 409: runtime em instalação/alteração, container ausente ou montagens defasadas; 503: Docker indisponível.
         raise HTTPException(exc.status_code, exc.message) from exc

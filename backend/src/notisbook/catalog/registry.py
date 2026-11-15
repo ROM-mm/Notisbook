@@ -178,7 +178,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False)
 def _decode_columns(raw: str, partitions: set[str]) -> list[dict[str, Any]]:
     items = json.loads(raw)
     if not isinstance(items, list):
-        raise ValueError("columns_json is not a list")
+        raise ValueError("columns_json is not a list")  # noqa: TRY004 — callers tratam ValueError; trocar o tipo mudaria o contrato
     return [
         {
             "name": str(c["name"]),
@@ -235,11 +235,19 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
     `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (opcional: remove só a linha, nunca gera `deletions`),
     `new_dbs`, `gone_dbs`. `rec_loc` é a trava: só mexe na linha que ainda aponta para ele.
     Com `type_from_row` o tipo de um update vem da linha do registro, não do plano (caminho HTTP).
-    `deletions` lista `(key, location)` de tabelas MANAGED sem outro uso, decididas pela própria linha.
+    `deletions` lista `(key, location)` de tabelas MANAGED sem outro uso, decididas pela própria linha. "Uso" é outra linha
+    com a mesma location ou dentro da pasta (registro antigo), ou uma tabela Iceberg do catálogo JDBC cujo metadata está
+    abaixo dela: essa MANAGED vai em `files_kept` e nada é apagado.
+    `rejected` lista `(key, "location_in_spark_warehouse")` de EXTERNAL movida para dentro do warehouse do Spark.
     """
     out = {"changed": False, "adopted": [], "conflicts": [], "updated_ok": [], "renamed_ok": [],
-           "dropped_ok": [], "deletions": []}
+           "dropped_ok": [], "deletions": [], "files_kept": [], "rejected": []}
     changed = False
+    # Cópia de `SPARK_WAREHOUSE`: este corpo roda no kernel só com stdlib, sem `locations`.
+    spark_prefix = "s3a://notislake/bronze/spark/"
+
+    def moved_into_spark(typ, old_loc, new_loc):
+        return typ != "MANAGED" and new_loc != old_loc and (new_loc.rstrip("/") + "/").startswith(spark_prefix)
 
     def row_of(key):
         return conn.execute(
@@ -268,6 +276,9 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
             typ = row[1] if row else rec_type
         if typ == "MANAGED" and change["loc"] != rec_loc and not managed_shape(change["loc"]):
             typ = "EXTERNAL"
+        if moved_into_spark(typ, rec_loc, change["loc"]):
+            out["rejected"].append((key, "location_in_spark_warehouse"))
+            continue
         cur = conn.execute(
             "UPDATE nb_tables SET format = ?, location = ?, table_type = ?, columns_json = ?, partition_cols = ?, "
             "delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
@@ -278,12 +289,20 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
             changed = True
             out["updated_ok"].append((key, {**change, "type": typ}))
     for old, new, rec_loc, info in plan["renamed"]:
+        old_row = row_of(old)
+        if old_row is not None and moved_into_spark(old_row[1], rec_loc, info["loc"]):
+            out["rejected"].append((new, "location_in_spark_warehouse"))
+            continue
+        typ = old_row[1] if old_row is not None else None
+        if typ == "MANAGED" and info["loc"] != rec_loc and not managed_shape(info["loc"]):
+            typ = "EXTERNAL"  # same rule as `updated`: MANAGED only in the MANAGED shape
         try:
             cur = conn.execute(
-                "UPDATE nb_tables SET namespace = ?, table_name = ?, format = ?, location = ?, columns_json = ?, "
+                "UPDATE nb_tables SET namespace = ?, table_name = ?, format = ?, location = ?, "
+                "table_type = COALESCE(?, table_type), columns_json = ?, "
                 "partition_cols = ?, delta_version = ?, hudi_instant = ?, updated_at = ? WHERE catalog_name = 'spark_catalog' "
                 "AND namespace = ? AND table_name = ? AND location = ?",
-                (*new, info["fmt"], info["loc"], json.dumps(info["cols"]), json.dumps(info["parts"]), info["dv"],
+                (*new, info["fmt"], info["loc"], typ, json.dumps(info["cols"]), json.dumps(info["parts"]), info["dv"],
                  info["hi"], stamp, *old, rec_loc))
         except sqlite3.IntegrityError:
             out["conflicts"].append(new)
@@ -299,9 +318,18 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
         conn.execute(
             "DELETE FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ? AND table_name = ?", key)
         changed = True
-        shared = conn.execute("SELECT count(*) FROM nb_tables WHERE location = ?", (row[0],)).fetchone()[0]
-        if row[1] == "MANAGED" and not shared:
-            out["deletions"].append((key, row[0]))
+        if row[1] != "MANAGED":
+            continue
+        # Igual ou dentro da pasta, comparado por prefixo (sem LIKE, que trataria `%`/`_` como curinga).
+        shared = conn.execute(
+            "SELECT count(*) FROM nb_tables WHERE location = ?1 OR substr(location, 1, length(?1) + 1) = ?1 || '/'",
+            (row[0].rstrip("/"),)).fetchone()[0]
+        has_iceberg = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone()
+        if not shared and has_iceberg:
+            shared = conn.execute(
+                "SELECT count(*) FROM iceberg_tables WHERE substr(metadata_location, 1, length(?1) + 1) = ?1 || '/'",
+                (row[0].rstrip("/"),)).fetchone()[0]
+        out["files_kept" if shared else "deletions"].append(key if shared else (key, row[0]))
     for key, rec_loc in plan.get("unregistered", ()):
         if key in out["dropped_ok"]:
             continue

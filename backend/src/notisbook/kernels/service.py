@@ -26,6 +26,7 @@ from nbformat.v4 import output_from_msg
 from ..catalog.store import catalog_db_path
 from ..config import RUNTIME_HOST, Settings
 from ..notislake import objectstore, settings_store
+from ..notislake.locations import SPARK_WAREHOUSE
 from ..notislake.sparkconf import fingerprint, s3a_options
 from ..notislake.supervisor import NotislakeSupervisor
 from ..runtimes.docker import catalog as docker_catalog
@@ -46,8 +47,6 @@ from ..runtimes.docker.service import (
 )
 from ..security import RuntimeGrant, RuntimeTokens
 from ..spark.bundles import (
-    SPARK_WAREHOUSE_SUBDIR,
-    WAREHOUSE_DIR,
     UnsupportedHome,
     bundle_for,
     render_spark_defaults,
@@ -116,10 +115,13 @@ DOCKER_STOP_SKIPPED = (
 
 Sink = Callable[[ServerEvent], Awaitable[None]]
 
-# Avisos de S3A (texto fixo: nada da conexão ou da configuração entra na mensagem).
-S3A_DISABLED_NOTICE = (
-    "s3a_disabled",
-    "A conexão do notislake está indisponível ou inválida: o kernel reiniciou sem acesso a s3a://notislake/.",
+# Textos fixos de S3A: nada da conexão ou da configuração entra na mensagem.
+CONFIG_INVALID_CODE = "config_invalid"
+CONFIG_INVALID_MESSAGE = "A configuração manual do notislake está inválida; corrija ou remova-a."
+NOTISLAKE_UNAVAILABLE_CODE = "notislake_unavailable"
+SPARK_ENV_OUTDATED_CODE = "spark_env_outdated"
+SPARK_ENV_OUTDATED_MESSAGE = (
+    "O ambiente Spark deste kernel não tem os jars S3A da versão atual; reinstale a versão do Spark (Spark > Installed)."
 )
 S3A_LOOPBACK_HTTPS_NOTICE = (
     "s3a_unsupported_endpoint",
@@ -145,6 +147,14 @@ class NotislakeUnavailable(Exception):
     def __init__(self, state: str) -> None:
         super().__init__(f"notislake is not running (state: {state})")
         self.state = state
+
+    @property
+    def message(self) -> str:
+        return f"O notislake (MinIO) não está disponível (estado: {self.state}); tente de novo quando ele estiver em execução."
+
+
+class SparkEnvOutdated(Exception):
+    """O ambiente Spark gerenciado não tem todos os jars do bundle (S3A inclusive); ele manteria o warehouse local."""
 
 
 @dataclass(frozen=True)
@@ -213,7 +223,7 @@ class KernelSession:
     catalog_factory: Callable[[str, Mapping[str, str] | None], str] | None = None
     # Sessão local: monta o snippet a partir das opções S3A (o hook local fala com o SQLite, sem token).
     local_catalog_factory: Callable[[Mapping[str, str] | None], str] | None = None
-    # Reavalia a conexão S3A no restart sem levantar; None mantém a conexão com que a sessão abriu.
+    # Reavalia a conexão S3A no restart e levanta se ela não servir; None mantém a conexão com que a sessão abriu.
     s3a_resolver: Callable[[], S3AResolution] | None = None
     _s3a_options: dict[str, str] | None = field(default=None, repr=False)
     # Aviso da abertura (ex.: endpoint não suportado); o canal o entrega uma vez, como o do restart.
@@ -320,7 +330,7 @@ class KernelSession:
             self.catalog_ensure = self.catalog_factory(token, self._s3a_options)
 
     def refresh_s3a(self) -> tuple[str, str] | None:
-        """Reavalia a conexão S3A para o kernel novo: indisponível ou inválida reinicia sem S3A, nunca no automático.
+        """Reavalia a conexão S3A para o kernel novo; levanta `ConfigInvalid` ou `NotislakeUnavailable` sem alterar a sessão.
 
         Atualiza o fingerprint do grant e o snippet local; o snippet Docker sai de `issue_runtime_token`. Devolve o aviso, se houver.
         """
@@ -607,13 +617,24 @@ class KernelSession:
         async with self._lock:
             if self.closing:
                 return
+            # A conexão é resolvida antes de derrubar o kernel: se falhar, recusa e o kernel atual segue vivo.
+            try:
+                notice = self.refresh_s3a()
+            except NotislakeUnavailable as exc:
+                await self.emit(ErrorEvent(code=NOTISLAKE_UNAVAILABLE_CODE, message=exc.message))
+                return
+            except settings_store.ConfigInvalid:
+                await self.emit(ErrorEvent(code=CONFIG_INVALID_CODE, message=CONFIG_INVALID_MESSAGE))
+                return
+            except Exception as exc:  # noqa: BLE001 - qualquer falha da resolução recusa o restart sem derrubar o kernel
+                log.warning("restart refused for session %s: cannot resolve the S3A connection (%s)", self.session_id, type(exc).__name__)
+                await self.emit(ErrorEvent(code="restart_failed", message="Kernel restart failed"))
+                return
             self._restarting = True
-            notice: tuple[str, str] | None = None
             try:
                 await self.set_state("restarting")
                 await self._abort_pending()
                 await self._close_channels()
-                notice = self.refresh_s3a()
                 self.issue_runtime_token()  # o kernel novo recebe um token novo; o do kernel antigo morre aqui
                 self._var_cache.clear()
                 self._var_gen += 1
@@ -675,11 +696,7 @@ class KernelService:
         self._runtime_dir = runtime_dir or Path(jupyter_runtime_dir()) / "notisbook"
         self._home = Path(os.path.abspath((home or Settings().home).expanduser()))
         self._duckdb_ext_dir = str((home or Settings().home) / "duckdb" / "extensions")
-        self._catalog_paths = (
-            str(catalog_db_path(self._home)),
-            str(self._home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR),
-            str(self._home / WAREHOUSE_DIR / "iceberg"),
-        )
+        self._catalog_db_path = str(catalog_db_path(self._home))
 
     def cleanup_orphans(self) -> int:
         """Remove connection files left by a previous run on the same port."""
@@ -773,25 +790,20 @@ class KernelService:
         await asyncio.to_thread(self._refresh_docker_spec, runtime)
         return plan
 
-    def _resolve_s3a(self, *, docker: bool, strict: bool) -> S3AResolution:
+    def _resolve_s3a(self, *, docker: bool) -> S3AResolution:
         """Resolve a conexão S3A (`objectstore.resolve`) e gera as opções do kernel, local ou Docker.
 
-        `strict` (abertura): manual inválido levanta `ConfigInvalid`; automático sem MinIO `running` levanta
-        `NotislakeUnavailable`. Sem `strict` (restart) nunca levanta: devolve a resolução vazia com aviso.
+        Abertura e restart usam a mesma regra, que falha fechada: manual inválido levanta `ConfigInvalid`;
+        automático sem MinIO `running` levanta `NotislakeUnavailable`. Sem supervisor (testes, uso embutido)
+        devolve a resolução vazia.
         """
         supervisor = self._notislake
         try:
             conn = objectstore.resolve_from_app(self._home, supervisor)
-        except settings_store.ConfigInvalid:
-            if strict:
-                raise
-            return S3AResolution(notice=S3A_DISABLED_NOTICE)
         except objectstore.Unavailable:
             if supervisor is None:
                 return S3AResolution()
-            if strict:
-                raise NotislakeUnavailable(supervisor.snapshot().state.value) from None
-            return S3AResolution(notice=S3A_DISABLED_NOTICE)
+            raise NotislakeUnavailable(supervisor.snapshot().state.value) from None
         notice: tuple[str, str] | None = None
         if docker and conn.source == "manual":
             parts = urlsplit(conn.endpoint)
@@ -802,21 +814,19 @@ class KernelService:
 
     def _local_catalog_factory(self) -> Callable[[Mapping[str, str] | None], str]:
         """Snippet do hook com transporte SQLite; as opções S3A entram por sessão."""
-        db_path, managed_root, iceberg_root = self._catalog_paths
+        db_path = self._catalog_db_path
 
         def build(s3a: Mapping[str, str] | None) -> str:
-            return build_catalog_ensure_code(db_path, managed_root, iceberg_root, s3a=s3a)
+            return build_catalog_ensure_code(db_path, s3a=s3a)
 
         return build
 
     def _runtime_grant(self, session_id: str, plan: MountPlan, s3a_fingerprint: str | None = None) -> RuntimeGrant:
-        """Raízes do token: todas as montagens do plano (por realpath), Connections inclusive quando montada."""
+        """Raízes locais do token: todas as montagens do plano (por realpath), Connections inclusive quando montada."""
         roots = tuple(dict.fromkeys(os.path.realpath(p) for p in plan.paths))
         return RuntimeGrant(
             session_id=session_id,
             roots=roots,
-            managed_root=str(self._home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR),
-            iceberg_root=str(self._home / WAREHOUSE_DIR / "iceberg"),
             s3a_fingerprint=s3a_fingerprint,
         )
 
@@ -825,9 +835,7 @@ class KernelService:
         base_url = f"http://{RUNTIME_HOST}:{self._port}/api/runtime-catalog"
 
         def build(token: str, s3a: Mapping[str, str] | None) -> str:
-            return build_catalog_http_ensure_code(
-                base_url, token, grant.managed_root, grant.iceberg_root, grant.roots, s3a=s3a
-            )
+            return build_catalog_http_ensure_code(base_url, token, grant.roots, s3a=s3a)
 
         return build
 
@@ -896,30 +904,53 @@ class KernelService:
     def _ensure_spark_defaults(self, spec: Any) -> None:
         """Re-render `spark-defaults.conf` from the current matrix, only when every jar it names is installed.
 
-        An env installed before a matrix revision keeps its conf until reinstalled if a jar is
-        missing (the kernel is offline, so nothing is downloaded here). Never blocks the start.
+        The kernel is offline, so nothing is downloaded here. A managed env with no bundle, or missing a jar
+        of its bundle (the S3A ones included), has no s3a warehouse to run on: raises `SparkEnvOutdated`.
+        So does a conf that cannot be rewritten (unsupported home, write error), unless the current one already
+        points `spark.sql.warehouse.dir` at the s3a warehouse. That fallback only applies once the env is
+        confirmed as a managed Spark env; any other failure is logged and never blocks the start.
         """
+        confirmed = False
         try:
             managed = isinstance(spec.metadata, dict) and METADATA_KEY in spec.metadata
             conf = Path(spec.env.get("SPARK_CONF_DIR", ""))
             env_dir = Path(os.path.abspath(conf.parent))
             if not (managed and conf.name == "spark-conf" and is_managed_env(self._home, env_dir)):
                 return
+            confirmed = True
             version = spec.metadata[METADATA_KEY].get("version")
             bundle = bundle_for(version) if isinstance(version, str) else None
             if bundle is None:
-                return
+                log.warning("spark env %s has no bundle with the S3A jars; reinstall the Spark version", env_dir.name)
+                raise SparkEnvOutdated
             jars = jars_dir(env_dir)
             missing = [a.filename for a in (*bundle.artifacts, *bundle.driver_artifacts) if not (jars / a.filename).is_file()]
             if missing:
-                log.info("spark-defaults.conf of %s left as is: missing %s; reinstall the Spark version", env_dir.name, ", ".join(missing))
-                return
+                log.warning("spark env %s is outdated: missing %s; reinstall the Spark version", env_dir.name, ", ".join(missing))
+                raise SparkEnvOutdated
             if write_spark_defaults(conf, render_spark_defaults(bundle, jars, self._home)):
                 log.info("spark-defaults.conf of %s updated to bundle r%d", env_dir.name, bundle.revision)
+        except SparkEnvOutdated:
+            raise
         except UnsupportedHome as exc:
             log.warning("spark-defaults.conf of kernel %s not updated: %s", getattr(spec, "display_name", "?"), exc)
+            if confirmed:
+                self._require_s3a_warehouse(spec)
         except Exception:
             log.warning("cannot ensure spark-defaults.conf for kernel %s", getattr(spec, "display_name", "?"), exc_info=True)
+            if confirmed:
+                self._require_s3a_warehouse(spec)
+
+    @staticmethod
+    def _require_s3a_warehouse(spec: Any) -> None:
+        """Fail closed: the stale conf is only usable when it already names the s3a warehouse."""
+        try:
+            lines = (Path(spec.env["SPARK_CONF_DIR"]) / "spark-defaults.conf").read_text(encoding="utf-8").splitlines()
+        except (KeyError, OSError, UnicodeDecodeError):
+            raise SparkEnvOutdated from None
+        values = [parts[1:] for parts in map(str.split, lines) if parts[:1] == ["spark.sql.warehouse.dir"]]
+        if not values or values[-1] != [SPARK_WAREHOUSE]:  # the last duplicate wins in a properties file
+            raise SparkEnvOutdated
 
     async def create(
         self, path: str, kernel_name: str, cwd: Path | None = None, target: Path | None = None
@@ -930,7 +961,7 @@ class KernelService:
         só sessões novas são recusadas. Uma conexão manual válida abre mesmo com o MinIO local fora.
         """
         is_docker = docker_catalog.by_kernel_name(kernel_name) is not None
-        s3a = self._resolve_s3a(docker=is_docker, strict=True)
+        s3a = self._resolve_s3a(docker=is_docker)
         session_id = uuid.uuid4().hex
         # Registered before the spec lookup so has_session sees the session during the whole arranque.
         self._starting[session_id] = kernel_name
@@ -970,7 +1001,7 @@ class KernelService:
                 catalog_ensure="" if docker_runtime is not None else local_factory(s3a.options),
                 catalog_factory=self._docker_catalog_factory(runtime_grant) if runtime_grant is not None else None,
                 local_catalog_factory=None if docker_runtime is not None else local_factory,
-                s3a_resolver=lambda: self._resolve_s3a(docker=is_docker, strict=False),
+                s3a_resolver=lambda: self._resolve_s3a(docker=is_docker),
                 _s3a_options=s3a.options,
                 s3a_notice=s3a.notice,
                 docker_runtime=docker_runtime,

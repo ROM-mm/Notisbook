@@ -17,7 +17,6 @@ from ..catalog.store import catalog_db_path
 DEFAULT_MAVEN_URL = "https://repo1.maven.org/maven2"
 MAVEN_URL_ENV = "NOTISBOOK_MAVEN_URL"
 WAREHOUSE_DIR = "warehouse"
-SPARK_WAREHOUSE_SUBDIR = "spark"
 _VERSION = re.compile(r"(\d+\.\d+)\.(\d+)", re.ASCII)
 
 EXT_ICEBERG = "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
@@ -202,29 +201,47 @@ def catalog_uri(home: Path) -> str:
     return f"jdbc:sqlite:{catalog_db_path(home)}?busy_timeout={SQLITE_BUSY_TIMEOUT_MS}"
 
 
-def render_base_defaults(home: Path) -> list[str]:
-    """Lines that keep Spark's default warehouse under `home` and the session catalog in memory.
+def render_base_defaults() -> list[str]:
+    """Lines every managed env gets: the session catalog stays in memory.
 
-    Without the warehouse line the kernel's cwd (the notebook folder) receives `spark-warehouse/`;
-    the in-memory catalog keeps Hive's embedded metastore out of that folder (the persistent
-    registry lives in `catalog.db`).
+    Hive's embedded metastore would otherwise create its files in the kernel's cwd (the notebook folder);
+    the persistent registry lives in `catalog.db`. The warehouse and the S3A options are NOT here: they
+    only make sense with a bundle that ships the S3A jars (see `render_s3a_defaults`).
     """
+    return ["spark.sql.catalogImplementation in-memory"]
+
+
+def render_s3a_defaults() -> list[str]:
+    """Warehouse in the notislake bucket plus the closed S3A config (dead endpoint, no secret).
+
+    The real connection is applied by the session hook after `getOrCreate`. Without the warehouse line the
+    notebook folder would receive `spark-warehouse/`.
+    """
+    # Lazy import: `notislake.sparkconf` pulls `config`, which imports this module at load time.
+    from ..notislake.locations import SPARK_WAREHOUSE
+    from ..notislake.sparkconf import closed_options
+
     return [
-        f"spark.sql.warehouse.dir {home / WAREHOUSE_DIR / SPARK_WAREHOUSE_SUBDIR}",
-        "spark.sql.catalogImplementation in-memory",
+        f"spark.sql.warehouse.dir {SPARK_WAREHOUSE}",
+        *(f"spark.hadoop.{key} {value}" for key, value in closed_options().items()),
     ]
 
 
 def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> str:
-    """Content of `spark-defaults.conf`; with a bundle it also wires the three formats to the local jars.
+    """Content of `spark-defaults.conf`; with a bundle it also wires the three formats and the S3A warehouse.
+
+    Without a bundle (no S3A jars) no `s3a://` or `fs.s3a` line is written: such an env is refused at open.
 
     Iceberg lives in the named `iceberg` catalog (JDBC over `catalog.db`): `spark_catalog` stays
     Delta's, since `SparkSessionCatalog` and `DeltaCatalog` cannot share the session catalog slot.
     Raises UnsupportedHome when `home` cannot go into the JDBC URL.
     """
-    lines = render_base_defaults(home)
+    from ..notislake.locations import ICEBERG_WAREHOUSE
+
+    lines = render_base_defaults()
     if bundle is None:
         return "\n".join(lines) + "\n"
+    lines += render_s3a_defaults()
     jars = ",".join(str(jars_dir / artifact.filename) for artifact in bundle.artifacts)
     # JVM classpath, not a Spark list: entries are separated by the platform path separator, unlike `spark.jars`.
     driver_jars = os.pathsep.join(str(jars_dir / artifact.filename) for artifact in bundle.driver_artifacts)
@@ -237,7 +254,9 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
         "spark.sql.catalog.iceberg org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.iceberg.type jdbc",
         f"spark.sql.catalog.iceberg.uri {catalog_uri(home)}",
-        f"spark.sql.catalog.iceberg.warehouse {home / WAREHOUSE_DIR / 'iceberg'}",
+        f"spark.sql.catalog.iceberg.warehouse {ICEBERG_WAREHOUSE}",
+        # Tables live in the shared bucket: Iceberg must not garbage-collect files on its own.
+        "spark.sql.catalog.iceberg.table-default.gc.enabled false",
         "spark.sql.catalog.iceberg.jdbc.schema-version V1",
         # Data files go through Hadoop's FileSystem (local and `s3a://`); the default S3FileIO would need the SDK's own wiring.
         "spark.sql.catalog.iceberg.io-impl org.apache.iceberg.hadoop.HadoopFileIO",

@@ -48,12 +48,13 @@ async def require_token(request: Request, response: Response) -> None:
 
 @dataclass(frozen=True)
 class RuntimeGrant:
-    """O que um token de runtime autoriza: pastas montadas na sessão e as raízes do warehouse do app."""
+    """O que um token de runtime autoriza: as pastas LOCAIS montadas na sessão (`roots`).
+
+    O bucket notislake não entra aqui: as áreas `s3a` são constantes de `notislake.locations`.
+    """
 
     session_id: str
     roots: tuple[str, ...]
-    managed_root: str
-    iceberg_root: str
     # Digest da conexão S3A com que o kernel abriu (None: sem S3A); só comparação interna, nunca em API/log.
     s3a_fingerprint: str | None = field(default=None, repr=False)
 

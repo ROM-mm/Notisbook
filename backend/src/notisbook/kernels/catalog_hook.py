@@ -11,9 +11,10 @@ session's Hadoop FileSystem, bounded by a timeout and a 30 s circuit breaker (se
 
 The config reaches the kernel as JSON literals (the kernel reads no env vars). Hook errors never
 reach the user's cell: they are kept in `STATE["errors"]` and warned once, briefly, on stderr.
-Files of a dropped MANAGED table are deleted only under `managed_root` (see `delete_managed`).
-With `transport: "http"` (Docker runtime) the registry is read and written through the backend API
-(stdlib `urllib`, per-session token) and the backend, not the kernel, deletes MANAGED files.
+There is no local warehouse: MANAGED tables live in the bucket, and the kernel deletes only the `managed_table`
+folder the registry row authorized, all of a cell's folders under one time budget (see `delete_managed_s3a`);
+a failure or a timeout keeps the files and warns. With `transport: "http"` (Docker runtime) the registry is read
+and written through the backend API (stdlib `urllib`, per-session token); the backend only authorizes deletions.
 """
 
 import hashlib
@@ -21,15 +22,15 @@ import inspect
 import json
 from collections.abc import Mapping
 
-from ..catalog.managed import managed_table_dir
 from ..catalog.registry import apply_plan, read_snapshot
 from ..notislake import locations as notislake_locations
+from ..notislake.sparkconf import closed_options
 
 MODULE_NAME = "_notisbook_catalog"
 
-# Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__, __MANAGED_HELPERS__ and __LOCATIONS_SOURCE__.
+# Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__, __REGISTRY_HELPERS__ and __LOCATIONS_SOURCE__.
 _KERNEL_TEMPLATE = r'''
-import functools, importlib.abc, importlib.util, json, os, re, shutil, sqlite3, sys, threading, time, types
+import functools, importlib.abc, importlib.util, json, os, re, sqlite3, sys, threading, time, types
 import urllib.error, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,8 +43,6 @@ BASE_URL = CONFIG.get("base_url")
 TOKEN = CONFIG.get("token")
 # Folders shared with the runtime (http only): the backend rejects, item by item, a location outside them.
 ROOTS = tuple(CONFIG.get("roots") or ())
-MANAGED_ROOT = CONFIG["managed_root"]
-ICEBERG_WAREHOUSE = CONFIG["iceberg_warehouse"]
 WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session")
 SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
@@ -51,16 +50,11 @@ ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
 S3A_PREFIX = "fs.s3a.bucket.notislake."
 S3A_ROOT = "s3a://notislake/"
-S3A_CLOSED = {
-    S3A_PREFIX + "endpoint": "http://127.0.0.1:1",
-    S3A_PREFIX + "path.style.access": "true",
-    S3A_PREFIX + "connection.ssl.enabled": "false",
-    S3A_PREFIX + "access.key": "",
-    S3A_PREFIX + "secret.key": "",
-    S3A_PREFIX + "aws.credentials.provider": "org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider",
-}
+S3A_CLOSED = CONFIG["s3a_closed"]  # `sparkconf.closed_options()`, the single source of the closed bucket config
+S3A_CLEARED = (S3A_PREFIX + "access.key", S3A_PREFIX + "secret.key")  # a failed setup may leave the real credential behind
 S3A_SCHEME = "s3a://"
-S3A_PROBE_TIMEOUT = 5.0  # one JVM call; the cell hooks (before + after) stay well under 15 s with MinIO down
+S3A_PROBE_TIMEOUT = 5.0  # one JVM call; with MinIO down only the first probe waits (the breaker then opens), so the hooks stay under 15 s
+S3A_DELETE_BUDGET = 15.0  # ONE bound for every folder delete of a cell (not per table): N dropped tables never add N waits
 S3A_PAUSE = 30.0  # circuit breaker: s3a probes stay suspended this long after a failure
 HTTP_TIMEOUT = 8.0
 HTTP_PAUSE = 30.0
@@ -68,11 +62,11 @@ HTTP_MAX_BYTES = 32 * 1024 * 1024
 HTTP_DETAIL_BYTES = 4096
 REJECTED = {
     "location_outside_mounts": "its location is outside the folders shared with the runtime",
-    "location_in_iceberg_warehouse": "its location is inside the Iceberg warehouse",
     "location_not_local": "its location is not a local folder",
     "managed_location_rejected": "its managed location is not in the Spark warehouse",
     "location_not_notislake": "its s3a location is not s3a://notislake/<layer>/<dataset>",
     "location_in_iceberg_prefix": "its location is inside the Iceberg prefix of the notislake bucket",
+    "location_in_spark_warehouse": "its location is inside the Spark warehouse, which only holds managed tables",
     "item_limits": "its name, schema or description exceeds the allowed limits",
 }
 DEFAULT_DB = "default"
@@ -166,10 +160,16 @@ def notislake_uri(location):
 
 
 def in_iceberg(location):
-    """True when the location is inside the Iceberg warehouse (local) or the reserved Iceberg prefix of the bucket (s3a)."""
-    if is_s3a(location):
-        return LOCATIONS.is_reserved_iceberg(location)
-    return is_under(location, norm_loc(ICEBERG_WAREHOUSE), fold=True)
+    """True when the location is inside the reserved Iceberg prefix of the bucket; local paths are never Iceberg's."""
+    return is_s3a(location) and LOCATIONS.is_reserved_iceberg(location)
+
+
+def in_spark_warehouse(location, managed):
+    """True when a table that is not a valid MANAGED one (`managed` and the managed shape) sits in the Spark warehouse.
+
+    The folder of a managed table is deleted recursively, so nothing external may live inside it.
+    """
+    return is_s3a(location) and LOCATIONS.is_reserved_spark(location) and not (managed and managed_shape(location))
 
 
 def norm_loc(location):
@@ -184,10 +184,11 @@ def outside_text(location):
     return "s3a://notislake/<layer>/<dataset>" if is_s3a(location) else "the folders shared with the runtime"
 
 
-def allowed_location(location):
-    """True unless the location is not `s3a://notislake/...`, or (http only) not strictly inside a folder shared with the runtime."""
+def allowed_location(location, managed=False):
+    """True unless the location is not `s3a://notislake/...`, is in the Spark warehouse without being MANAGED (`in_spark_warehouse`),
+    or (http only) is not strictly inside a folder shared with the runtime."""
     if is_s3a(location):
-        return notislake_uri(location) is not None
+        return notislake_uri(location) is not None and not in_spark_warehouse(location, managed)
     if not ROOTS:
         return True
     path = local_path(location)
@@ -215,12 +216,14 @@ def s3a_trip(session):
     warn(("s3a-down", session_key(session)), "s3a://notislake/ did not answer; its tables are not checked for %d s." % S3A_PAUSE)
 
 
-def s3a_call(session, fn):
-    """Run `fn(fs_for)` (JVM calls on the session's Hadoop FileSystem) bounded by `S3A_PROBE_TIMEOUT`; raises S3AUnavailable.
+def s3a_call(session, fn, timeout=S3A_PROBE_TIMEOUT, bulk=False):
+    """Run `fn(fs_for)` (JVM calls on the session's Hadoop FileSystem) bounded by `timeout`; raises S3AUnavailable.
 
     A Hadoop call to a dead endpoint retries for minutes and py4j cannot interrupt it, so it runs in a daemon
-    thread that is abandoned on timeout; while that thread lives no other probe starts (they would pile up).
-    Any failure opens the breaker (no probe for `S3A_PAUSE`, one warning).
+    thread that is abandoned on timeout; while that thread lives no other call of its kind starts (they would pile up).
+    A probe failure opens the breaker (no probe for `S3A_PAUSE`, one warning). A `bulk` call (deleting folders) has
+    its own thread slot and never opens it: a slow delete says nothing about the endpoint, and its still-running
+    thread must not make the next probe look like a pile-up.
     A missing path is not a failure: `fn` reports it by its return value (`exists` is False, not an exception).
     Without a working S3A setup in the session nothing is probed: the bucket would resolve to the public AWS endpoint.
     """
@@ -231,10 +234,16 @@ def s3a_call(session, fn):
         raise S3AUnavailable()
     if time.monotonic() < STATE.get("s3a_open_until", 0.0):
         raise S3AUnavailable()
-    previous = STATE.get("s3a_probe")
-    if previous is not None and previous.is_alive():
-        s3a_trip(session)
+    slot = "s3a_bulk" if bulk else "s3a_probe"
+
+    def fail():
+        if not bulk:
+            s3a_trip(session)
         raise S3AUnavailable()
+
+    previous = STATE.get(slot)
+    if previous is not None and previous.is_alive():
+        fail()
     sc = session.sparkContext
     box = {}
 
@@ -249,13 +258,12 @@ def s3a_call(session, fn):
         except BaseException as exc:
             box["error"] = exc
 
-    thread = threading.Thread(target=run, name="notisbook-s3a-probe", daemon=True)
-    STATE["s3a_probe"] = thread
+    thread = threading.Thread(target=run, name="notisbook-s3a-bulk" if bulk else "notisbook-s3a-probe", daemon=True)
+    STATE[slot] = thread
     thread.start()
-    thread.join(S3A_PROBE_TIMEOUT)
+    thread.join(timeout)
     if thread.is_alive() or "error" in box:
-        s3a_trip(session)
-        raise S3AUnavailable()
+        fail()
     STATE["s3a_open_until"] = 0.0
     return box["value"]
 
@@ -365,31 +373,51 @@ def hudi_instant(location, session=None):
     return latest_hudi_instant(timeline, legacy_names)
 
 
-__MANAGED_HELPERS__
-
-
 __REGISTRY_HELPERS__
 
 
-def delete_managed(location):
-    """Delete a dropped MANAGED table folder; returns an error text, or None when deleted/nothing to do.
+def delete_managed_s3a(session, items):
+    """Delete the bucket folders of dropped MANAGED tables under ONE time budget; returns `{key: error text or None}`.
 
-    Safeguards: real path inside `managed_root` and shaped like `<root>/<t>` or `<root>/<db>.db/<t>`
-    (never the root nor a `*.db` folder), and it must be an existing directory.
+    `items` is `[(key, location)]`, each the folder the registry row authorized (`apply_plan` already checked there
+    is no other use); here it must also have the `managed_table` shape, so never the warehouse, a `*.db` folder or a
+    prefix of it. One thread deletes them in order within `S3A_DELETE_BUDGET`. When the budget runs out the thread is
+    cancelled before its next folder (a table recreated with the same name must not lose its new files); only the
+    delete already running can still land. Folders without a result are reported as kept. Texts are fixed: Hadoop
+    messages may echo the endpoint.
     """
-    path = local_path(location)
-    if not path:
-        return "location is not a local path"
-    real, error = managed_table_dir(path, MANAGED_ROOT)
-    if error:
-        return error
-    if not os.path.isdir(real):
-        return None
+    outcome, todo, done = {}, [], {}
+    for key, location in items:
+        uri = notislake_uri(location)
+        if session is None or uri is None or not LOCATIONS.managed_table(uri):
+            outcome[key] = "location is not a managed table folder"
+        else:
+            todo.append((key, uri))
+    if not todo:
+        return outcome
+
+    cancelled = threading.Event()
+
+    def remove_all(open_path):
+        deadline = time.monotonic() + S3A_DELETE_BUDGET
+        for key, uri in todo:
+            if cancelled.is_set() or time.monotonic() >= deadline:
+                return
+            try:
+                path, fs = open_path(uri)
+                if fs.exists(path):
+                    fs.delete(path, True)
+                done[key] = None if not fs.exists(path) else "the bucket still lists the folder"
+            except Exception:
+                done[key] = "the delete failed; the files may remain"
     try:
-        shutil.rmtree(real)
-    except OSError as exc:
-        return short(exc)
-    return None
+        s3a_call(session, remove_all, S3A_DELETE_BUDGET, bulk=True)
+    except S3AUnavailable:
+        cancelled.set()
+    finished = dict(done)
+    for key, _uri in todo:
+        outcome[key] = finished[key] if key in finished else "s3a://notislake/ did not finish in time or is not configured; the files may remain"
+    return outcome
 
 
 def connect():
@@ -625,14 +653,18 @@ def describe_new(session, key, table):
         return None
     loc = norm_loc(info["location"])
     if in_iceberg(loc):
-        warn(("warehouse", skey, key), "table %s is inside the Iceberg warehouse; it is not saved in the persistent catalog." % label)
+        warn(("warehouse", skey, key), "table %s is inside the Iceberg prefix of the bucket; it is not saved in the persistent catalog." % label)
         return None
-    if not allowed_location(loc):
+    if in_spark_warehouse(loc, table.tableType == "MANAGED"):
+        warn(("warehouse", skey, key), "table %s is inside the Spark warehouse but is not a managed table there; it is not saved in the persistent catalog." % label)
+        return None
+    if not allowed_location(loc, table.tableType == "MANAGED"):
         warn(("outside", skey, key), "table %s is outside %s; it is not saved in the persistent catalog." % (label, outside_text(loc)))
         return None
     fmt = info["provider"]
     parts = [c["name"] for c in info["columns"] if c["is_partition"]]
-    return {"fmt": fmt, "loc": loc, "type": table.tableType, "cols": info["columns"], "parts": parts,
+    typ = "EXTERNAL" if table.tableType == "MANAGED" and not managed_shape(loc) else table.tableType
+    return {"fmt": fmt, "loc": loc, "type": typ, "cols": info["columns"], "parts": parts,
             "dv": delta_version(loc, session) if fmt == "delta" else None,
             "hi": hudi_instant(loc, session) if fmt == "hudi" else None, "description": table.description}
 
@@ -702,7 +734,7 @@ def refresh_hydrated(session, skey, keys):
             changes.append((key, change))
     if changes or leaving:
         STATE.setdefault("ignored", {}).setdefault(skey, set()).update(leaving)
-        apply_changes(skey, [], changes, [], leaving, set(), set(), keep_files=set(leaving))
+        apply_changes(skey, [], changes, [], leaving, set(), set(), keep_files=set(leaving), session=session)
 
 
 def set_iceberg_token(session):
@@ -733,16 +765,30 @@ def close_s3a_bucket(session):
     hadoop_conf = session.sparkContext._jsc.hadoopConfiguration()
     for key, value in S3A_CLOSED.items():
         hadoop_conf.set(key, value)
+    for key in S3A_CLEARED:
+        hadoop_conf.set(key, "")
+    renew_s3a_fs(session, hadoop_conf)
+
+
+def renew_s3a_fs(session, hadoop_conf):
+    """Replace the cached FileSystem of the bucket by one built from `hadoop_conf` and keep a reference to it.
+
+    `FileSystem.get` returns one cached instance per scheme+authority+user whatever the conf of the caller, so the
+    first one created wins: the old one (made before the credential) is closed, the new one is created now and held
+    in STATE, and a later clone of the SparkSession without the credential finds it in the cache instead of filling it.
+    """
     jvm = session.sparkContext._jvm
-    jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI.create(S3A_ROOT), hadoop_conf).close()
+    uri = jvm.java.net.URI.create(S3A_ROOT)
+    jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf).close()
+    STATE.setdefault("s3a_fs", {})[session_key(session)] = jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
 
 
 def set_s3a(session):
     """Write the S3A options of the `notislake` bucket in the Hadoop conf, once per SparkContext.
 
     Runs after the original `getOrCreate`: through the builder `.config()` the secret would become a
-    `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystem of the bucket is closed
-    so the new credentials apply. The warning is fixed text: Hadoop messages may echo the key.
+    `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystem of the bucket is renewed
+    and kept (`renew_s3a_fs`) so the new credentials apply. The warning is fixed text: Hadoop messages may echo the key.
     Without `s3a` in the config, or when the setup fails, the bucket is closed (`close_s3a_bucket`).
     """
     skey = session_key(session)
@@ -761,8 +807,7 @@ def set_s3a(session):
         hadoop_conf = sc._jsc.hadoopConfiguration()
         for key, value in S3A.items():
             hadoop_conf.set(key, str(value))
-        jvm = sc._jvm
-        jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI.create(S3A_ROOT), hadoop_conf).close()
+        renew_s3a_fs(session, hadoop_conf)
     except Exception as exc:
         status = "failed"
         STATE.setdefault("errors", []).append("s3a: %s" % type(exc).__name__)
@@ -779,8 +824,9 @@ def attach(session):
     if getattr(session, "_jsparkSession", None) is None:
         return
     # Sessions made by `SparkSession(sc)` or `newSession()` never pass through getOrCreate.
-    set_iceberg_token(session)
+    # Credential first: the FileSystem that Spark builds later must already find the bucket configured.
     guarded("s3a", set_s3a, session)
+    set_iceberg_token(session)
     skey = session_key(session)
     if skey in STATE.setdefault("attached", set()) or skey in STATE.setdefault("off", set()):
         return
@@ -914,9 +960,13 @@ def probe_table(session, key, rec, deep):
     if loc != rec["loc"]:
         skey, label = session_key(session), "%s.%s" % key
         if in_iceberg(loc):
-            warn(("warehouse", skey, key), "table %s moved into the Iceberg warehouse; it is no longer saved in the persistent catalog." % label)
+            warn(("warehouse", skey, key), "table %s moved into the Iceberg prefix of the bucket; it is no longer saved in the persistent catalog." % label)
             return LEAVE
-        if not allowed_location(loc):
+        managed = rec.get("type") == "MANAGED"  # an EXTERNAL moved into the warehouse is refused, like the backend does
+        if in_spark_warehouse(loc, managed):
+            warn(("warehouse", skey, key), "table %s moved into the Spark warehouse without being a managed table there; it is no longer saved in the persistent catalog." % label)
+            return LEAVE
+        if not allowed_location(loc, managed):
             warn(("outside", skey, key), "table %s moved outside %s; it is no longer saved in the persistent catalog." % (label, outside_text(loc)))
             return LEAVE
     return None if all(new[f] == rec.get(f) for f in new) else new
@@ -946,6 +996,19 @@ def wire_info(info):
     return {k: info[k] for k in ("fmt", "loc", "cols", "parts", "dv", "hi")}
 
 
+def wire_deletions(raw):
+    """Keep only the `(key, loc)` removals the backend authorized with a well-formed key and a MANAGED-shaped s3a `loc`."""
+    out = []
+    for item in raw if isinstance(raw, list) else ():
+        if not isinstance(item, dict):
+            continue
+        key, loc = item.get("key"), item.get("loc")
+        if (isinstance(key, (list, tuple)) and len(key) == 2 and all(isinstance(p, str) for p in key)
+                and isinstance(loc, str) and LOCATIONS.managed_table(loc)):
+            out.append((tuple(key), loc))
+    return out
+
+
 def commit_http(plan):
     """POST the plan; the backend decides types and deletes MANAGED files, and answers in the shape `apply_plan` returns."""
     body = {
@@ -962,7 +1025,7 @@ def commit_http(plan):
     reply = http_call("POST", "/plan", body)
     changes = {k: c for k, _l, _t, c in plan["updated"]}
     infos = {(o, n): i for o, n, _l, i in plan["renamed"]}
-    out = {"changed": bool(reply["changed"]), "deletions": [],
+    out = {"changed": bool(reply["changed"]), "deletions": wire_deletions(reply.get("deletions", [])),
            "adopted": [tuple(k) for k in reply["adopted"]],
            "conflicts": [tuple(k) for k in reply["conflicts"]],
            "dropped_ok": [tuple(k) for k in reply["dropped_ok"]],
@@ -990,10 +1053,11 @@ def commit_plan(plan, stamp):
     return result
 
 
-def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, keep_files=frozenset()):
+def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, keep_files=frozenset(), session=None):
     """Write the plan in one transaction, then update `known`, delete files and warn.
 
     `keep_files`: dropped keys that only leave the registry (the table still exists); sent as `unregistered`, so no transport deletes their files.
+    `session` deletes the folders of the dropped s3a MANAGED tables, all of them under one `S3A_DELETE_BUDGET`.
     """
     known = STATE["known"][skey]
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
@@ -1022,26 +1086,23 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
     for old, new, info in result["renamed_ok"]:
         rec = known.pop(old)
         known[new] = {**rec, **{f: info[f] for f in ("fmt", "loc", "cols", "parts", "dv", "hi")}}
+        if rec["type"] == "MANAGED" and info["loc"] != rec["loc"] and not managed_shape(info["loc"]):
+            known[new]["type"] = "EXTERNAL"  # mirrors the demotion apply_plan wrote
     for key in result["dropped_ok"]:
         known.pop(key, None)
     known_dbs |= set(new_dbs)
     known_dbs -= set(gone_dbs)
-    for key, loc in result["deletions"]:
-        if key in keep_files:
-            continue
-        error = delete_managed(loc)
+    pending = [(key, loc) for key, loc in result["deletions"] if key not in keep_files]
+    for key, error in (delete_managed_s3a(session, pending) if pending else {}).items():
         if error:
             warn(("delete", skey, key), "kept the files of dropped table %s.%s (%s)." % (*key, error))
     for key in result.get("files_kept", ()):
-        warn(("delete", skey, key), "kept the files of dropped table %s.%s (the catalog API could not remove them)." % key)
+        warn(("delete", skey, key), "kept the files of dropped table %s.%s (another registered table uses that folder, or the catalog API could not remove them)." % key)
 
 
 def managed_shape(location):
-    path = local_path(location)
-    if not path:
-        return False
-    real, root = os.path.realpath(path), os.path.realpath(MANAGED_ROOT)
-    return real.startswith(root + os.sep) and len(os.path.relpath(real, root).split(os.sep)) <= 2
+    """Only `s3a://notislake/bronze/spark/<t>` or `<db>.db/<t>` is MANAGED; no local path is."""
+    return is_s3a(location) and LOCATIONS.managed_table(location)
 
 
 def deep_keys(raw_cell, known):
@@ -1105,7 +1166,7 @@ def reconcile(session, raw_cell):
     gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed}
     plan = (list(created.items()), updated, renamed, vanished + leaving, new_dbs, gone_dbs)
     if any(plan):
-        apply_changes(skey, *plan, keep_files=set(leaving))
+        apply_changes(skey, *plan, keep_files=set(leaving), session=session)
 
 
 def unwrap(func):
@@ -1132,7 +1193,7 @@ def wrap_stop(original):
                 reconcile(self, None)
                 STATE.get("attached", set()).discard(session_key(self))
                 STATE.get("s3a_done", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status"):
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
@@ -1255,9 +1316,9 @@ mod.register()
 def _render(config: dict[str, object]) -> str:
     locations_source = inspect.getsource(notislake_locations)
     helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, apply_plan))
+    config = {**config, "s3a_closed": closed_options()}
     source = (
-        _KERNEL_TEMPLATE.replace("__MANAGED_HELPERS__", inspect.getsource(managed_table_dir).rstrip())
-        .replace("__REGISTRY_HELPERS__", helpers)
+        _KERNEL_TEMPLATE.replace("__REGISTRY_HELPERS__", helpers)
         .replace("__LOCATIONS_SOURCE__", repr(locations_source))
         .replace("__CONFIG__", repr(json.dumps(config)))
     )
@@ -1275,19 +1336,14 @@ def _with_s3a(config: dict[str, object], s3a: Mapping[str, str] | None) -> dict[
     return {**config, "s3a": dict(s3a)} if s3a else config
 
 
-def build_ensure_code(
-    db_path: str, managed_root: str, iceberg_warehouse: str, s3a: Mapping[str, str] | None = None
-) -> str:
-    """Return the idempotent snippet that installs the catalog hook with the given paths (SQLite transport)."""
-    config = {"db_path": db_path, "managed_root": managed_root, "iceberg_warehouse": iceberg_warehouse}
-    return _render(_with_s3a(config, s3a))
+def build_ensure_code(db_path: str, s3a: Mapping[str, str] | None = None) -> str:
+    """Return the idempotent snippet that installs the catalog hook with the given catalog path (SQLite transport)."""
+    return _render(_with_s3a({"db_path": db_path}, s3a))
 
 
 def build_http_ensure_code(
     base_url: str,
     token: str,
-    managed_root: str,
-    iceberg_warehouse: str,
     roots: tuple[str, ...],
     s3a: Mapping[str, str] | None = None,
 ) -> str:
@@ -1299,8 +1355,6 @@ def build_http_ensure_code(
         "transport": "http",
         "base_url": base_url,
         "token": token,
-        "managed_root": managed_root,
-        "iceberg_warehouse": iceberg_warehouse,
         "roots": list(roots),
     }
     return _render(_with_s3a(config, s3a))

@@ -2,6 +2,7 @@
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
   run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]
+                         [--s3a-closed JSON]
                          lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
                          vira líder de grupo, grava PID+starttime em /run/notisbook e faz exec do ipykernel
   kill <tag>             SIGKILL no grupo do kernel de <tag> (validando PID+starttime)
@@ -27,7 +28,16 @@ RUN_DIR = "/run/notisbook"
 TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
-RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse"}
+RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse", "--s3a-closed"}
+# As únicas URIs s3a aceitas; espelham `notislake.locations` (o incontainer não importa `notisbook.*`).
+S3A_WAREHOUSES = {
+    "--warehouse-dir": "s3a://notislake/bronze/spark",
+    "--iceberg-warehouse": "s3a://notislake/bronze/iceberg",
+}
+# Config fechada do bucket vinda do launch (`sparkconf.closed_options()`): chave por bucket e valor simples.
+S3A_KEY_RE = re.compile(r"fs\.s3a\.bucket\.notislake\.[a-z][a-z0-9.]{0,80}")
+S3A_VALUE_RE = re.compile(r"[A-Za-z0-9:./_-]{1,200}")
+S3A_FORBIDDEN = ("secret", "access.key", "token")
 ICEBERG_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/iceberg")
 SUBMIT_ARGS = (
     "--conf spark.sql.catalogImplementation=in-memory "
@@ -40,14 +50,35 @@ PYSPARK_SHELL = "pyspark-shell"
 DELTA_JAR_GLOBS = ("/usr/share/aws/delta/lib/delta-spark_2.12-*.jar", "/usr/share/aws/delta/lib/delta-spark.jar")
 
 
+def _parse_s3a_closed(raw: str) -> dict[str, str] | None:
+    """Config fechada do bucket do `--s3a-closed`; None se não for JSON de chaves/valores simples sem segredo."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return None
+    if not isinstance(data, dict) or not data:
+        return None
+    for key, value in data.items():
+        if not (isinstance(key, str) and isinstance(value, str)):
+            return None
+        if not (S3A_KEY_RE.fullmatch(key) and S3A_VALUE_RE.fullmatch(value)):
+            return None
+        if any(word in key for word in S3A_FORBIDDEN):
+            return None
+    return data
+
+
 def _submit_args(
-    warehouse_dir: str | None, iceberg_uri: str | None = None, iceberg_warehouse: str | None = None
+    warehouse_dir: str | None,
+    iceberg_uri: str | None = None,
+    iceberg_warehouse: str | None = None,
+    s3a_closed: dict[str, str] | None = None,
 ) -> str:
     """SUBMIT_ARGS com o warehouse e o catálogo `iceberg` (REST) do app; o PySpark separa a variável com shlex.
 
-    Sem segredos: o token do catálogo é definido depois, pelo kernel (nunca aparece no `ps` do container).
+    Sem segredos: o token do catálogo e a credencial S3A entram depois, pelo hook do kernel (nunca no `ps`).
     """
-    confs = []
+    confs = [f"spark.hadoop.{key}={value}" for key, value in (s3a_closed or {}).items()]
     if warehouse_dir:
         confs.append(f"spark.sql.warehouse.dir={warehouse_dir}")
     if iceberg_uri and iceberg_warehouse:
@@ -223,7 +254,10 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
             )
     _kernel_env()
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
-        options.get("--warehouse-dir"), options.get("--iceberg-uri"), options.get("--iceberg-warehouse")
+        options.get("--warehouse-dir"),
+        options.get("--iceberg-uri"),
+        options.get("--iceberg-warehouse"),
+        _parse_s3a_closed(options["--s3a-closed"]) if "--s3a-closed" in options else None,
     )
     try:
         os.execv(
@@ -256,9 +290,11 @@ def _run_options(rest: list[str]) -> dict[str, str] | None:
     options = dict(zip(rest[::2], rest[1::2]))
     if len(options) * 2 != len(rest) or not set(options) <= RUN_OPTIONS:
         return None
-    for name in ("--warehouse-dir", "--iceberg-warehouse"):
-        if name in options and not os.path.isabs(options[name]):
+    for name, s3a_uri in S3A_WAREHOUSES.items():
+        if name in options and options[name] != s3a_uri:
             return None
+    if "--s3a-closed" in options and _parse_s3a_closed(options["--s3a-closed"]) is None:
+        return None
     if ("--iceberg-uri" in options) != ("--iceberg-warehouse" in options):
         return None
     if "--iceberg-uri" in options and not ICEBERG_URI_RE.fullmatch(options["--iceberg-uri"]):
@@ -281,6 +317,7 @@ def main(argv: list[str]) -> None:
         _fail(
             2,
             "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]"
+            " [--s3a-closed JSON]"
             " | kill <tag> | sweep | packages",
         )
 

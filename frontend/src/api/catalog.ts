@@ -82,7 +82,10 @@ export interface SchemaPreview {
   /** Tabelas Hudi do schema; no `spark_catalog` e no `hudi` a exclusão remove as duas contagens. Sempre 0 no `iceberg`. */
   hudi: number;
   views: number;
+  /** Sempre 0: o backend não apaga pastas de tabelas gerenciadas. */
   managed: number;
+  /** Pastas MANAGED s3a que permanecem no bucket notislake após a exclusão do schema. */
+  managed_kept: number;
   external: number;
   can_delete: boolean;
   /** Código do motivo quando `can_delete` é false. */

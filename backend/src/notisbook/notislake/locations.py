@@ -11,7 +11,10 @@ from dataclasses import dataclass
 BUCKET = "notislake"
 SCHEME = "s3a"
 MIN_DEPTH = 2  # `<camada>/<dataset>`: a raiz do bucket e uma camada sozinha não são locations de tabela
-RESERVED_ICEBERG_PREFIX = f"{SCHEME}://{BUCKET}/bronze/iceberg/"
+SPARK_WAREHOUSE = f"{SCHEME}://{BUCKET}/bronze/spark"
+ICEBERG_WAREHOUSE = f"{SCHEME}://{BUCKET}/bronze/iceberg"
+RESERVED_ICEBERG_PREFIX = ICEBERG_WAREHOUSE + "/"
+_DB_SUFFIX = ".db"
 
 _PREFIX = f"{SCHEME}://{BUCKET}/"
 
@@ -76,3 +79,32 @@ def is_reserved_iceberg(uri: str) -> bool:
     except InvalidLocation:
         return False
     return (loc.uri + "/").startswith(RESERVED_ICEBERG_PREFIX)
+
+
+def managed_table(uri: str) -> bool:
+    """`uri` é exatamente `<SPARK_WAREHOUSE>/<t>` ou `<SPARK_WAREHOUSE>/<db>.db/<t>` (caixa exata).
+
+    Um único componente terminado em `.db` é a pasta de um database, não uma tabela.
+    """
+    try:
+        segments = parse_notislake(uri).segments
+    except InvalidLocation:
+        return False
+    root = parse_notislake(SPARK_WAREHOUSE).segments
+    if segments[: len(root)] != root:
+        return False
+    rest = segments[len(root) :]
+    if len(rest) == 1:
+        return not rest[0].endswith(_DB_SUFFIX)
+    if len(rest) == 2:
+        return rest[0].endswith(_DB_SUFFIX) and len(rest[0]) > len(_DB_SUFFIX)
+    return False
+
+
+def is_reserved_spark(uri: str) -> bool:
+    """`uri` é válida e é `s3a://notislake/bronze/spark` ou está abaixo dele."""
+    try:
+        loc = parse_notislake(uri)
+    except InvalidLocation:
+        return False
+    return (loc.uri + "/").startswith(SPARK_WAREHOUSE + "/")
