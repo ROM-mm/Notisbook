@@ -19,8 +19,9 @@ import sqlite3
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from importlib import metadata
-from typing import Any, Callable
+from typing import Any
 
 KERNEL_TIMEOUT_S = 60
 S3A_FILESYSTEM_CLASS = "org.apache.hadoop.fs.s3a.S3AFileSystem"
@@ -41,7 +42,7 @@ def _err(exc: BaseException) -> str:
 def _guard(fn: Callable[[], Result]) -> Result:
     try:
         return fn()
-    except Exception as exc:  # a validação deve reportar qualquer falha, nunca propagá-la
+    except Exception as exc:  # noqa: BLE001 - a validação deve reportar qualquer falha, nunca propagá-la
         return {"ok": False, "error": _err(exc)}
 
 
@@ -251,7 +252,7 @@ def run_checks() -> dict[str, Result]:
     if "spark" in state:
         try:
             state["spark"].stop()
-        except Exception as exc:  # falha ao encerrar não invalida os resultados já obtidos
+        except Exception as exc:  # noqa: BLE001 - falha ao encerrar não invalida os resultados já obtidos
             print(f"spark.stop falhou: {_err(exc)}", file=sys.stderr)
     return results
 
