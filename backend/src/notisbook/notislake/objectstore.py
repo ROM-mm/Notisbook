@@ -164,19 +164,19 @@ def resolve_from_app(home: Path, supervisor: _Supervisor | None) -> Connection:
 
 
 _cache_lock = threading.Lock()
-_cache: tuple[tuple[Connection, int], Any] | None = None
+_cache: tuple[Connection, dict[int, Any]] | None = None
 
 
 def make_client(connection: Connection, *, retries: int = _LIST_RETRIES) -> Any:
-    """Cliente S3 path-style para `connection`, com cache de uma posição (a chave inclui os retries)."""
+    """Cliente S3 path-style para `connection`, reaproveitado por perfil de retries; só a conexão mais recente fica em cache."""
     global _cache
-    key = (connection, retries)
     with _cache_lock:
-        if _cache is not None and _cache[0] == key:
-            return _cache[1]
-        client = _build_client(connection, retries)
-        _cache = (key, client)
-        return client
+        if _cache is None or _cache[0] != connection:
+            _cache = (connection, {})
+        clients = _cache[1]
+        if retries not in clients:
+            clients[retries] = _build_client(connection, retries)
+        return clients[retries]
 
 
 def _build_client(connection: Connection, retries: int) -> Any:
