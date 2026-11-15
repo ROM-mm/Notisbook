@@ -51,6 +51,14 @@ ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
 S3A_PREFIX = "fs.s3a.bucket.notislake."
 S3A_ROOT = "s3a://notislake/"
+S3A_CLOSED = {
+    S3A_PREFIX + "endpoint": "http://127.0.0.1:1",
+    S3A_PREFIX + "path.style.access": "true",
+    S3A_PREFIX + "connection.ssl.enabled": "false",
+    S3A_PREFIX + "access.key": "",
+    S3A_PREFIX + "secret.key": "",
+    S3A_PREFIX + "aws.credentials.provider": "org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider",
+}
 S3A_SCHEME = "s3a://"
 S3A_PROBE_TIMEOUT = 5.0  # one JVM call; the cell hooks (before + after) stay well under 15 s with MinIO down
 S3A_PAUSE = 30.0  # circuit breaker: s3a probes stay suspended this long after a failure
@@ -214,7 +222,13 @@ def s3a_call(session, fn):
     thread that is abandoned on timeout; while that thread lives no other probe starts (they would pile up).
     Any failure opens the breaker (no probe for `S3A_PAUSE`, one warning).
     A missing path is not a failure: `fn` reports it by its return value (`exists` is False, not an exception).
+    Without a working S3A setup in the session nothing is probed: the bucket would resolve to the public AWS endpoint.
     """
+    status = s3a_status(session)
+    if status != "ok":
+        if status != "failed":  # a failed setup already warned
+            warn(("s3a-unset", session_key(session)), "S3A is not configured in this session; s3a://notislake/ tables are not checked.")
+        raise S3AUnavailable()
     if time.monotonic() < STATE.get("s3a_open_until", 0.0):
         raise S3AUnavailable()
     previous = STATE.get("s3a_probe")
@@ -244,6 +258,12 @@ def s3a_call(session, fn):
         raise S3AUnavailable()
     STATE["s3a_open_until"] = 0.0
     return box["value"]
+
+
+def retry_when_reachable(session):
+    """Ask for another registry pass once the breaker reopens; pointless without a working S3A setup."""
+    if s3a_status(session) == "ok":
+        STATE["resync"] = True
 
 
 def s3a_names(session, location, sub=""):
@@ -304,6 +324,18 @@ def delta_advanced(location, version, session=None):
     return os.path.exists(os.path.join(base, "_delta_log", "%020d.json" % (version + 1)))
 
 
+def latest_hudi_instant(timeline, hoodie):
+    """Latest completed instant from the names of `.hoodie/timeline` (None when the folder is missing) and `.hoodie`."""
+    if timeline is None:
+        legacy = [m.group(1) for m in map(HUDI_V1_INSTANT_RE.match, hoodie() or []) if m]
+        return max(legacy, key=int) if legacy else None
+    done = [m.groups() for m in map(HUDI_INSTANT_RE.match, timeline) if m]
+    if not done:
+        return None
+    req, comp = max(done, key=lambda g: (int(g[1]), int(g[0])))
+    return "%s_%s" % (req, comp)
+
+
 def hudi_instant(location, session=None):
     """Marker of the latest completed Hudi instant, or None (`.requested`/`.inflight` and dotfiles never match).
 
@@ -312,16 +344,25 @@ def hudi_instant(location, session=None):
     `.hoodie/<ts>.<action>`, returns `<ts>`.
     """
     if is_s3a(location):
-        names = s3a_names(session, location, ".hoodie/timeline")
-        if names is None:
-            names = s3a_names(session, location, ".hoodie")
-            legacy = [m.group(1) for m in map(HUDI_V1_INSTANT_RE.match, names or []) if m]
-            return max(legacy, key=int) if legacy else None
-        done = [m.groups() for m in map(HUDI_INSTANT_RE.match, names) if m]
-        if not done:
+        return latest_hudi_instant(s3a_names(session, location, ".hoodie/timeline"),
+                                   lambda: s3a_names(session, location, ".hoodie"))
+    base = local_path(location)
+    if not base:
+        return None
+    hoodie = os.path.join(base, ".hoodie")
+    try:
+        timeline = os.listdir(os.path.join(hoodie, "timeline"))
+    except FileNotFoundError:
+        timeline = None
+    except OSError:
+        return None
+
+    def legacy_names():
+        try:
+            return os.listdir(hoodie)
+        except OSError:
             return None
-        req, comp = max(done, key=lambda g: (int(g[1]), int(g[0])))
-        return "%s_%s" % (req, comp)
+    return latest_hudi_instant(timeline, legacy_names)
     base = local_path(location)
     if not base:
         return None
@@ -649,7 +690,7 @@ def hydrate(session, skey, rows, namespaces, listing=None):
             try:
                 present = s3a_exists(session, row["loc"])
             except S3AUnavailable:
-                STATE["resync"] = True  # not a final verdict (and no second warning): look again once the breaker reopens
+                retry_when_reachable(session)  # not a final verdict (and no second warning)
                 continue
             if not present:
                 skipped.append(key)
@@ -703,20 +744,35 @@ def s3a_status(session=None):
     return STATE.get("s3a_status", {}).get(session_key(session), "pending")
 
 
+def close_s3a_bucket(session):
+    """Point the `notislake` bucket at a dead loopback endpoint without credentials.
+
+    A session without a working S3A setup would otherwise resolve the bucket to the public AWS endpoint
+    with the default credential chain; here it fails closed (connection refused).
+    """
+    hadoop_conf = session.sparkContext._jsc.hadoopConfiguration()
+    for key, value in S3A_CLOSED.items():
+        hadoop_conf.set(key, value)
+    jvm = session.sparkContext._jvm
+    jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI.create(S3A_ROOT), hadoop_conf).close()
+
+
 def set_s3a(session):
     """Write the S3A options of the `notislake` bucket in the Hadoop conf, once per SparkContext.
 
     Runs after the original `getOrCreate`: through the builder `.config()` the secret would become a
     `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystem of the bucket is closed
     so the new credentials apply. The warning is fixed text: Hadoop messages may echo the key.
+    Without `s3a` in the config, or when the setup fails, the bucket is closed (`close_s3a_bucket`).
     """
-    if not S3A:
-        return
     skey = session_key(session)
     done = STATE.setdefault("s3a_done", set())
     if skey in done:
         return
     done.add(skey)
+    if not S3A:
+        close_s3a_bucket(session)
+        return
     status = "ok"
     try:
         if not all(key.startswith(S3A_PREFIX) for key in S3A):
@@ -732,6 +788,10 @@ def set_s3a(session):
         STATE.setdefault("errors", []).append("s3a: %s" % type(exc).__name__)
         del STATE["errors"][:-MAX_ERRORS]
         warn(("s3a", skey), "S3A setup failed; s3a://notislake/ may be unavailable in this session.")
+        try:
+            close_s3a_bucket(session)
+        except Exception:  # the status already blocks every probe of the hook
+            pass
     STATE.setdefault("s3a_status", {})[skey] = status
 
 
@@ -802,7 +862,7 @@ def files_exist(session, location):
         try:
             return s3a_exists(session, location)
         except S3AUnavailable:
-            STATE["resync"] = True
+            retry_when_reachable(session)
             return True
     path = local_path(location)
     return bool(path and os.path.exists(path))
