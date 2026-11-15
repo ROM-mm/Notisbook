@@ -100,7 +100,10 @@ async def create_session(
     except DockerRuntimeError as exc:
         # 409: runtime em instalação/alteração, container ausente ou montagens defasadas; 503: Docker indisponível.
         raise HTTPException(exc.status_code, exc.message) from exc
-    return {"session_id": session.session_id}
+    response = {"session_id": session.session_id}
+    if session.s3a_notice is not None:
+        response["notice_code"], response["notice_message"] = session.s3a_notice
+    return response
 
 
 @router.delete("/sessions/{session_id}", status_code=204)
@@ -139,6 +142,9 @@ async def session_channel(websocket: WebSocket, session_id: str) -> None:
         with contextlib.suppress(Exception):
             await previous.close(code=WS_REPLACED)
     await send(StatusEvent(state=session.state))
+    notice = session.take_s3a_notice()
+    if notice is not None:
+        await send(ErrorEvent(code=notice[0], message=notice[1]))
 
     try:
         while True:

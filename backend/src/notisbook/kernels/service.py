@@ -216,6 +216,8 @@ class KernelSession:
     # Reavalia a conexão S3A no restart sem levantar; None mantém a conexão com que a sessão abriu.
     s3a_resolver: Callable[[], S3AResolution] | None = None
     _s3a_options: dict[str, str] | None = field(default=None, repr=False)
+    # Aviso da abertura (ex.: endpoint não suportado); o canal o entrega uma vez, como o do restart.
+    s3a_notice: tuple[str, str] | None = None
     _restarting: bool = False
     _channel_tasks: list[asyncio.Task[None]] = field(default_factory=list)
     _ready_task: asyncio.Task[None] | None = None
@@ -227,6 +229,11 @@ class KernelSession:
     _var_cache: OrderedDict[str, Any] = field(default_factory=OrderedDict)
     _var_gen: int = 0
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def take_s3a_notice(self) -> tuple[str, str] | None:
+        """Devolve o aviso de abertura pendente e o limpa (entregue uma única vez)."""
+        notice, self.s3a_notice = self.s3a_notice, None
+        return notice
 
     def info(self) -> dict[str, str]:
         return {
@@ -965,6 +972,7 @@ class KernelService:
                 local_catalog_factory=None if docker_runtime is not None else local_factory,
                 s3a_resolver=lambda: self._resolve_s3a(docker=is_docker, strict=False),
                 _s3a_options=s3a.options,
+                s3a_notice=s3a.notice,
                 docker_runtime=docker_runtime,
                 docker_tag=docker_launch.tag_for(connection_file) if docker_runtime is not None else "",
                 runtime_tokens=self.runtime_tokens if docker_runtime is not None else None,
