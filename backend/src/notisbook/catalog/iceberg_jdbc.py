@@ -303,6 +303,8 @@ def _read_remote(location: str, open_store: StoreOpener | None) -> bytes:
     try:
         return objectstore.get_bounded(open_store(), key, max_bytes=MAX_METADATA_BYTES)
     except objectstore.ObjectStoreError as exc:
+        if exc.code in (objectstore.TIMEOUT, objectstore.UNREACHABLE):
+            raise MetadataStoreUnavailable("object store unavailable") from None
         raise IcebergMetadataError(exc.code) from None
     except (objectstore.Unavailable, ConfigInvalid):
         raise MetadataStoreUnavailable("object store unavailable") from None
