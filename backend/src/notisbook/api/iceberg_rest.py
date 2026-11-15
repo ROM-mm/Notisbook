@@ -181,8 +181,11 @@ def _no_such_table() -> IcebergError:
     return IcebergError(404, "NoSuchTableException", "Tabela não encontrada")
 
 
-def _s3a_refused(message: str) -> IcebergError:
-    return IcebergError(409, "CommitFailedException", message)
+def _s3a_refused(message: str, commit: bool) -> IcebergError:
+    """Recusa de gravação s3a: 409 só no commit; no create o 409 viraria AlreadyExistsException no cliente."""
+    if commit:
+        return IcebergError(409, "CommitFailedException", message)
+    return _bad_request(message)
 
 
 def parse_namespace(raw: str) -> str:
@@ -227,20 +230,20 @@ class _Store:
         self._writer: objectstore.Connection | None = None
 
     def writer(self, commit: bool) -> objectstore.Connection:
-        """Conexão para gravar; 409 se o kernel abriu sem S3A ou a conexão atual difere da dele."""
+        """Conexão para gravar; recusa (409 no commit, 400 no create) se o kernel abriu sem S3A ou a conexão difere."""
         if self._writer is not None:
             return self._writer
         expected = self._grant.s3a_fingerprint
         if expected is None:
-            raise _s3a_refused("O kernel foi aberto sem conexão S3A; reinicie-o para gravar em s3a")
+            raise _s3a_refused("O kernel foi aberto sem conexão S3A; reinicie-o para gravar em s3a", commit)
         try:
             conn = self.opener()
         except ConfigInvalid:
-            raise _s3a_refused("A configuração do notislake é inválida; corrija-a e reinicie o kernel") from None
+            raise _s3a_refused("A configuração do notislake é inválida; corrija-a e reinicie o kernel", commit) from None
         except objectstore.Unavailable:
             raise _unavailable("O armazenamento notislake está indisponível", commit) from None
         if not hmac.compare_digest(expected, fingerprint(conn)):
-            raise _s3a_refused("A conexão do notislake mudou depois da abertura do kernel; reinicie-o para gravar em s3a")
+            raise _s3a_refused("A conexão do notislake mudou depois da abertura do kernel; reinicie-o para gravar em s3a", commit)
         self._writer = conn
         return conn
 

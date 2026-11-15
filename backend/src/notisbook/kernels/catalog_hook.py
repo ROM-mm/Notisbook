@@ -363,26 +363,6 @@ def hudi_instant(location, session=None):
         except OSError:
             return None
     return latest_hudi_instant(timeline, legacy_names)
-    base = local_path(location)
-    if not base:
-        return None
-    hoodie = os.path.join(base, ".hoodie")
-    try:
-        names = os.listdir(os.path.join(hoodie, "timeline"))
-    except FileNotFoundError:
-        try:
-            names = os.listdir(hoodie)
-        except OSError:
-            return None
-        legacy = [m.group(1) for m in map(HUDI_V1_INSTANT_RE.match, names) if m]
-        return max(legacy, key=int) if legacy else None
-    except OSError:
-        return None
-    done = [m.groups() for m in map(HUDI_INSTANT_RE.match, names) if m]
-    if not done:
-        return None
-    req, comp = max(done, key=lambda g: (int(g[1]), int(g[0])))
-    return "%s_%s" % (req, comp)
 
 
 __MANAGED_HELPERS__
