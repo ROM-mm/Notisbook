@@ -226,7 +226,8 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
     if bundle is None:
         return "\n".join(lines) + "\n"
     jars = ",".join(str(jars_dir / artifact.filename) for artifact in bundle.artifacts)
-    driver_jars = ",".join(str(jars_dir / artifact.filename) for artifact in bundle.driver_artifacts)
+    # JVM classpath, not a Spark list: entries are separated by the platform path separator, unlike `spark.jars`.
+    driver_jars = os.pathsep.join(str(jars_dir / artifact.filename) for artifact in bundle.driver_artifacts)
     extensions = f"{EXT_ICEBERG},{EXT_DELTA},{EXT_HUDI}"
     lines += [
         f"spark.jars {jars}",
