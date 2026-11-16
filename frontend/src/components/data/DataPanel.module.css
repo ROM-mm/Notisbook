@@ -21,7 +21,7 @@
   padding-bottom: 0;
 }
 
-/* Cartão sem cabeçalho (Connections): respiro no topo no lugar da barra de título. */
+/* Cartão sem cabeçalho (Connections): respiro no topo para alinhar com os cartões que têm título. */
 .sectionHeaderless {
   padding-top: var(--space-2);
 }

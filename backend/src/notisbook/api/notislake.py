@@ -24,7 +24,7 @@ from ..notislake.bootstrap import BUCKET
 from ..notislake.objectstore import Connection, ObjectStoreError, Unavailable
 from ..notislake.ports import LOOPBACK
 from ..notislake.settings_store import ConfigInvalid, ManualConfig
-from ..notislake.supervisor import NotislakeSupervisor
+from ..notislake.supervisor import LocalConnection, NotislakeSupervisor
 from ..security import require_token, require_trusted_host
 
 NO_STORE = {"Cache-Control": "no-store"}
@@ -88,6 +88,11 @@ class ConfigBody(BaseModel):
 
 def _supervisor(request: Request) -> NotislakeSupervisor | None:
     return request.app.state.notislake
+
+
+def _local_connection(request: Request) -> LocalConnection | None:
+    supervisor = _supervisor(request)
+    return supervisor.connection() if supervisor is not None else None
 
 
 def _settings(request: Request) -> Settings:
@@ -223,8 +228,7 @@ def retry(request: Request) -> dict[str, Any]:
 
 @router.get("/local/credentials")
 def get_local_credentials(request: Request) -> dict[str, str]:
-    supervisor = _supervisor(request)
-    connection = supervisor.connection() if supervisor is not None else None
+    connection = _local_connection(request)
     if connection is None:
         raise _error(409, "not_running", "O MinIO local não está em execução.")
     return {"user": connection.access_key, "password": connection.secret_key}
@@ -238,8 +242,7 @@ def get_config(request: Request) -> dict[str, Any]:
         return {"mode": "invalid", "field": exc.field}
     if config is not None:
         return _manual_view(config)
-    supervisor = _supervisor(request)
-    connection = supervisor.connection() if supervisor is not None else None
+    connection = _local_connection(request)
     if connection is None:
         return {"mode": "automatic", "local": None}
     local = {"endpoint": connection.endpoint, "access_key": connection.access_key, "region": DEFAULT_REGION}

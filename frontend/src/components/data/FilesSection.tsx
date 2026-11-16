@@ -177,7 +177,7 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   );
 }
 
-export function FilesSection(_props: { collapsed: boolean; onToggle: () => void; onExpand: () => void }) {
+export function FilesSection() {
   const root = useFiles((s) => s.root);
   const [configuring, setConfiguring] = useState(false);
 

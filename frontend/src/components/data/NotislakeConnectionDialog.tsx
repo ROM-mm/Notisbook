@@ -149,7 +149,6 @@ function DialogBody({ onClose }: { onClose: () => void }) {
     accessKey === loaded.accessKey &&
     region === loaded.region &&
     timeoutS === loaded.timeoutS;
-  const canSave = canSubmit && !untouchedAutomatic;
 
   function draft(): NotislakeConfigDraft {
     const d: NotislakeConfigDraft = {
@@ -195,7 +194,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (!canSave) return;
+    if (!canSubmit) return;
     setBusy("save");
     setFeedback(null);
     try {
@@ -221,9 +220,9 @@ function DialogBody({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const secretHint = loaded?.hasSecret
-    ? "Leave empty to keep the saved secret. Required if the endpoint or access key changes."
-    : "Stored by the server; never shown again.";
+  let secretHint = "Stored by the server; never shown again.";
+  if (loaded?.hasSecret) secretHint = "Leave empty to keep the saved secret. Required if the endpoint or access key changes.";
+  else if (automatic && loaded?.name === LOCAL_NAME) secretHint = "Required to test or save a manual connection.";
 
   return (
     <dialog
@@ -324,7 +323,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
               <button type="button" className="btn" disabled={!canSubmit} onClick={() => void runTest()}>
                 {busy === "test" ? "Testing…" : "Test"}
               </button>
-              <button type="submit" className="btn btn-primary" disabled={!canSave}>
+              <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
                 {busy === "save" ? "Saving…" : "Save"}
               </button>
             </>
