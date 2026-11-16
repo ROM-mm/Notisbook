@@ -21,7 +21,7 @@ DEFAULT_DATABASE = "default"
 # Teto da varredura: tabelas por database e no total. Estourar o teto marca `"truncated": true`.
 MAX_TABLES = 500
 MAX_TOTAL_TABLES = 2000
-# Recusa de D2: `<schema>.<t>` já existe no outro catálogo (Delta e Iceberg cairiam na mesma pasta do notislake).
+# Recusa por nome repetido: `<schema>.<t>` já existe no outro catálogo (Delta e Iceberg cairiam na mesma pasta do notislake).
 ERR_NAME_IN_OTHER_CATALOG = "name_in_other_catalog"
 
 
@@ -80,7 +80,7 @@ def namespace_hudi_count(conn: sqlite3.Connection, namespace: str) -> int:
 
 
 def table_name_exists(conn: sqlite3.Connection, namespace: str, table: str) -> bool:
-    """Existe `namespace.table` no registro `nb_tables`, sem distinção de caixa (D2: colisão com o catálogo Iceberg)."""
+    """Existe `namespace.table` no registro `nb_tables`, sem distinção de caixa (colisão com o catálogo Iceberg)."""
     row = conn.execute(
         "SELECT 1 FROM nb_tables WHERE catalog_name = ? AND lower(namespace) = lower(?) AND lower(table_name) = lower(?)",
         (SPARK_CATALOG, namespace, table),
@@ -260,17 +260,23 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
         scheme, sep, rest = loc.partition("://")
         return bool(sep) and scheme.lower() in ("s3", "s3a", "s3n") and rest.partition("/")[0] == "notislake"
 
-    def known_locations(skip_key):
-        # Este corpo roda no kernel só com stdlib: a pasta de uma tabela Iceberg é o pai de `metadata/`.
-        locs = [r[0] for r in conn.execute(
-            "SELECT location FROM nb_tables WHERE catalog_name = 'spark_catalog' AND NOT (namespace = ? AND table_name = ?)",
-            skip_key or ("", ""))]
+    # Lidas uma vez por chamada (a transação já segura o lock de escrita): `spark_locs` acompanha cada
+    # INSERT/UPDATE/DELETE aprovado abaixo; `iceberg_locs` não muda aqui. Roda no kernel só com stdlib:
+    # a pasta de uma tabela Iceberg é o pai de `metadata/`.
+    spark_locs = {}
+    iceberg_locs = []
+    if destination is not None:
+        for ns, name, loc in conn.execute(
+                "SELECT namespace, table_name, location FROM nb_tables WHERE catalog_name = 'spark_catalog'"):
+            spark_locs[(ns, name)] = loc
         if has_iceberg:
             for (meta,) in conn.execute(
                     "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
                 parts = meta.rstrip("/").split("/")[:-1]
-                locs.append("/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts))
-        return locs
+                iceberg_locs.append("/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts))
+
+    def known_locations(skip_key):
+        return [loc for key, loc in spark_locs.items() if key != skip_key] + iceberg_locs
 
     def name_in_iceberg(key):
         return bool(has_iceberg) and conn.execute(
@@ -278,7 +284,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             "AND lower(table_name) = lower(?)", key).fetchone() is not None
 
     def refusal(key, loc, skip_key, new_name):
-        """Código da recusa (`InvalidLocation.code` ou D2) ou `None`; sem `destination` a regra está desligada."""
+        """Código da recusa (`InvalidLocation.code` ou nome repetido) ou `None`; sem `destination` a regra está desligada."""
         if destination is None:
             return None
         if new_name and name_in_iceberg(key):
@@ -309,6 +315,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
                 "VALUES ('spark_catalog', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
                 (*key, info["fmt"], info["loc"], info["type"], json.dumps(info["cols"]), json.dumps(info["parts"]),
                  info["dv"], info["hi"], info.get("description"), stamp, stamp))
+            spark_locs[key] = info["loc"]
             changed = True
             out["adopted"].append(key)
         elif row[0] == info["loc"]:
@@ -333,6 +340,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             (change["fmt"], change["loc"], typ, json.dumps(change["cols"]), json.dumps(change["parts"]),
              change["dv"], change["hi"], stamp, *key, rec_loc))
         if cur.rowcount:
+            spark_locs[key] = change["loc"]
             changed = True
             out["updated_ok"].append((key, {**change, "type": typ}))
     for old, new, rec_loc, info in plan["renamed"]:
@@ -356,6 +364,8 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             out["conflicts"].append(new)
             continue
         if cur.rowcount:
+            spark_locs.pop(old, None)
+            spark_locs[new] = info["loc"]
             changed = True
             out["renamed_ok"].append((old, new, info))
     for key, rec_loc in plan["dropped"]:
@@ -365,6 +375,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             continue  # outro kernel já removeu ou recriou
         conn.execute(
             "DELETE FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ? AND table_name = ?", key)
+        spark_locs.pop(key, None)
         changed = True
         if row[1] != "MANAGED":
             continue
@@ -386,6 +397,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             continue
         conn.execute(
             "DELETE FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ? AND table_name = ?", key)
+        spark_locs.pop(key, None)
         changed = True
     for ns in plan["new_dbs"]:
         changed |= conn.execute(
