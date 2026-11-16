@@ -11,7 +11,8 @@ session's Hadoop FileSystem, bounded by a timeout and a 30 s circuit breaker (se
 
 The config reaches the kernel as JSON literals (the kernel reads no env vars). Hook errors never
 reach the user's cell: they are kept in `STATE["errors"]` and warned once, briefly, on stderr.
-There is no local warehouse: MANAGED tables live in the bucket, and the kernel deletes only the `managed_table`
+Each session creates the four layers in `spark_catalog` with `LOCATION s3a://notislake/<layer>` (`ensure_layers`), so
+MANAGED tables sit in `<layer>/<t>`; the Spark warehouse is a local safety folder. The kernel deletes only the `managed_table`
 folder the registry row authorized, all of a cell's folders under one time budget (see `delete_managed_s3a`);
 a failure or a timeout keeps the files and warns. With `transport: "http"` (Docker runtime) the registry is read
 and written through the backend API (stdlib `urllib`, per-session token); the backend only authorizes deletions.
@@ -61,13 +62,18 @@ HTTP_PAUSE = 30.0
 HTTP_MAX_BYTES = 32 * 1024 * 1024
 HTTP_DETAIL_BYTES = 4096
 REJECTED = {
-    "location_outside_mounts": "its location is outside the folders shared with the runtime",
-    "location_not_local": "its location is not a local folder",
-    "managed_location_rejected": "its managed location is not in the Spark warehouse",
-    "location_not_notislake": "its s3a location is not s3a://notislake/<layer>/<dataset>",
-    "location_in_iceberg_prefix": "its location is inside the Iceberg prefix of the notislake bucket",
-    "location_in_spark_warehouse": "its location is inside the Spark warehouse, which only holds managed tables",
-    "item_limits": "its name, schema or description exceeds the allowed limits",
+    "location_outside_mounts": "a location está fora das pastas compartilhadas com o runtime",
+    "location_not_local": "a location não é uma pasta local",
+    "managed_location_rejected": "a location gerenciada não tem a forma s3a://notislake/<camada>/<tabela>",
+    "location_not_notislake": "a location s3a não é s3a://notislake/<camada>/<dataset>",
+    "schema_not_layer": "o schema não é uma camada (landing, bronze, silver ou gold) e o notislake só recebe tabelas de camada",
+    "not_notislake": "a location não é s3a://notislake/<camada>/<dataset> (s3:// e s3n:// não são aceitos)",
+    "too_shallow": "a location precisa ter ao menos <camada>/<dataset>",
+    "bad_segment": "a location ou o nome da tabela tem um segmento inválido ('.', '..', vazio ou com barra)",
+    "outside_layer": "a location está fora da camada do schema da tabela",
+    "overlaps_table": "a location sobrepõe a pasta de outra tabela",
+    "name_in_other_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo Iceberg",
+    "item_limits": "o nome, o schema ou a descrição excedem os limites permitidos",
 }
 DEFAULT_DB = "default"
 CATALOG = "spark_catalog"
@@ -159,19 +165,6 @@ def notislake_uri(location):
         return None
 
 
-def in_iceberg(location):
-    """True when the location is inside the reserved Iceberg prefix of the bucket; local paths are never Iceberg's."""
-    return is_s3a(location) and LOCATIONS.is_reserved_iceberg(location)
-
-
-def in_spark_warehouse(location, managed):
-    """True when a table that is not a valid MANAGED one (`managed` and the managed shape) sits in the Spark warehouse.
-
-    The folder of a managed table is deleted recursively, so nothing external may live inside it.
-    """
-    return is_s3a(location) and LOCATIONS.is_reserved_spark(location) and not (managed and managed_shape(location))
-
-
 def norm_loc(location):
     # Same form the backend's Iceberg reader returns (`Path.as_uri()`): one location format in the API.
     if is_s3a(location):
@@ -180,19 +173,31 @@ def norm_loc(location):
     return Path(path).as_uri() if path else location
 
 
-def outside_text(location):
-    return "s3a://notislake/<layer>/<dataset>" if is_s3a(location) else "the folders shared with the runtime"
+def location_problem(key, location):
+    """Code of `REJECTED` when the table `key` cannot live at `location`, else None.
 
-
-def allowed_location(location, managed=False):
-    """True unless the location is not `s3a://notislake/...`, is in the Spark warehouse without being MANAGED (`in_spark_warehouse`),
-    or (http only) is not strictly inside a folder shared with the runtime."""
+    Only what is decidable here: layer by schema, shape and (http) shared folders. Overlap with other tables
+    and the name repeated in Iceberg are decided by the registry (`apply_plan`, which sees both catalogs).
+    """
     if is_s3a(location):
-        return notislake_uri(location) is not None and not in_spark_warehouse(location, managed)
+        if not LOCATIONS.targets_notislake(location):
+            return "location_not_notislake"
+        try:
+            LOCATIONS.table_destination(key[0], key[1], location, ())
+        except LOCATIONS.InvalidLocation as exc:
+            return exc.code
+        return None
+    if LOCATIONS.targets_notislake(location):
+        return "not_notislake"
     if not ROOTS:
-        return True
+        return None
     path = local_path(location)
-    return bool(path) and any(is_under(path, r) and path.rstrip("/") != r.rstrip("/") for r in ROOTS)
+    inside = bool(path) and any(is_under(path, r) and path.rstrip("/") != r.rstrip("/") for r in ROOTS)
+    return None if inside else "location_outside_mounts"
+
+
+def reject_text(key, code):
+    return "a tabela %s.%s não foi salva no catálogo persistente: %s." % (*key, REJECTED.get(code, code))
 
 
 def is_under(location, root, fold=False):
@@ -652,14 +657,9 @@ def describe_new(session, key, table):
         warn(("format", skey, key), "table %s uses format '%s'; it is not saved in the persistent catalog." % (label, info["provider"]))
         return None
     loc = norm_loc(info["location"])
-    if in_iceberg(loc):
-        warn(("warehouse", skey, key), "table %s is inside the Iceberg prefix of the bucket; it is not saved in the persistent catalog." % label)
-        return None
-    if in_spark_warehouse(loc, table.tableType == "MANAGED"):
-        warn(("warehouse", skey, key), "table %s is inside the Spark warehouse but is not a managed table there; it is not saved in the persistent catalog." % label)
-        return None
-    if not allowed_location(loc, table.tableType == "MANAGED"):
-        warn(("outside", skey, key), "table %s is outside %s; it is not saved in the persistent catalog." % (label, outside_text(loc)))
+    problem = location_problem(key, loc)
+    if problem:
+        warn(("rejected", skey, key), reject_text(key, problem))
         return None
     fmt = info["provider"]
     parts = [c["name"] for c in info["columns"] if c["is_partition"]]
@@ -683,7 +683,7 @@ def hydrate(session, skey, rows, namespaces, listing=None):
     known = STATE.setdefault("known", {}).setdefault(skey, {})
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     dbs, current, _ = listing or list_catalog(session)
-    for ns in sorted(namespaces - {DEFAULT_DB}):
+    for ns in sorted(namespaces - {DEFAULT_DB} - set(LOCATIONS.LAYERS)):  # layers: only `ensure_layers`, which sets their LOCATION
         if ns not in dbs:
             try:
                 session.sql("CREATE DATABASE IF NOT EXISTS " + ns_ident(ns))
@@ -820,6 +820,43 @@ def set_s3a(session):
     STATE.setdefault("s3a_status", {})[skey] = status
 
 
+def layer_location(session, layer):
+    rows = session.sql("DESCRIBE NAMESPACE EXTENDED " + ns_ident(layer)).collect()
+    return next((r[1] for r in rows if str(r[0]).lower() == "location"), None)
+
+
+def ensure_layers(session, skey, dbs=None):
+    """Make `spark_catalog` hold the four layers with `LOCATION s3a://notislake/<layer>`; `dbs` is a listing already at hand.
+
+    A missing layer gets its bucket folder first (one bounded s3a call: `CREATE DATABASE` makes it unbounded),
+    then `CREATE DATABASE IF NOT EXISTS`. A layer that already exists keeps its location and is never dropped
+    or altered (a drop would delete files, and v1 `SET LOCATION` is unsupported): it is warned once, since
+    its MANAGED tables would then miss the notislake. Raises S3AUnavailable (a later pass retries) when the bucket is unreachable.
+    """
+    if dbs is None:
+        dbs = [row[0] for row in session.sql("SHOW NAMESPACES IN " + CATALOG).collect()]
+    missing = [layer for layer in LOCATIONS.LAYERS if layer not in dbs]
+    if missing:
+        def make_folders(open_path):
+            for layer in missing:
+                path, fs = open_path(LOCATIONS.layer_uri(layer))
+                fs.mkdirs(path)
+        try:
+            s3a_call(session, make_folders)
+        except S3AUnavailable:
+            retry_when_reachable(session)
+            raise
+        for layer in missing:
+            session.sql("CREATE DATABASE IF NOT EXISTS %s LOCATION '%s'" % (ns_ident(layer), LOCATIONS.layer_uri(layer)))
+    checked = STATE.setdefault("layers_checked", {}).setdefault(skey, set())
+    for layer in LOCATIONS.LAYERS:
+        if layer in checked:
+            continue
+        checked.add(layer)
+        if (layer_location(session, layer) or "").rstrip("/") != LOCATIONS.layer_uri(layer):
+            warn(("layer", skey, layer), "a camada %s já existia nesta sessão com outra location; as tabelas gerenciadas dela não vão para s3a://notislake/%s." % (layer, layer))
+
+
 def attach(session):
     if getattr(session, "_jsparkSession", None) is None:
         return
@@ -836,6 +873,7 @@ def attach(session):
         return
     if conf_get(session, "spark.sql.catalog.iceberg") and conf_get(session, "spark.sql.catalog.iceberg.type") != ICEBERG_TYPE:
         warn(("outdated", skey), OUTDATED % session.version)
+    guarded("layers", ensure_layers, session, skey)
     gen, rows, namespaces = read_registry()
     refresh = hydrate(session, skey, rows, namespaces | {k[0] for k in rows})
     STATE["gen"] = None if STATE.pop("resync", False) else gen
@@ -901,6 +939,9 @@ def sync_registry(session, skey):
     gen, rows, namespaces = read_registry()
     # Without a reliable spark_catalog listing nothing is dropped or hydrated in this cell.
     listing = list_catalog(session)
+    if any(layer not in listing[0] for layer in LOCATIONS.LAYERS):
+        guarded("layers", ensure_layers, session, skey, listing[0])
+        listing = list_catalog(session)
     known = STATE["known"].setdefault(skey, {})
     for key, rec in list(known.items()):
         if key in rows:
@@ -929,7 +970,7 @@ LEAVE = "leave"
 def refresh_table(session, key, rec, deep):
     """Changed fields of a known table, None, or LEAVE. `deep` rereads location/format/schema from Spark.
 
-    LEAVE: the location moved into the Iceberg warehouse/prefix or out of the allowed places; the caller
+    LEAVE: the location moved to a place `location_problem` refuses; the caller
     unregisters the table (warned once) so no session rehydrates the old path. While s3a probes are
     suspended the table keeps its last known state (None).
     """
@@ -958,16 +999,9 @@ def probe_table(session, key, rec, deep):
         hi = cur
     new = {"fmt": fmt, "loc": loc, "cols": cols, "parts": parts, "dv": dv, "hi": hi}
     if loc != rec["loc"]:
-        skey, label = session_key(session), "%s.%s" % key
-        if in_iceberg(loc):
-            warn(("warehouse", skey, key), "table %s moved into the Iceberg prefix of the bucket; it is no longer saved in the persistent catalog." % label)
-            return LEAVE
-        managed = rec.get("type") == "MANAGED"  # an EXTERNAL moved into the warehouse is refused, like the backend does
-        if in_spark_warehouse(loc, managed):
-            warn(("warehouse", skey, key), "table %s moved into the Spark warehouse without being a managed table there; it is no longer saved in the persistent catalog." % label)
-            return LEAVE
-        if not allowed_location(loc, managed):
-            warn(("outside", skey, key), "table %s moved outside %s; it is no longer saved in the persistent catalog." % (label, outside_text(loc)))
+        problem = location_problem(key, loc)
+        if problem:
+            warn(("rejected", session_key(session), key), reject_text(key, problem))
             return LEAVE
     return None if all(new[f] == rec.get(f) for f in new) else new
 
@@ -1046,7 +1080,8 @@ def commit_plan(plan, stamp):
     result = {}
 
     def fn(conn):
-        result.update(apply_plan(conn, plan, stamp, managed_shape))
+        result.update(apply_plan(conn, plan, stamp, managed_shape,
+                                 destination=LOCATIONS.table_destination, protected_dbs=LOCATIONS.LAYERS))
         return result["changed"]
 
     write_txn(fn)
@@ -1077,7 +1112,7 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
             known[key] = {**info, "sess_managed": info["type"] == "MANAGED"}
     for key, reason in result.get("rejected", ()):
         ignored.add(key)
-        warn(("rejected", skey, key), "table %s.%s was not saved in the persistent catalog: %s." % (*key, REJECTED.get(reason, reason)))
+        warn(("rejected", skey, key), reject_text(key, reason))
     for key in result["conflicts"]:
         ignored.add(key)
         warn(("conflict", skey, key), "table %s.%s already exists in the persistent catalog with a different location; it was not saved." % key)
@@ -1101,7 +1136,7 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
 
 
 def managed_shape(location):
-    """Only `s3a://notislake/bronze/spark/<t>` or `<db>.db/<t>` is MANAGED; no local path is."""
+    """Only `s3a://notislake/<layer>/<t>` is MANAGED; no local path is."""
     return is_s3a(location) and LOCATIONS.managed_table(location)
 
 
@@ -1162,8 +1197,8 @@ def reconcile(session, raw_cell):
     renamed = match_renames(vanished, created, known, raw_cell)
     tombstones = STATE.setdefault("tombstones", {}).setdefault(skey, set())
     tombstones &= set(dbs)
-    new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in known_dbs and d not in tombstones}
-    gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed}
+    new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in LOCATIONS.LAYERS and d not in known_dbs and d not in tombstones}
+    gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed and d not in LOCATIONS.LAYERS}
     plan = (list(created.items()), updated, renamed, vanished + leaving, new_dbs, gone_dbs)
     if any(plan):
         apply_changes(skey, *plan, keep_files=set(leaving), session=session)
@@ -1193,7 +1228,7 @@ def wrap_stop(original):
                 reconcile(self, None)
                 STATE.get("attached", set()).discard(session_key(self))
                 STATE.get("s3a_done", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs"):
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
