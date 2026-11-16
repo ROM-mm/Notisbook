@@ -1477,6 +1477,8 @@ def check_table_location(session, parts, location):
     catalog, schema, table = target
     view = known_view(session)
     label = "mudar a location de %s.%s" % (schema, table)
+    if catalog == ICEBERG_CATALOG and LOCATIONS.is_layer_case_variant(schema):
+        raise Refused(refuse_text(label, "schema_not_layer"))  # o JdbcCatalog gravaria em `<raiz>/Bronze/`, fora das camadas
     try:
         LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, (schema.lower(), table.lower()))))
     except LOCATIONS.InvalidLocation as exc:
@@ -1498,6 +1500,8 @@ def check_rename(session, parts, new_name):
         return
     new_schema, new_table = ".".join(new_name[:-1]) or target[1], new_name[-1]  # a bare name stays in the table's namespace
     label = "renomear a tabela %s.%s" % (target[1], target[2])
+    if LOCATIONS.is_layer_case_variant(new_schema):
+        raise Refused(refuse_text(label, "schema_not_layer"))
     if (new_schema.lower(), new_table.lower()) in view["spark"]:
         raise Refused(refuse_text(label, "name_in_spark_catalog"))
     current = view["iceberg"][old_key]
