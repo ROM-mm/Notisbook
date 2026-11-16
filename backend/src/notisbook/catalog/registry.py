@@ -275,6 +275,11 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
                 parts = meta.rstrip("/").split("/")[:-1]
                 iceberg_locs.append("/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts))
 
+    # Remoções do plano saem da visão antes das criações: `DROP a` + `CREATE b` na mesma pasta é válido.
+    for key, rec_loc in (*plan["dropped"], *plan.get("unregistered", ())):
+        if spark_locs.get(key) == rec_loc:
+            del spark_locs[key]
+
     def known_locations(skip_key):
         return [loc for key, loc in spark_locs.items() if key != skip_key] + iceberg_locs
 

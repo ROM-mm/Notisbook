@@ -990,7 +990,7 @@ async def create_namespace(request: Request) -> dict[str, Any]:
 @router.delete("/v1/namespaces/{namespace}")
 async def drop_namespace(request: Request, namespace: str) -> Response:
     ns = parse_namespace(namespace)
-    if locations.layer_of_schema(ns) is not None:
+    if ns in locations.LAYERS:  # grafia exata: `Bronze` legado não é camada no Iceberg e precisa poder sair
         raise IcebergError(403, "ForbiddenException", f"As camadas do notislake não podem ser excluídas ({CANNOT_DROP_LAYER})")
 
     def run(conn: sqlite3.Connection, has_type: bool) -> None:

@@ -70,7 +70,8 @@ REJECTED = {
     "overlaps_table": "a location sobrepõe a pasta de outra tabela",
     "name_in_other_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo Iceberg",
     "item_limits": "o nome, o schema ou a descrição excedem os limites permitidos",
-    "layer_protected": "as camadas landing, bronze, silver e gold não podem ser removidas nem mudar de location",
+    "layer_protected": "as camadas landing, bronze, silver e gold não podem ser removidas nem mudar de location; "
+                       "uma camada só é criada com a location dela (LOCATION 's3a://notislake/<camada>')",
     "name_in_spark_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog)",
 }
 # Escrita por path (sem tabela): o texto fala em caminho, não em schema da tabela.
@@ -1336,13 +1337,16 @@ def read_known():
 
 
 def known_view(session):
-    """`read_known` plus what this session already approved in the running cell; None when the registry is unreadable."""
+    """`read_known` minus the tables this cell dropped plus what it already created; None when the registry is unreadable."""
     try:
         view = read_known()
     except Exception:
         warn(("known", session_key(session)), "não foi possível ler o catálogo persistente; sobreposição entre tabelas e nome repetido só serão checados depois da gravação.")
         return None
-    for (catalog, key), loc in STATE.get("intent", {}).get(session_key(session), {}).items():
+    skey = session_key(session)
+    for catalog, key in STATE.get("dropped", {}).get(skey, ()):
+        view["spark" if catalog == CATALOG else "iceberg"].pop(key, None)  # o registro só muda no post_run_cell
+    for (catalog, key), loc in STATE.get("intent", {}).get(skey, {}).items():
         view["spark" if catalog == CATALOG else "iceberg"][key] = loc
     return view
 
@@ -1376,7 +1380,25 @@ def check_table(session, catalog, schema, table, location):
         effective = LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, key)))
     except LOCATIONS.InvalidLocation as exc:
         raise Refused(refuse_text(label, exc.code)) from None
-    STATE.setdefault("intent", {}).setdefault(session_key(session), {})[(catalog, key)] = effective
+    STATE.setdefault("pending", []).append((session_key(session), "intent", catalog, key, effective))
+
+
+def note_drop(session, parts):
+    """DROP TABLE: once it succeeds, the table leaves this cell's view of the destinations."""
+    target = resolve_table(session, parts)
+    if target is not None:
+        STATE.setdefault("pending", []).append((session_key(session), "drop", target[0], (target[1], target[2]), None))
+
+
+def commit_pending(pending):
+    """Make the effects of a statement that returned without error visible to the next checks of the cell."""
+    for skey, kind, catalog, key, loc in pending:
+        intent = STATE.setdefault("intent", {}).setdefault(skey, {})
+        if kind == "drop":
+            STATE.setdefault("dropped", {}).setdefault(skey, set()).add((catalog, key))
+            intent.pop((catalog, key), None)
+        else:
+            intent[(catalog, key)] = loc
 
 
 def check_path(session, path):
@@ -1400,12 +1422,15 @@ def check_namespace(kind, session, parts, location=None):
     if target is None:
         return
     ns = target[1]
-    layer = LOCATIONS.layer_of_schema(ns)
-    if kind == "create" and target[0] == ICEBERG_CATALOG and LOCATIONS.is_layer_case_variant(ns):
+    iceberg = target[0] == ICEBERG_CATALOG
+    layer = (ns if ns in LOCATIONS.LAYERS else None) if iceberg else LOCATIONS.layer_of_schema(ns)  # Iceberg keeps the case
+    if kind == "create" and iceberg and LOCATIONS.is_layer_case_variant(ns):
         raise Refused(refuse_text("criar o schema " + ns, "schema_not_layer"))
     label = {"drop": "remover o schema", "create": "criar o schema", "set": "mudar a location do schema"}[kind] + " " + ns
     if layer:
-        moved = location is not None and location.rstrip("/") != LOCATIONS.layer_uri(layer)
+        # A layer made in `spark_catalog` without its LOCATION would be born in the local warehouse.
+        unplaced = kind == "create" and not iceberg and location is None
+        moved = unplaced or (location is not None and location.rstrip("/") != LOCATIONS.layer_uri(layer))
         if kind == "drop" or kind == "set" or moved:
             raise Refused(refuse_text(label, "layer_protected"))
     elif kind != "drop" and location and LOCATIONS.targets_notislake(location):
@@ -1478,6 +1503,8 @@ def check_plan(session, plan):
         location = jopt(named["CatalogStorageFormat"].locationUri())
         if location is not None:
             check_path(session, str(location))
+    elif kind == "DropTable" and "UnresolvedIdentifier" in named:
+        note_drop(session, jseq(named["UnresolvedIdentifier"].nameParts()))
     elif kind == "DropNamespace":
         check_namespace("drop", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()))
     elif kind == "CreateNamespace":
@@ -1599,8 +1626,15 @@ def before_create_table(catalog, args, kwargs):
 def wrap_checked(original, before):
     @functools.wraps(original)
     def method(self, *args, **kwargs):
-        precheck(before, self, args, kwargs)
-        return original(self, *args, **kwargs)
+        STATE["pending"] = []
+        try:
+            precheck(before, self, args, kwargs)
+            pending = STATE["pending"]
+        finally:
+            STATE.pop("pending", None)
+        result = original(self, *args, **kwargs)
+        commit_pending(pending)  # only a statement that returned without error counts for the next checks
+        return result
     method._notisbook_original = original
     return method
 
@@ -1684,7 +1718,7 @@ def wrap_stop(original):
                 reconcile(self, None)
                 STATE.get("attached", set()).discard(session_key(self))
                 STATE.get("s3a_done", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked", "intent"):
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked", "intent", "dropped"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
@@ -1759,7 +1793,8 @@ def _pre():
 def _post(result):
     session, skey = cell_session(True)
     if session is not None:
-        STATE.get("intent", {}).pop(skey, None)  # the cell is over: what it created is in the session catalog now
+        for table in ("intent", "dropped"):
+            STATE.get(table, {}).pop(skey, None)  # the cell is over: its creations and drops are in the session catalog now
         info = getattr(result, "info", None)
         reconcile(session, getattr(info, "raw_cell", None))
 

@@ -175,7 +175,7 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
     tables = [e for e in entries if e[1] != "VIEW"]
     kept = sum(1 for n, _, loc in tables if iceberg_jdbc.is_managed_s3a(loc, schema, n))
     children = iceberg_jdbc.has_child_namespaces(conn, schema)
-    is_layer = locations.layer_of_schema(schema) is not None
+    is_layer = schema in locations.LAYERS  # no Iceberg a caixa conta: `Bronze` legado não é camada
     return {
         "tables": len(tables),
         "hudi": 0,
@@ -235,7 +235,7 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
 
 
 def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
-    if locations.layer_of_schema(schema) is not None:
+    if schema in locations.LAYERS:
         raise SchemaError("cannot_drop_layer")
     conn = _open_existing_for_delete(home)
     try:
