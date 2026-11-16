@@ -21,6 +21,11 @@
   padding-bottom: 0;
 }
 
+/* Cartão sem cabeçalho (Connections): respiro no topo no lugar da barra de título. */
+.sectionHeaderless {
+  padding-top: var(--space-2);
+}
+
 .section > :not(.tree, .sectionHeader) {
   flex: none;
 }
@@ -436,11 +441,6 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
 
 .notislakeTrigger:hover:not(:disabled) {
   text-decoration: underline;
-}
-
-.notislakeConfigure {
-  margin-left: auto;
-  font-size: var(--font-size-xs);
 }
 
 .notislakeStatus {

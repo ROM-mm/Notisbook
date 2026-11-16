@@ -1,9 +1,7 @@
-/** Cartão Connections do Explorer: a pasta local escolhida como conexão (ícone + nome, caminho no tooltip) e sua árvore; corpo desmontado quando recolhido. */
+/** Cartão Connections do Explorer: raiz Notislake e, se habilitada, a pasta local salva como conexão. Sem cabeçalho: não recolhe. */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { basename } from "../../lib/paths";
-import { chooseDirectory } from "../../api/files";
-import { ApiError, errorMessage } from "../../api/http";
 import { getNotislakeLocalCredentials } from "../../api/notislake";
 import { useFiles } from "../../state/files";
 import { isNotislakeTreeAvailable, useNotislake } from "../../state/notislake";
@@ -11,9 +9,7 @@ import { activeNotebookPath, useRouter } from "../../state/router";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
-import { BucketIcon, FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
-import { CardTitle } from "./CardTitle";
-import { DirectoryPicker } from "./DirectoryPicker";
+import { BucketIcon, FolderIcon } from "../shell/icons";
 import { FileTree } from "./FileTree";
 import { NotislakeConnectionDialog } from "./NotislakeConnectionDialog";
 import { NotislakeTree } from "./NotislakeTree";
@@ -22,7 +18,7 @@ import styles from "./DataPanel.module.css";
 const COPY_FEEDBACK_MS = 2000;
 const REFRESH_DEBOUNCE_MS = 1500;
 
-/** Interruptor único: false esconde a raiz de pasta local e desabilita o "+". O código e a pasta salva ficam preservados. */
+/** Interruptor único: false esconde a raiz de pasta local; a pasta salva em useFiles fica preservada. */
 const LOCAL_FOLDERS_ENABLED = false;
 
 /** Relê a árvore na transição busy → idle do kernel do notebook ativo (célula pode ter criado ou excluído tabelas). */
@@ -112,6 +108,8 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
       onSelect: () => void copyCredentials(),
       testId: "notislake-copy-credentials",
     },
+    "separator",
+    { label: "Settings", onSelect: onConfigure, testId: "notislake-settings" },
   ];
 
   let body: ReactNode;
@@ -139,7 +137,7 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
       </div>
     );
   } else if (status?.mode === "invalid") {
-    body = <p className={styles.notice}>Invalid connection settings. Use Configure connection…</p>;
+    body = <p className={styles.notice}>Invalid connection settings. Use Notislake → Settings.</p>;
   } else if (statusError && !status) {
     body = <p className={styles.notice}>{statusError}</p>;
   } else {
@@ -160,9 +158,6 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
         >
           Notislake
         </button>
-        <button type="button" className={`btn btn-ghost ${styles.notislakeConfigure}`} onClick={onConfigure}>
-          Configure connection…
-        </button>
       </div>
       <div className={styles.notislakeBody}>{body}</div>
       {menu ? (
@@ -182,121 +177,24 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   );
 }
 
-export function FilesSection({ collapsed, onToggle, onExpand }: { collapsed: boolean; onToggle: () => void; onExpand: () => void }) {
+export function FilesSection(_props: { collapsed: boolean; onToggle: () => void; onExpand: () => void }) {
   const root = useFiles((s) => s.root);
-  const setRoot = useFiles((s) => s.setRoot);
-  const refresh = useFiles((s) => s.refresh);
-  const [opening, setOpening] = useState(false);
-  const [manual, setManual] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
   const [configuring, setConfiguring] = useState(false);
 
-  // Feedback só existe no corpo, desmontado quando recolhido: expande antes de exibi-lo.
-  function showNotice(message: string) {
-    setNotice(message);
-    onExpand();
-  }
-
-  function openManual() {
-    setManual(true);
-    onExpand();
-  }
-
-  async function choose() {
-    onExpand();
-    setOpening(true);
-    setNotice(null);
-    try {
-      const res = await chooseDirectory(root);
-      if (res.path) setRoot(res.path);
-    } catch (err) {
-      const status = err instanceof ApiError ? err.status : null;
-      if (status === 409) {
-        showNotice("A folder picker is already open. Check Finder (it may be behind the browser).");
-      } else if (status === 504) {
-        showNotice("Timed out choosing the folder.");
-      } else if (status === 501) {
-        showNotice("Native picker unavailable on this system. Enter the path below.");
-        openManual();
-      } else {
-        showNotice(`${errorMessage(err)} Enter the path below.`);
-        openManual();
-      }
-    } finally {
-      setOpening(false);
-    }
-  }
-
   return (
-    <section className={`${styles.section} ${collapsed ? styles.sectionCollapsed : ""}`} data-testid="data-files" aria-labelledby="data-connections-title">
-      <div className={styles.sectionHeader}>
-        <CardTitle id="data-connections-title" icon={<FolderIcon size={14} />} label="Connections" collapsed={collapsed} onToggle={onToggle} />
-        <div className={styles.sectionActions}>
-          {LOCAL_FOLDERS_ENABLED && root ? (
-            <button type="button" className="btn btn-ghost" onClick={refresh} aria-label="Refresh tree" title="Refresh">
-              <RefreshIcon size={14} />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="btn btn-ghost"
-            data-testid="files-select-dir"
-            disabled={opening || !LOCAL_FOLDERS_ENABLED}
-            onClick={() => void choose()}
-            aria-label={root ? "Change folder" : "Add local folder"}
-            title={
-              !LOCAL_FOLDERS_ENABLED
-                ? "Local folders are temporarily disabled"
-                : opening
-                  ? "Opening Finder…"
-                  : root
-                    ? "Change folder"
-                    : "Add local folder"
-            }
-          >
-            <PlusIcon size={14} />
-          </button>
-        </div>
-      </div>
-      {collapsed ? null : (
+    <section className={`${styles.section} ${styles.sectionHeaderless}`} data-testid="data-files" aria-label="Connections">
+      {LOCAL_FOLDERS_ENABLED && root ? (
         <>
-        {LOCAL_FOLDERS_ENABLED && notice ? (
-          <p className={styles.notice} role="alert">
-            {notice}
-          </p>
-        ) : null}
-        {LOCAL_FOLDERS_ENABLED && manual ? (
-          <DirectoryPicker
-            initialPath={root}
-            onCancel={() => {
-              setManual(false);
-              setNotice(null);
-            }}
-            onSelect={(p) => {
-              setRoot(p);
-              setManual(false);
-              setNotice(null);
-            }}
-          />
-        ) : null}
-        {!LOCAL_FOLDERS_ENABLED ? null : root ? (
-          <>
-            <div className={styles.connection} title={root}>
-              <FolderIcon size={14} />
-              <span className={styles.connectionName}>{basename(root) || root}</span>
-            </div>
-            <div className={styles.tree}>
-              <FileTree root={root} />
-            </div>
-          </>
-        ) : (
-          <div className={styles.tree}>
-            <p className={styles.hint}>No connection yet. Use + to add a local folder.</p>
+          <div className={styles.connection} title={root}>
+            <FolderIcon size={14} />
+            <span className={styles.connectionName}>{basename(root) || root}</span>
           </div>
-        )}
-        <NotislakeRoot onConfigure={() => setConfiguring(true)} />
+          <div className={styles.tree}>
+            <FileTree root={root} />
+          </div>
         </>
-      )}
+      ) : null}
+      <NotislakeRoot onConfigure={() => setConfiguring(true)} />
       <NotislakeConnectionDialog open={configuring} onClose={() => setConfiguring(false)} />
     </section>
   );
