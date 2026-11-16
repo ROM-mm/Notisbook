@@ -1,26 +1,29 @@
-"""Locations `s3a://notislake/...`: análise estrita, contenção e prefixo reservado do Iceberg.
+"""Locations `s3a://notislake/...`: camadas, forma MANAGED, regra de destino e sobreposição.
 
 Módulo autocontido (só stdlib) para ser importado por catálogo, REST e hook sem ciclos. Não
-consulta rede nem disco; a decisão de aceitar ou recusar uma location é só sintática.
+consulta rede nem disco: toda decisão é sintática e a sobreposição recebe as locations já
+conhecidas como argumento. O schema decide a camada (D1): a tabela MANAGED fica em
+`s3a://notislake/<camada>/<tabela>`, sem `spark`/`iceberg` nem `.db` no caminho. Os erros são
+`InvalidLocation` com `code` categórico; a mensagem nunca repete a entrada.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 BUCKET = "notislake"
 SCHEME = "s3a"
+LAYERS = ("landing", "bronze", "silver", "gold")
 MIN_DEPTH = 2  # `<camada>/<dataset>`: a raiz do bucket e uma camada sozinha não são locations de tabela
-SPARK_WAREHOUSE = f"{SCHEME}://{BUCKET}/bronze/spark"
-ICEBERG_WAREHOUSE = f"{SCHEME}://{BUCKET}/bronze/iceberg"
-RESERVED_ICEBERG_PREFIX = ICEBERG_WAREHOUSE + "/"
-_DB_SUFFIX = ".db"
+ROOT_URI = f"{SCHEME}://{BUCKET}"  # raiz do bucket: warehouse do Iceberg, que cria `<ns>/<t>` abaixo dela
 
 _PREFIX = f"{SCHEME}://{BUCKET}/"
+_ALIAS_SCHEMES = ("s3", "s3a", "s3n")
 
 
 class InvalidLocation(ValueError):
-    """Location fora do contrato; `code` é categórico e a mensagem não repete a entrada."""
+    """Destino fora do contrato; `code` é categórico e a mensagem não repete a entrada."""
 
     def __init__(self, code: str) -> None:
         super().__init__(code)
@@ -43,12 +46,8 @@ class NotislakeLocation:
         return _PREFIX + self.key
 
 
-def parse_notislake(uri: str) -> NotislakeLocation:
-    """Aceita só `s3a://notislake/<a>/<b>[/...]`; levanta `InvalidLocation` (código em `.code`).
-
-    Códigos: `not_notislake` (esquema ou bucket diferente), `too_shallow` (raiz ou profundidade 1),
-    `bad_segment` (`.`, `..` ou vazio, inclusive `//`). Uma `/` final é tolerada e descartada.
-    """
+def _split(uri: str) -> tuple[str, ...]:
+    """Segmentos após o bucket, de profundidade >= 1; `not_notislake`, `too_shallow` ou `bad_segment`."""
     if not isinstance(uri, str) or not uri.startswith(_PREFIX):
         raise InvalidLocation("not_notislake")
     rest = uri[len(_PREFIX) :].removesuffix("/")
@@ -57,9 +56,76 @@ def parse_notislake(uri: str) -> NotislakeLocation:
     segments = tuple(rest.split("/"))
     if any(part in ("", ".", "..") for part in segments):
         raise InvalidLocation("bad_segment")
+    return segments
+
+
+def parse_notislake(uri: str) -> NotislakeLocation:
+    """Aceita só `s3a://notislake/<a>/<b>[/...]`; levanta `InvalidLocation` (código em `.code`).
+
+    Códigos: `not_notislake` (esquema ou bucket diferente), `too_shallow` (raiz ou profundidade 1),
+    `bad_segment` (`.`, `..` ou vazio, inclusive `//`). Uma `/` final é tolerada e descartada.
+    """
+    segments = _split(uri)
     if len(segments) < MIN_DEPTH:
         raise InvalidLocation("too_shallow")
     return NotislakeLocation(segments)
+
+
+def targets_notislake(uri: str) -> bool:
+    """`uri` usa `s3`, `s3a` ou `s3n` e aponta para o bucket `notislake` (ou para dentro dele)."""
+    if not isinstance(uri, str):
+        return False
+    scheme, sep, rest = uri.partition("://")
+    return bool(sep) and scheme.lower() in _ALIAS_SCHEMES and rest.partition("/")[0] == BUCKET
+
+
+def layer_of_schema(schema: str) -> str | None:
+    """Camada que o schema nomeia (comparação sem caixa) ou `None` se não for uma das `LAYERS`."""
+    name = schema.strip().lower() if isinstance(schema, str) else ""
+    return name if name in LAYERS else None
+
+
+def layer_uri(layer: str) -> str:
+    """`s3a://notislake/<camada>`; `InvalidLocation("not_a_layer")` se `layer` não for uma camada."""
+    if layer not in LAYERS:
+        raise InvalidLocation("not_a_layer")
+    return f"{_PREFIX}{layer}"
+
+
+def layer_of_location(uri: str) -> str | None:
+    """Camada em que `uri` (válida, qualquer profundidade >= 1) está; `None` se inválida ou fora delas."""
+    try:
+        first = _split(uri)[0]
+    except InvalidLocation:
+        return None
+    return first if first in LAYERS else None
+
+
+def managed_location(schema: str, table: str) -> str:
+    """Forma MANAGED `s3a://notislake/<camada>/<tabela>` (D1).
+
+    Levanta `InvalidLocation`: `schema_not_layer` (D3) ou `bad_segment` (nome vazio, `.`, `..`,
+    com `/`, `\\` ou caractere de controle). O nome da tabela entra no caminho como veio.
+    """
+    layer = layer_of_schema(schema)
+    if layer is None:
+        raise InvalidLocation("schema_not_layer")
+    if (
+        not isinstance(table, str)
+        or table in ("", ".", "..")
+        or any(ch in "/\\" or ord(ch) < 32 for ch in table)
+    ):
+        raise InvalidLocation("bad_segment")
+    return f"{_PREFIX}{layer}/{table}"
+
+
+def managed_table(uri: str) -> bool:
+    """`uri` tem exatamente a forma `s3a://notislake/<camada>/<tabela>` (caixa exata)."""
+    try:
+        segments = parse_notislake(uri).segments
+    except InvalidLocation:
+        return False
+    return len(segments) == MIN_DEPTH and segments[0] in LAYERS
 
 
 def within(child: str, parent: str) -> bool:
@@ -72,39 +138,73 @@ def within(child: str, parent: str) -> bool:
     return c[: len(p)] == p
 
 
-def is_reserved_iceberg(uri: str) -> bool:
-    """`uri` é válida e é `s3a://notislake/bronze/iceberg` ou está abaixo dele."""
-    try:
-        loc = parse_notislake(uri)
-    except InvalidLocation:
-        return False
-    return (loc.uri + "/").startswith(RESERVED_ICEBERG_PREFIX)
+def overlaps(a: str, b: str) -> bool:
+    """`a` e `b` são iguais, um está dentro do outro (por segmento) ou são locations inválidas -> False."""
+    return within(a, b) or within(b, a)
 
 
-def managed_table(uri: str) -> bool:
-    """`uri` é exatamente `<SPARK_WAREHOUSE>/<t>` ou `<SPARK_WAREHOUSE>/<db>.db/<t>` (caixa exata).
-
-    Um único componente terminado em `.db` é a pasta de um database, não uma tabela.
-    """
-    try:
-        segments = parse_notislake(uri).segments
-    except InvalidLocation:
-        return False
-    root = parse_notislake(SPARK_WAREHOUSE).segments
-    if segments[: len(root)] != root:
-        return False
-    rest = segments[len(root) :]
-    if len(rest) == 1:
-        return not rest[0].endswith(_DB_SUFFIX)
-    if len(rest) == 2:
-        return rest[0].endswith(_DB_SUFFIX) and len(rest[0]) > len(_DB_SUFFIX)
+def _overlaps_any(location: str, known: Iterable[str], skip: str | None = None) -> bool:
+    """Alguma location conhecida (válida, diferente de `skip`) sobrepõe `location`."""
+    own = _normalized(skip) if skip is not None else None
+    for other in known:
+        norm = _normalized(other)
+        if norm is not None and norm != own and overlaps(location, norm):
+            return True
     return False
 
 
-def is_reserved_spark(uri: str) -> bool:
-    """`uri` é válida e é `s3a://notislake/bronze/spark` ou está abaixo dele."""
+def _normalized(uri: str) -> str | None:
+    """`uri` sem `/` final se for location válida de tabela; senão `None`."""
     try:
-        loc = parse_notislake(uri)
+        return parse_notislake(uri).uri
     except InvalidLocation:
-        return False
-    return (loc.uri + "/").startswith(SPARK_WAREHOUSE + "/")
+        return None
+
+
+def table_destination(
+    schema: str,
+    table: str,
+    location: str | None,
+    known_locations: Iterable[str],
+    own_location: str | None = None,
+) -> str:
+    """Location efetiva de `schema.table` no notislake: MANAGED se `location` é `None`, senão a externa.
+
+    D3: schema fora das camadas é recusado. D4: externa precisa estar na camada do schema. D2/D4:
+    não pode sobrepor outra tabela de `known_locations` (`own_location`, a própria, é ignorada).
+    Códigos: `schema_not_layer`, `not_notislake`, `too_shallow`, `bad_segment`, `outside_layer`,
+    `overlaps_table`.
+    """
+    layer = layer_of_schema(schema)
+    if layer is None:
+        raise InvalidLocation("schema_not_layer")
+    if location is None:
+        effective = managed_location(schema, table)
+    else:
+        effective = parse_notislake(location).uri
+        if layer_of_location(effective) != layer:
+            raise InvalidLocation("outside_layer")
+    if _overlaps_any(effective, known_locations, own_location):
+        raise InvalidLocation("overlaps_table")
+    return effective
+
+
+def check_path_write(
+    location: str,
+    known_locations: Iterable[str],
+    own_location: str | None = None,
+) -> str:
+    """Valida escrita por path sem tabela no notislake (D8) e devolve a location normalizada.
+
+    Exige profundidade >= 2 (`too_shallow`), dentro de uma camada (`outside_layer`) e sem sobrepor
+    tabela conhecida (`overlaps_table`). Exceção: `location` igual à pasta de `own_location` (a
+    própria tabela) é permitida; subpasta ou pasta-mãe dela continua recusada.
+    """
+    effective = parse_notislake(location).uri
+    if layer_of_location(effective) is None:
+        raise InvalidLocation("outside_layer")
+    if own_location is not None and _normalized(own_location) == effective:
+        return effective
+    if _overlaps_any(effective, known_locations):
+        raise InvalidLocation("overlaps_table")
+    return effective

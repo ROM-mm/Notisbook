@@ -12,10 +12,10 @@ import urllib.request
 from collections.abc import Callable
 
 from .credentials import Credentials
+from .locations import BUCKET, LAYERS
 from .ports import LOOPBACK
 
-BUCKET = "notislake"
-PREFIXES = ("landing/", "bronze/", "silver/", "gold/")
+PREFIXES = tuple(f"{layer}/" for layer in LAYERS)
 READY_TIMEOUT_S = 30.0
 _POLL_INTERVAL_S = 0.25
 _PROBE_TIMEOUT_S = 2.0
