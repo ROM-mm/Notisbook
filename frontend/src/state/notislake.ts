@@ -53,6 +53,8 @@ interface NotislakeState {
   loadMore: (prefix: string) => void;
   /** Sem argumento recarrega o status e todos os prefixos carregados; com prefixo, só ele. */
   refresh: (prefix?: string) => void;
+  /** Recarrega em silêncio a raiz e os prefixos expandidos, sem status e sem encolher o que já foi paginado. */
+  refreshExpanded: () => void;
 }
 
 /** A árvore só é consultável com conexão manual ou com o MinIO local em `running`. */
@@ -76,6 +78,15 @@ let failures = 0;
 /** Invalida listagens em voo quando o cache é descartado. */
 let generation = 0;
 let lastKey: string | null = null;
+
+/** Verdadeiro se todo ancestral do prefixo (`a/`, `a/b/`) está expandido; a raiz `""` é sempre visível. */
+function ancestorsExpanded(prefix: string, expanded: Record<string, true>): boolean {
+  const parts = prefix.split("/").filter(Boolean);
+  for (let i = 1; i < parts.length; i += 1) {
+    if (!expanded[`${parts.slice(0, i).join("/")}/`]) return false;
+  }
+  return true;
+}
 
 function clearTimer(): void {
   if (timer !== null) clearTimeout(timer);
@@ -138,10 +149,18 @@ function onVisibility(): void {
 }
 
 export const useNotislake = create<NotislakeState>((set, get) => {
+  /** Prefixos em recarga silenciosa; evitam duas recargas simultâneas do mesmo prefixo. */
+  const silent = new Set<string>();
+  /** Prefixos que pediram recarga durante uma em andamento; rodam uma vez ao fim dela. */
+  const pending = new Set<string>();
+  /** Contador de ações manuais por prefixo; a recarga silenciosa descarta o resultado se ele mudou. */
+  const manualStamp = new Map<string, number>();
+
   async function load(prefix: string, token: string | null, replace: boolean): Promise<void> {
     const gen = generation;
     const prev = get().dirs[prefix];
     if (prev?.loading) return;
+    manualStamp.set(prefix, (manualStamp.get(prefix) ?? 0) + 1);
     set((s) => ({
       dirs: {
         ...s.dirs,
@@ -195,6 +214,49 @@ export const useNotislake = create<NotislakeState>((set, get) => {
     }
   }
 
+  async function reloadSilently(prefix: string): Promise<void> {
+    const gen = generation;
+    const prev = get().dirs[prefix];
+    if (!prev || prev.loading || prev.error) return;
+    if (silent.has(prefix)) {
+      pending.add(prefix);
+      return;
+    }
+    silent.add(prefix);
+    const stamp = manualStamp.get(prefix) ?? 0;
+    const stale = () => gen !== generation || (manualStamp.get(prefix) ?? 0) !== stamp;
+    const target = prev.prefixes.length + prev.objects.length;
+    try {
+      const prefixes: string[] = [];
+      const objects: NotislakeObject[] = [];
+      let token: string | null = null;
+      let bucket: string | null = null;
+      let truncated = false;
+      do {
+        const page = await listNotislakeObjects({ prefix, maxKeys: PAGE_SIZE, continuationToken: token });
+        if (stale()) return;
+        prefixes.push(...page.prefixes);
+        objects.push(...page.objects);
+        bucket = page.bucket;
+        truncated = page.is_truncated;
+        token = truncated ? page.next_continuation_token : null;
+      } while (truncated && token !== null && new Set(prefixes).size + objects.length < target);
+      if (stale()) return;
+      set((s) => ({
+        bucket,
+        dirs: {
+          ...s.dirs,
+          [prefix]: { prefixes: [...new Set(prefixes)], objects, nextToken: token, loading: false, error: null },
+        },
+      }));
+    } catch {
+      // Falha na recarga automática mantém a listagem atual; o Retry manual segue disponível.
+    } finally {
+      silent.delete(prefix);
+      if (pending.delete(prefix)) void reloadSilently(prefix);
+    }
+  }
+
   function expand(prefix: string): void {
     set((s) => ({ expanded: { ...s.expanded, [prefix]: true } }));
     const d = get().dirs[prefix];
@@ -239,6 +301,7 @@ export const useNotislake = create<NotislakeState>((set, get) => {
     },
     reset: () => {
       generation += 1;
+      pending.clear();
       lastKey = null;
       set({ bucket: null, expanded: {}, dirs: {} });
     },
@@ -281,6 +344,16 @@ export const useNotislake = create<NotislakeState>((set, get) => {
       get().refreshStatus();
       if (!isNotislakeTreeAvailable(get().status)) return;
       for (const key of Object.keys(get().dirs)) void load(key, null, true);
+    },
+    refreshExpanded: () => {
+      if (!isNotislakeTreeAvailable(get().status)) return;
+      if (!get().dirs[""]) {
+        get().loadRoot();
+        return;
+      }
+      const { expanded } = get();
+      const visible = Object.keys(expanded).filter((key) => ancestorsExpanded(key, expanded));
+      for (const key of ["", ...visible]) void reloadSilently(key);
     },
   };
 });

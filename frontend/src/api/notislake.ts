@@ -14,7 +14,6 @@ export interface NotislakeLocal {
   api_port: number | null;
   console_port: number | null;
   console_url: string | null;
-  credentials_path: string;
   error: { code: string; message: string } | null;
 }
 
@@ -81,6 +80,11 @@ export function getNotislakeStatus(signal?: AbortSignal): Promise<NotislakeStatu
 /** 202 com o estado; 409 `not_failed` se o MinIO local não está em falha. */
 export function retryNotislake(): Promise<{ state: NotislakeLocalState }> {
   return request<{ state: NotislakeLocalState }>(`${BASE}/retry`, { method: "POST" });
+}
+
+/** Credencial do MinIO local, sob demanda e só para cópia; 409 `not_running` fora de `running`. Nunca guardar nem logar. */
+export function getNotislakeLocalCredentials(): Promise<{ user: string; password: string }> {
+  return request<{ user: string; password: string }>(`${BASE}/local/credentials`);
 }
 
 export function getNotislakeConfig(signal?: AbortSignal): Promise<NotislakeConfig> {

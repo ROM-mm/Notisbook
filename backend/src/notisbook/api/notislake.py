@@ -1,7 +1,8 @@
 """API `/api/notislake`: estado do MinIO local, configuração S3 manual, listagem do bucket e teste de conexão.
 
-O segredo nunca sai daqui (a config manual expõe só `has_secret`) e nenhuma resposta ecoa valor de
-entrada. Falha do destino S3 vira 502/504/400, nunca 401/403: o frontend trata 401 como sessão inválida.
+O segredo da config manual nunca sai daqui (só `has_secret`); a única exceção deliberada é
+`GET /local/credentials`, que devolve a credencial do MinIO local sob demanda para cópia. Nenhuma
+resposta ecoa valor de entrada. Falha do destino S3 vira 502/504/400, nunca 401/403: o frontend trata 401 como sessão inválida.
 """
 
 import re
@@ -20,7 +21,6 @@ from pydantic import BaseModel
 from ..config import Settings
 from ..notislake import objectstore, settings_store
 from ..notislake.bootstrap import BUCKET
-from ..notislake.credentials import credentials_path
 from ..notislake.objectstore import Connection, ObjectStoreError, Unavailable
 from ..notislake.ports import LOOPBACK
 from ..notislake.settings_store import ConfigInvalid, ManualConfig
@@ -204,7 +204,6 @@ def _local_view(request: Request) -> dict[str, Any] | None:
         "api_port": snap.api_port,
         "console_port": snap.console_port,
         "console_url": f"http://{LOOPBACK}:{snap.console_port}" if snap.console_port else None,
-        "credentials_path": str(credentials_path(_home(request))),
         "error": {"code": snap.error.code, "message": snap.error.message} if snap.error else None,
     }
 
@@ -220,6 +219,15 @@ def retry(request: Request) -> dict[str, Any]:
     if supervisor is None or not supervisor.retry():
         raise _error(409, "not_failed", "O MinIO local só pode ser retomado quando está em falha.")
     return {"state": supervisor.snapshot().state.value}
+
+
+@router.get("/local/credentials")
+def get_local_credentials(request: Request) -> dict[str, str]:
+    supervisor = _supervisor(request)
+    connection = supervisor.connection() if supervisor is not None else None
+    if connection is None:
+        raise _error(409, "not_running", "O MinIO local não está em execução.")
+    return {"user": connection.access_key, "password": connection.secret_key}
 
 
 @router.get("/config")

@@ -1,24 +1,45 @@
 /** Cartão Connections do Explorer: a pasta local escolhida como conexão (ícone + nome, caminho no tooltip) e sua árvore; corpo desmontado quando recolhido. */
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useStore } from "zustand";
 import { basename } from "../../lib/paths";
 import { chooseDirectory } from "../../api/files";
 import { ApiError, errorMessage } from "../../api/http";
+import { getNotislakeLocalCredentials } from "../../api/notislake";
 import { useFiles } from "../../state/files";
 import { isNotislakeTreeAvailable, useNotislake } from "../../state/notislake";
-import { FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
-import { BrandIcon } from "./BrandIcon";
+import { activeNotebookPath, useRouter } from "../../state/router";
+import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
+import { ContextMenu } from "../shell/ContextMenu";
+import type { MenuItem } from "../shell/Menu";
+import { BucketIcon, FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
 import { CardTitle } from "./CardTitle";
 import { DirectoryPicker } from "./DirectoryPicker";
 import { FileTree } from "./FileTree";
 import { NotislakeConnectionDialog } from "./NotislakeConnectionDialog";
 import { NotislakeTree } from "./NotislakeTree";
 import styles from "./DataPanel.module.css";
-import s3IconUrl from "../../../icons/s3.png";
 
 const COPY_FEEDBACK_MS = 2000;
+const REFRESH_DEBOUNCE_MS = 1500;
 
 /** Interruptor único: false esconde a raiz de pasta local e desabilita o "+". O código e a pasta salva ficam preservados. */
 const LOCAL_FOLDERS_ENABLED = false;
+
+/** Relê a árvore na transição busy → idle do kernel do notebook ativo (célula pode ter criado ou excluído tabelas). */
+function IdleRefresh({ entry }: { entry: NotebookEntry }) {
+  const kernelState = useStore(entry.kernel, (s) => s.kernelState);
+  const previous = useRef(kernelState);
+  useEffect(() => {
+    const was = previous.current;
+    previous.current = kernelState;
+    if (kernelState !== "idle" || was !== "busy") return;
+    const timer = setTimeout(() => {
+      if (!document.hidden) useNotislake.getState().refreshExpanded();
+    }, REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [kernelState]);
+  return null;
+}
 
 /** Raiz fixa do Notislake: a árvore só aparece em `running`/manual; os demais estados mostram diagnóstico e ações. */
 function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
@@ -30,6 +51,12 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   const stop = useNotislake((s) => s.stop);
   const retry = useNotislake((s) => s.retry);
   const [copied, setCopied] = useState<"ok" | "error" | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
+  const path = useRouter((s) => activeNotebookPath(s.route));
+  useWorkspace((s) => s.tabs);
+  const entry = path ? getEntry(path) : undefined;
 
   useEffect(() => {
     start();
@@ -45,22 +72,56 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   const local = status?.local ?? null;
   const manual = status?.mode === "manual";
   const available = isNotislakeTreeAvailable(status);
-  const credentialsPath = local?.credentials_path ?? null;
   const consoleUrl = local?.console_url ?? null;
 
-  async function copyCredentialsPath() {
-    if (!credentialsPath) return;
+  const running = !manual && local?.state === "running";
+
+  function openMenu() {
+    const r = triggerRef.current?.getBoundingClientRect();
+    if (r) setMenu({ x: r.left, y: r.bottom });
+  }
+
+  // A credencial vive só neste handler; a Promise no ClipboardItem preserva o gesto do clique (Safari).
+  async function copyCredentials() {
+    const toText = ({ user, password }: { user: string; password: string }) => `${user}\n${password}`;
     try {
-      await navigator.clipboard.writeText(credentialsPath);
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        const blob = getNotislakeLocalCredentials().then((c) => new Blob([toText(c)], { type: "text/plain" }));
+        await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+      } else {
+        await navigator.clipboard.writeText(toText(await getNotislakeLocalCredentials()));
+      }
       setCopied("ok");
     } catch {
       setCopied("error");
     }
   }
 
+  const menuItems: MenuItem[] = [
+    {
+      label: "MinIO UI",
+      disabled: !running || !consoleUrl,
+      onSelect: () => {
+        if (consoleUrl) window.open(consoleUrl, "_blank", "noopener,noreferrer");
+      },
+      testId: "notislake-open-minio-ui",
+    },
+    {
+      label: "Copiar credenciais",
+      disabled: !running,
+      onSelect: () => void copyCredentials(),
+      testId: "notislake-copy-credentials",
+    },
+  ];
+
   let body: ReactNode;
   if (available) {
-    body = <NotislakeTree />;
+    body = (
+      <>
+        {entry ? <IdleRefresh key={entry.path} entry={entry} /> : null}
+        <NotislakeTree />
+      </>
+    );
   } else if (!manual && local?.state === "restarting") {
     body = (
       <p className={styles.hint} role="status">
@@ -88,32 +149,35 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   return (
     <div className={styles.notislakeRoot} data-testid="notislake-root">
       <div className={styles.connection} title="Notislake (MinIO / S3)">
-        <BrandIcon src={s3IconUrl} />
-        <span className={styles.connectionName}>notislake (minio)</span>
+        <BucketIcon size={14} />
+        <button
+          ref={triggerRef}
+          type="button"
+          className={`${styles.connectionName} ${styles.notislakeTrigger}`}
+          aria-haspopup="menu"
+          aria-expanded={menu !== null}
+          onClick={openMenu}
+        >
+          Notislake
+        </button>
         <button type="button" className={`btn btn-ghost ${styles.notislakeConfigure}`} onClick={onConfigure}>
           Configure connection…
         </button>
       </div>
-      <div className={styles.tree}>{body}</div>
-      {consoleUrl || credentialsPath ? (
-        <div className={styles.notislakeFooter}>
-          {consoleUrl ? (
-            <a href={consoleUrl} target="_blank" rel="noopener noreferrer" className={styles.notislakeLink}>
-              MinIO console
-            </a>
-          ) : null}
-          {credentialsPath ? (
-            <span className={styles.notislakeCreds}>
-              <span className={styles.notislakePath} title={credentialsPath}>
-                {credentialsPath}
-              </span>
-              <button type="button" className="btn btn-ghost" onClick={() => void copyCredentialsPath()} aria-label="Copy credentials path" title="Copy credentials path">
-                {copied === "ok" ? "Copied" : copied === "error" ? "Copy failed" : "Copy"}
-              </button>
-            </span>
-          ) : null}
-        </div>
+      <div className={styles.notislakeBody}>{body}</div>
+      {menu ? (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItems}
+          ariaLabel="Notislake actions"
+          onClose={closeMenu}
+          returnFocusTo={triggerRef.current}
+        />
       ) : null}
+      <div className={`${styles.copyFeedback} ${copied === "error" ? styles.treeError : ""}`} role="status" aria-live="polite">
+        {copied === "ok" ? "Credenciais copiadas" : copied === "error" ? "Não foi possível copiar as credenciais" : null}
+      </div>
     </div>
   );
 }

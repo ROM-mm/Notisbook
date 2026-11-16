@@ -411,6 +411,33 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   min-width: 0;
 }
 
+/* Sem rolagem própria: a árvore cresce inteira e só a seção rola. */
+.notislakeBody {
+  margin-inline: var(--space-2);
+  padding: 0;
+}
+
+.notislakeBody .treeBody {
+  min-width: 0;
+}
+
+.notislakeTrigger {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notislakeTrigger:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
 .notislakeConfigure {
   margin-left: auto;
   font-size: var(--font-size-xs);
@@ -421,32 +448,4 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-1);
-}
-
-.notislakeFooter {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  padding: 0 var(--space-1);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-
-.notislakeLink {
-  color: var(--color-text);
-  text-decoration: underline;
-}
-
-.notislakeCreds {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-.notislakePath {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
