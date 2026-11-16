@@ -3,9 +3,9 @@
 O backend é o único escritor do `catalog.db` para o lado Docker. Autenticação por token de runtime da
 sessão (nunca o token da UI) e regra de Host própria. O plano do hook é validado antes de tocar o banco:
 formato, nomes, tamanho e `location`: local por realpath dentro das pastas montadas na sessão, ou `s3a` do
-notislake em forma estrita. Não há warehouse local: MANAGED só existe em `s3a`. Corpo malformado
-recusa o plano (422); item inválido por regra ou limite sai em `rejected` e os demais são gravados numa só
-transação. A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT: as s3a o backend
+notislake em forma estrita. Não há warehouse local: MANAGED só existe em `s3a`, na forma `<camada>/<t>`. Corpo
+malformado recusa o plano (422); item inválido por regra ou limite sai em `rejected` e os demais são gravados numa
+só transação, onde `apply_plan` ainda aplica camada pelo schema, sobreposição e nome repetido no Iceberg (D2). A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT: as s3a o backend
 devolve em `deletions` para o kernel apagar; ele nunca apaga arquivos (uma linha MANAGED legada com location
 local volta em `files_kept`). Respostas e logs não carregam segredo.
 """
@@ -29,7 +29,7 @@ from pydantic import (
     ValidationError,
 )
 
-from ..catalog import registry
+from ..catalog import iceberg_jdbc, registry
 from ..catalog.store import catalog_db_path, connect, ensure_catalog_db
 from ..fs_safety import is_within
 from ..notislake import locations as notislake_locations
@@ -130,14 +130,13 @@ def _info(item: TableInfo) -> dict[str, Any]:
     }
 
 
-def _location_error(location: str, grant: RuntimeGrant, managed: bool = False) -> str | None:
+def _location_error(location: str, grant: RuntimeGrant) -> str | None:
     """Código do erro se a `location` não é local dentro das pastas montadas nem `s3a` válida do notislake.
 
     O ramo local só vê caminhos do usuário (montagens); uma URI `s3a` nunca chega ao `os.path`.
-    `managed` libera o warehouse do Spark (a forma MANAGED é validada por quem chama).
     """
     if location.startswith(f"{notislake_locations.SCHEME}://"):
-        return _s3a_location_error(location, managed)
+        return _s3a_location_error(location)
     path = registry.local_path(location)
     if path is None:
         return "location_not_local"
@@ -149,15 +148,12 @@ def _location_error(location: str, grant: RuntimeGrant, managed: bool = False) -
     return "location_outside_mounts"
 
 
-def _s3a_location_error(location: str, managed: bool = False) -> str | None:
+def _s3a_location_error(location: str) -> str | None:
+    """Só a forma; camada, sobreposição e nome repetido são decididos no `apply_plan` (`rejected` com o código)."""
     try:
         notislake_locations.parse_notislake(location)
     except notislake_locations.InvalidLocation:
         return "location_not_notislake"
-    if notislake_locations.is_reserved_iceberg(location):
-        return "location_in_iceberg_prefix"  # área reservada do Iceberg (`RESERVED_ICEBERG_PREFIX`)
-    if not managed and notislake_locations.is_reserved_spark(location):
-        return "location_in_spark_warehouse"  # a pasta de uma MANAGED é apagada em cascata: nada externo dentro dela
     return None
 
 
@@ -192,7 +188,7 @@ def _parse_items[M: BaseModel](
 
 
 def _created_error(item: Created, grant: RuntimeGrant) -> str | None:
-    error = _location_error(item.loc, grant, managed=item.type == "MANAGED")
+    error = _location_error(item.loc, grant)
     if error or item.type != "MANAGED":
         return error
     return None if notislake_locations.managed_table(item.loc) else "managed_location_rejected"
@@ -209,13 +205,13 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], li
             continue
         created.append(((item.db, item.name), {**_info(item), "type": item.type, "description": item.description}))
     for u in _parse_items("updated", body.updated, Updated, rejected):
-        error = _location_error(u.loc, grant, managed=_managed_shape(u.loc))
+        error = _location_error(u.loc, grant)
         if error:
             rejected.append({"key": [u.db, u.name], "reason": error})
             continue
         updated.append(((u.db, u.name), u.expected_loc, "EXTERNAL", _info(u)))
     for r in _parse_items("renamed", body.renamed, Renamed, rejected):
-        error = _location_error(r.loc, grant, managed=_managed_shape(r.loc))
+        error = _location_error(r.loc, grant)
         if error:
             rejected.append({"key": [r.new_db, r.new_name], "reason": error})
             continue
@@ -233,7 +229,7 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], li
 
 
 def _managed_shape(location: str) -> bool:
-    """Só `s3a://notislake/bronze/spark/<t>` ou `<db>.db/<t>` é MANAGED; nenhum caminho local o é."""
+    """Só `s3a://notislake/<camada>/<t>` é MANAGED; nenhum caminho local o é."""
     return notislake_locations.managed_table(location)
 
 
@@ -280,16 +276,35 @@ def _generation(home: Path) -> int:
         conn.close()
 
 
+def _iceberg_tables(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Tabelas do catálogo `iceberg` (`db`, `name`, `loc`) para o hook checar D2 e sobreposição antes de gravar.
+
+    `loc` é a pasta `s3a://notislake/...` da tabela (pai de `metadata/`), ou `None` se o metadata não está no
+    notislake. Catálogo Iceberg ausente ou em formato desconhecido dá lista vazia.
+    """
+    try:
+        iceberg_jdbc.check_schema(conn)
+        rows = conn.execute(
+            "SELECT table_namespace, table_name, metadata_location FROM iceberg_tables WHERE catalog_name = ? "
+            "ORDER BY table_namespace, table_name",
+            (iceberg_jdbc.ICEBERG_CATALOG,),
+        ).fetchall()
+    except (iceberg_jdbc.UnsupportedIcebergSchema, sqlite3.OperationalError):
+        return []
+    return [{"db": r[0], "name": r[1], "loc": iceberg_jdbc.table_prefix(r[2])} for r in rows]
+
+
 def _registry(home: Path) -> dict[str, Any]:
     conn = _open_read(home)
     if conn is None:
-        return {"generation": 0, "tables": [], "namespaces": []}
+        return {"generation": 0, "tables": [], "namespaces": [], "iceberg": []}
     try:
         generation, rows, namespaces = registry.read_snapshot(conn)
+        iceberg = _iceberg_tables(conn)
     finally:
         conn.close()
     tables = [{"db": db, "name": name, **row} for (db, name), row in sorted(rows.items())]
-    return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces)}
+    return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces), "iceberg": iceberg}
 
 
 def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
