@@ -223,7 +223,7 @@ def read_columns(conn: sqlite3.Connection, database: str, table: str, hudi_only:
         return []
 
 
-# As duas funções abaixo são injetadas no kernel por `inspect.getsource` (hook local e HTTP): só usam
+# As funções abaixo são injetadas no kernel por `inspect.getsource` (hook local e HTTP): só usam
 # `json`/`sqlite3` e não têm anotações, que exigiriam nomes ausentes no kernel.
 def read_snapshot(conn):
     """`(generation, rows, namespaces)` do `spark_catalog`; `rows` por `(db, tabela)` com os campos que o hook usa."""
@@ -239,6 +239,12 @@ def read_snapshot(conn):
                             "parts": json.loads(parts), "dv": dv, "hi": hi}
     namespaces = {r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = 'spark_catalog'")}
     return gen, rows, namespaces
+
+
+def iceberg_folder(meta):
+    """Pasta de uma tabela Iceberg: pai de `metadata/` em `metadata_location` (sem validação estrita)."""
+    parts = meta.rstrip("/").split("/")[:-1]
+    return "/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts)
 
 
 def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destination=None, protected_dbs=()):
@@ -272,8 +278,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
         if has_iceberg:
             for (meta,) in conn.execute(
                     "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
-                parts = meta.rstrip("/").split("/")[:-1]
-                iceberg_locs.append("/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts))
+                iceberg_locs.append(iceberg_folder(meta))
 
     # Remoções do plano saem da visão antes das criações: `DROP a` + `CREATE b` na mesma pasta é válido.
     for key, rec_loc in (*plan["dropped"], *plan.get("unregistered", ())):

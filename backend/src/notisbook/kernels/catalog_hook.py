@@ -18,7 +18,7 @@ import inspect
 import json
 from collections.abc import Mapping
 
-from ..catalog.registry import apply_plan, read_snapshot
+from ..catalog.registry import apply_plan, iceberg_folder, read_snapshot
 from ..notislake import locations as notislake_locations
 from ..notislake.sparkconf import closed_options
 
@@ -82,6 +82,7 @@ REJECTED_PATH = {
 }
 ICEBERG_CATALOG = "iceberg"
 FORMAT_NAMES = ("delta", "parquet", "orc", "json", "csv", "hudi", "text", "avro", "iceberg")  # `delta.`<path>`` addresses a folder
+SOURCE_PLACEHOLDER = "__notisbook_src__"
 STATEMENT_RE = re.compile(r"\b(?:CREATE|REPLACE|INSERT|DROP|ALTER)\b", re.I)  # statements worth a parsePlan
 TABLE_NODES = ("CreateTable", "CreateTableAsSelect", "ReplaceTable", "ReplaceTableAsSelect")
 DEFAULT_DB = "default"
@@ -1327,9 +1328,7 @@ def iceberg_rows(conn):
     out = []
     for ns, name, meta in conn.execute(
             "SELECT table_namespace, table_name, metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg'"):
-        parts = (meta or "").rstrip("/").split("/")[:-1]
-        folder = "/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts) if meta else None
-        out.append(((ns, name), folder or None))
+        out.append(((ns, name), (iceberg_folder(meta) if meta else None) or None))
     return out
 
 
@@ -1604,13 +1603,14 @@ def precheck(fn, *args):
 
 
 def sql_text(args, kwargs):
+    """Text for `parsePlan` only (the call keeps its own arguments); a DataFrame/other argument stands in as a fixed
+    identifier because the destination checked never depends on the source."""
     text = args[0] if args else kwargs.get("sqlQuery")
     if not isinstance(text, str):
         return None
-    fields = {k: v for k, v in kwargs.items() if k not in ("sqlQuery", "args")}
+    fields = {k: v if isinstance(v, (str, int, float)) else SOURCE_PLACEHOLDER
+              for k, v in kwargs.items() if k not in ("sqlQuery", "args")}
     if fields:
-        if not all(isinstance(v, (str, int, float)) for v in fields.values()):
-            return None
         try:
             text = text.format(**fields)
         except (KeyError, IndexError, ValueError):
@@ -1717,10 +1717,6 @@ def wrap_recorded(original, record):
     return method
 
 
-def record_format(writer, args, kwargs):
-    record_of(writer)["format"] = arg_of(args, kwargs, 0, "source") or arg_of(args, kwargs, 0, "provider")
-
-
 def record_option(writer, args, kwargs):
     record_of(writer)["opts"][str(arg_of(args, kwargs, 0, "key")).lower()] = arg_of(args, kwargs, 1, "value")
 
@@ -1745,12 +1741,12 @@ def intercepts():
     def recorded(record):
         return lambda original: wrap_recorded(original, record)
 
-    writer = [("format", recorded(record_format)), ("option", recorded(record_option)), ("options", recorded(record_options)),
+    writer = [("option", recorded(record_option)), ("options", recorded(record_options)),
               ("save", checked(before_path_write)), ("saveAsTable", checked(before_save_as_table))]
     writer += [(name, checked(before_path_write)) for name in ("parquet", "json", "csv", "orc", "text")]
     return {
         "DataFrameWriter": writer,
-        "DataFrameWriterV2": [("__init__", recorded(record_table)), ("using", recorded(record_format)),
+        "DataFrameWriterV2": [("__init__", recorded(record_table)),
                               ("option", recorded(record_option)), ("options", recorded(record_options)),
                               ("tableProperty", recorded(record_property))]
                              + [(name, checked(before_create_v2)) for name in ("create", "createOrReplace", "replace")],
@@ -1912,7 +1908,7 @@ mod.register()
 
 def _render(config: dict[str, object]) -> str:
     locations_source = inspect.getsource(notislake_locations)
-    helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, apply_plan))
+    helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, iceberg_folder, apply_plan))
     config = {**config, "s3a_closed": closed_options()}
     source = (
         _KERNEL_TEMPLATE.replace("__REGISTRY_HELPERS__", helpers)
