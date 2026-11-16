@@ -138,6 +138,7 @@ def note_error(where, exc):
 
 
 BYPASS = threading.local()
+PENDING = threading.local()  # `stack`: one list of pending effects per active wrapped call of this thread
 
 
 class Bypass:
@@ -1344,9 +1345,9 @@ def known_view(session):
         warn(("known", session_key(session)), "não foi possível ler o catálogo persistente; sobreposição entre tabelas e nome repetido só serão checados depois da gravação.")
         return None
     skey = session_key(session)
-    for catalog, key in STATE.get("dropped", {}).get(skey, ()):
+    for catalog, key in list(STATE.get("dropped", {}).get(skey, ())):
         view["spark" if catalog == CATALOG else "iceberg"].pop(key, None)  # o registro só muda no post_run_cell
-    for (catalog, key), loc in STATE.get("intent", {}).get(skey, {}).items():
+    for (catalog, key), loc in list(STATE.get("intent", {}).get(skey, {}).items()):
         view["spark" if catalog == CATALOG else "iceberg"][key] = loc
     return view
 
@@ -1357,6 +1358,13 @@ def lake_locations(view, skip=None):
         return []
     return [loc for name, rows in view.items() for key, loc in rows.items()
             if loc and skip != (CATALOG if name == "spark" else ICEBERG_CATALOG, key)]
+
+
+def add_pending(entry):
+    """Queue an effect on the innermost wrapped call of this thread; outside one there is nothing to commit."""
+    stack = getattr(PENDING, "stack", None)
+    if stack:
+        stack[-1].append(entry)
 
 
 def check_table(session, catalog, schema, table, location):
@@ -1380,14 +1388,14 @@ def check_table(session, catalog, schema, table, location):
         effective = LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, key)))
     except LOCATIONS.InvalidLocation as exc:
         raise Refused(refuse_text(label, exc.code)) from None
-    STATE.setdefault("pending", []).append((session_key(session), "intent", catalog, key, effective))
+    add_pending((session_key(session), "intent", catalog, key, effective))
 
 
 def note_drop(session, parts):
     """DROP TABLE: once it succeeds, the table leaves this cell's view of the destinations."""
     target = resolve_table(session, parts)
     if target is not None:
-        STATE.setdefault("pending", []).append((session_key(session), "drop", target[0], (target[1], target[2]), None))
+        add_pending((session_key(session), "drop", target[0], (target[1], target[2]), None))
 
 
 def commit_pending(pending):
@@ -1416,8 +1424,18 @@ def check_path(session, path):
         raise Refused(refuse_text("gravar em %s" % path, exc.code, path=True)) from None
 
 
-def check_namespace(kind, session, parts, location=None):
-    """Layers are never dropped nor moved; a schema that is not a layer never points into the notislake."""
+def layer_exists(session, layer):
+    """True when `spark_catalog` already lists the layer (the hook's own query, so it skips the checks)."""
+    with Bypass():
+        rows = session.sql("SHOW NAMESPACES IN " + CATALOG).collect()
+    return layer in {str(row[0]).lower() for row in rows}
+
+
+def check_namespace(kind, session, parts, location=None, if_not_exists=False):
+    """Layers are never dropped nor moved; a schema that is not a layer never points into the notislake.
+
+    `CREATE ... IF NOT EXISTS <layer>` without LOCATION is a no-op on an existing layer and is not refused.
+    """
     target = resolve_namespace(session, parts)
     if target is None:
         return
@@ -1429,7 +1447,7 @@ def check_namespace(kind, session, parts, location=None):
     label = {"drop": "remover o schema", "create": "criar o schema", "set": "mudar a location do schema"}[kind] + " " + ns
     if layer:
         # A layer made in `spark_catalog` without its LOCATION would be born in the local warehouse.
-        unplaced = kind == "create" and not iceberg and location is None
+        unplaced = kind == "create" and not iceberg and location is None and not (if_not_exists and layer_exists(session, layer))
         moved = unplaced or (location is not None and location.rstrip("/") != LOCATIONS.layer_uri(layer))
         if kind == "drop" or kind == "set" or moved:
             raise Refused(refuse_text(label, "layer_protected"))
@@ -1508,7 +1526,7 @@ def check_plan(session, plan):
     elif kind == "DropNamespace":
         check_namespace("drop", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()))
     elif kind == "CreateNamespace":
-        check_namespace("create", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), jopt(items[2].get("location")))
+        check_namespace("create", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), jopt(items[2].get("location")), items[1] is True)
     elif kind == "SetNamespaceLocation":
         check_namespace("set", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), items[1])
     elif kind == "SetTableLocation":
@@ -1626,14 +1644,19 @@ def before_create_table(catalog, args, kwargs):
 def wrap_checked(original, before):
     @functools.wraps(original)
     def method(self, *args, **kwargs):
-        STATE["pending"] = []
+        pending = []
+        try:
+            stack = PENDING.stack = getattr(PENDING, "stack", None) or []
+            stack.append(pending)  # per thread and per call: a nested wrapped call gets its own list
+        except Exception:
+            stack = None
         try:
             precheck(before, self, args, kwargs)
-            pending = STATE["pending"]
         finally:
-            STATE.pop("pending", None)
+            if stack:
+                stack.pop()
         result = original(self, *args, **kwargs)
-        commit_pending(pending)  # only a statement that returned without error counts for the next checks
+        guarded("commit_pending", commit_pending, pending)  # only a statement that returned without error counts for the next checks
         return result
     method._notisbook_original = original
     return method
