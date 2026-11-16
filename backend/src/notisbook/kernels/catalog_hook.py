@@ -1373,6 +1373,7 @@ def check_table(session, catalog, schema, table, location):
     The same name in the other catalog is refused for any location; the layer rules only apply to what lands in the notislake:
     an explicit s3/s3a/s3n location there, a managed table of a layer, or any managed `iceberg` table (its
     warehouse is the bucket root). Other destinations (local disk, other buckets) are left to Spark.
+    Without a location, a table already registered keeps its own folder and is not checked as a new destination.
     """
     key, label = (schema.lower(), table.lower()), "criar a tabela %s.%s" % (schema, table)
     view = known_view(session)
@@ -1384,6 +1385,8 @@ def check_table(session, catalog, schema, table, location):
         raise Refused(refuse_text(label, "schema_not_layer"))  # o JdbcCatalog gravaria em `<raiz>/Bronze/`, fora das camadas
     if not on_lake and (location is not None or (catalog == CATALOG and LOCATIONS.layer_of_schema(schema) is None)):
         return
+    if location is None and view is not None and key in view[mine]:
+        return  # a write to a registered table (append, IF NOT EXISTS, replace) keeps its folder: no destination to compute nor to record
     try:
         effective = LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, key)))
     except LOCATIONS.InvalidLocation as exc:
@@ -1469,6 +1472,31 @@ def check_table_location(session, parts, location):
         raise Refused(refuse_text(label, exc.code)) from None
 
 
+def check_rename(session, parts, new_name):
+    """ALTER TABLE ... RENAME TO on `iceberg`: the folder stays, so the new name must still fit its layer and be free in `spark_catalog`.
+
+    Local `iceberg` (JDBC) writes `catalog.db` directly, with no REST in between. A `spark_catalog` rename is left
+    to `apply_plan` (the session catalog does not move a table across schemas).
+    """
+    target = resolve_table(session, parts)
+    if target is None or target[0] != ICEBERG_CATALOG or not new_name:
+        return
+    view = known_view(session)
+    old_key = (target[1].lower(), target[2].lower())
+    if view is None or old_key not in view["iceberg"]:
+        return
+    new_schema, new_table = ".".join(new_name[:-1]) or target[1], new_name[-1]  # a bare name stays in the table's namespace
+    label = "renomear a tabela %s.%s" % (target[1], target[2])
+    if (new_schema.lower(), new_table.lower()) in view["spark"]:
+        raise Refused(refuse_text(label, "name_in_spark_catalog"))
+    current = view["iceberg"][old_key]
+    if current and LOCATIONS.targets_notislake(current):
+        try:
+            LOCATIONS.table_destination(new_schema, new_table, current, lake_locations(view, (ICEBERG_CATALOG, old_key)))
+        except LOCATIONS.InvalidLocation as exc:
+            raise Refused(refuse_text(label, exc.code)) from None
+
+
 def table_statement(session, parts, location):
     path = path_of_ident(parts)
     if path:
@@ -1521,6 +1549,8 @@ def check_plan(session, plan):
         location = jopt(named["CatalogStorageFormat"].locationUri())
         if location is not None:
             check_path(session, str(location))
+    elif kind == "RenameTable" and items[2] is False and "UnresolvedTableOrView" in named:
+        check_rename(session, jseq(named["UnresolvedTableOrView"].multipartIdentifier()), jseq(items[1]))
     elif kind == "DropTable" and "UnresolvedIdentifier" in named:
         note_drop(session, jseq(named["UnresolvedIdentifier"].nameParts()))
     elif kind == "DropNamespace":
