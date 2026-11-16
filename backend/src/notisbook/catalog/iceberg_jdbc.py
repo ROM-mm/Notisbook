@@ -18,7 +18,7 @@ from typing import Any
 from ..fs_safety import is_within
 from ..notislake import locations, objectstore
 from ..notislake.settings_store import ConfigInvalid
-from .registry import MAX_TABLES, is_available, local_path
+from .registry import MAX_TABLES, all_table_locations, is_available, local_path
 
 ICEBERG_CATALOG = "iceberg"
 ERR_UNSUPPORTED = "unsupported_iceberg_catalog_schema"
@@ -79,13 +79,16 @@ def _table_dir(metadata_location: str) -> Path | None:
 
 
 def is_managed_s3a(metadata_location: str | None, namespace: str, table: str) -> bool:
-    """O metadata está em `<ICEBERG_WAREHOUSE>/<ns…>/<t>` (grafia exata); só sintático, sem consultar o bucket."""
-    expected = "/".join((locations.ICEBERG_WAREHOUSE, *namespace.split("."), table))
-    return table_prefix(metadata_location) == expected
+    """O metadata está em `s3a://notislake/<camada>/<t>` (`<raiz>/<ns>/<t>` do JdbcCatalog, ns = camada, grafia exata).
+
+    Só sintático, sem consultar o bucket.
+    """
+    prefix = table_prefix(metadata_location)
+    return prefix == "/".join((locations.ROOT_URI, namespace, table)) and locations.managed_table(prefix)
 
 
 def _table_type(metadata_location: str, namespace: str, table: str) -> str:
-    """MANAGED só em `<ICEBERG_WAREHOUSE>/<ns…>/<t>` (s3a); qualquer caminho local é EXTERNAL; informativo."""
+    """MANAGED só em `s3a://notislake/<camada>/<t>`; qualquer outro caminho (inclusive local) é EXTERNAL; informativo."""
     return "MANAGED" if is_managed_s3a(metadata_location, namespace, table) else "EXTERNAL"
 
 
@@ -250,6 +253,12 @@ def all_metadata_locations(conn: sqlite3.Connection) -> list[str]:
             (ICEBERG_CATALOG,),
         )
     ]
+
+
+def known_table_locations(conn: sqlite3.Connection) -> list[str]:
+    """Pasta de toda tabela conhecida: registro `nb_*` (locations) e Iceberg (pai de `metadata/`); entrada da regra de sobreposição."""
+    prefixes = (table_prefix(loc) for loc in all_metadata_locations(conn))
+    return [*all_table_locations(conn), *(p for p in prefixes if p is not None)]
 
 
 def drop_namespace_rows(conn: sqlite3.Connection, namespace: str) -> None:

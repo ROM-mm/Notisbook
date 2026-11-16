@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
+from ..notislake import locations
+
 SPARK_CATALOG = "spark_catalog"
 # Nó só de exibição: as tabelas Hudi vivem no `spark_catalog` (`nb_tables.format = 'hudi'`).
 HUDI_CATALOG = "hudi"
@@ -19,6 +21,8 @@ DEFAULT_DATABASE = "default"
 # Teto da varredura: tabelas por database e no total. Estourar o teto marca `"truncated": true`.
 MAX_TABLES = 500
 MAX_TOTAL_TABLES = 2000
+# Recusa de D2: `<schema>.<t>` já existe no outro catálogo (Delta e Iceberg cairiam na mesma pasta do notislake).
+ERR_NAME_IN_OTHER_CATALOG = "name_in_other_catalog"
 
 
 def _bump_generation(conn: sqlite3.Connection) -> None:
@@ -73,6 +77,15 @@ def namespace_hudi_count(conn: sqlite3.Connection, namespace: str) -> int:
         (SPARK_CATALOG, namespace.lower()),
     ).fetchone()
     return int(row[0])
+
+
+def table_name_exists(conn: sqlite3.Connection, namespace: str, table: str) -> bool:
+    """Existe `namespace.table` no registro `nb_tables`, sem distinção de caixa (D2: colisão com o catálogo Iceberg)."""
+    row = conn.execute(
+        "SELECT 1 FROM nb_tables WHERE catalog_name = ? AND lower(namespace) = lower(?) AND lower(table_name) = lower(?)",
+        (SPARK_CATALOG, namespace, table),
+    ).fetchone()
+    return row is not None
 
 
 def all_table_locations(conn: sqlite3.Connection) -> list[str]:
@@ -228,26 +241,55 @@ def read_snapshot(conn):
     return gen, rows, namespaces
 
 
-def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
+def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destination=None, protected_dbs=()):
     """Aplica o plano do hook dentro da transação aberta pelo chamador; não toca em arquivos nem na generation.
 
     `plan`: `created` [(key, info)], `updated` [(key, rec_loc, rec_type, change)], `renamed` [(old, new, rec_loc, info)],
-    `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (opcional: remove só a linha, nunca gera `deletions`),
-    `new_dbs`, `gone_dbs`. `rec_loc` é a trava: só mexe na linha que ainda aponta para ele.
-    Com `type_from_row` o tipo de um update vem da linha do registro, não do plano (caminho HTTP).
-    `deletions` lista `(key, location)` de tabelas MANAGED sem outro uso, decididas pela própria linha. "Uso" é outra linha
-    com a mesma location ou dentro da pasta (registro antigo), ou uma tabela Iceberg do catálogo JDBC cujo metadata está
-    abaixo dela: essa MANAGED vai em `files_kept` e nada é apagado.
-    `rejected` lista `(key, "location_in_spark_warehouse")` de EXTERNAL movida para dentro do warehouse do Spark.
+    `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (só remove a linha), `new_dbs`, `gone_dbs`.
+    `rec_loc` é a trava: só mexe na linha que ainda aponta para ele. `type_from_row`: tipo do update vem da linha (HTTP).
+    `destination` (`locations.table_destination`) liga a regra do notislake: camada pelo schema, sem sobrepor outra tabela
+    (registro ou Iceberg) e sem `<schema>.<t>` repetido no Iceberg; recusas vão em `rejected` `(key, code)`, sem gravar.
+    `protected_dbs` (camadas) nunca saem de `gone_dbs`. `deletions`/`files_kept`: MANAGED sem outro uso / ainda em uso.
     """
     out = {"changed": False, "adopted": [], "conflicts": [], "updated_ok": [], "renamed_ok": [],
            "dropped_ok": [], "deletions": [], "files_kept": [], "rejected": []}
     changed = False
-    # Cópia de `SPARK_WAREHOUSE`: este corpo roda no kernel só com stdlib, sem `locations`.
-    spark_prefix = "s3a://notislake/bronze/spark/"
+    has_iceberg = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone()
 
-    def moved_into_spark(typ, old_loc, new_loc):
-        return typ != "MANAGED" and new_loc != old_loc and (new_loc.rstrip("/") + "/").startswith(spark_prefix)
+    def on_lake(loc):
+        scheme, sep, rest = loc.partition("://")
+        return bool(sep) and scheme.lower() in ("s3", "s3a", "s3n") and rest.partition("/")[0] == "notislake"
+
+    def known_locations(skip_key):
+        # Este corpo roda no kernel só com stdlib: a pasta de uma tabela Iceberg é o pai de `metadata/`.
+        locs = [r[0] for r in conn.execute(
+            "SELECT location FROM nb_tables WHERE catalog_name = 'spark_catalog' AND NOT (namespace = ? AND table_name = ?)",
+            skip_key or ("", ""))]
+        if has_iceberg:
+            for (meta,) in conn.execute(
+                    "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
+                parts = meta.rstrip("/").split("/")[:-1]
+                locs.append("/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts))
+        return locs
+
+    def name_in_iceberg(key):
+        return bool(has_iceberg) and conn.execute(
+            "SELECT 1 FROM iceberg_tables WHERE catalog_name = 'iceberg' AND lower(table_namespace) = lower(?) "
+            "AND lower(table_name) = lower(?)", key).fetchone() is not None
+
+    def refusal(key, loc, skip_key, new_name):
+        """Código da recusa (`InvalidLocation.code` ou D2) ou `None`; sem `destination` a regra está desligada."""
+        if destination is None:
+            return None
+        if new_name and name_in_iceberg(key):
+            return "name_in_other_catalog"
+        if not on_lake(loc):
+            return None
+        try:
+            destination(key[0], key[1], loc, known_locations(skip_key))
+        except ValueError as exc:  # `InvalidLocation`
+            return getattr(exc, "code", "invalid_location")
+        return None
 
     def row_of(key):
         return conn.execute(
@@ -257,6 +299,10 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
     for key, info in plan["created"]:
         row = row_of(key)
         if row is None:
+            code = refusal(key, info["loc"], None, True)
+            if code:
+                out["rejected"].append((key, code))
+                continue
             conn.execute(
                 "INSERT INTO nb_tables (catalog_name, namespace, table_name, format, location, table_type, "
                 "columns_json, partition_cols, options_json, delta_version, hudi_instant, description, created_at, updated_at) "
@@ -276,8 +322,9 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
             typ = row[1] if row else rec_type
         if typ == "MANAGED" and change["loc"] != rec_loc and not managed_shape(change["loc"]):
             typ = "EXTERNAL"
-        if moved_into_spark(typ, rec_loc, change["loc"]):
-            out["rejected"].append((key, "location_in_spark_warehouse"))
+        code = refusal(key, change["loc"], key, False) if change["loc"] != rec_loc else None
+        if code:
+            out["rejected"].append((key, code))
             continue
         cur = conn.execute(
             "UPDATE nb_tables SET format = ?, location = ?, table_type = ?, columns_json = ?, partition_cols = ?, "
@@ -290,8 +337,9 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
             out["updated_ok"].append((key, {**change, "type": typ}))
     for old, new, rec_loc, info in plan["renamed"]:
         old_row = row_of(old)
-        if old_row is not None and moved_into_spark(old_row[1], rec_loc, info["loc"]):
-            out["rejected"].append((new, "location_in_spark_warehouse"))
+        code = refusal(new, info["loc"], old, True)
+        if code:
+            out["rejected"].append((new, code))
             continue
         typ = old_row[1] if old_row is not None else None
         if typ == "MANAGED" and info["loc"] != rec_loc and not managed_shape(info["loc"]):
@@ -324,7 +372,6 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
         shared = conn.execute(
             "SELECT count(*) FROM nb_tables WHERE location = ?1 OR substr(location, 1, length(?1) + 1) = ?1 || '/'",
             (row[0].rstrip("/"),)).fetchone()[0]
-        has_iceberg = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone()
         if not shared and has_iceberg:
             shared = conn.execute(
                 "SELECT count(*) FROM iceberg_tables WHERE substr(metadata_location, 1, length(?1) + 1) = ?1 || '/'",
@@ -345,6 +392,8 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False):
             "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "
             "VALUES ('spark_catalog', ?, NULL, ?)", (ns, stamp)).rowcount > 0
     for ns in plan["gone_dbs"]:
+        if ns in protected_dbs:
+            continue
         left = conn.execute(
             "SELECT count(*) FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).fetchone()[0]
         if not left:
@@ -362,14 +411,17 @@ def read_generation(conn: sqlite3.Connection) -> int:
 def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], managed_shape: Any) -> dict[str, Any]:
     """Aplica o plano numa `BEGIN IMMEDIATE`, sobe a generation se algo mudou e devolve o resultado.
 
-    O tipo dos updates vem da linha do registro. `generation_before`/`generation` acompanham o resultado;
-    apagar pastas MANAGED (`deletions`) fica para o chamador, depois do COMMIT.
+    O tipo dos updates vem da linha do registro; a regra de destino do notislake e as camadas protegidas entram
+    aqui (o hook local as passa a `apply_plan` por conta própria). `generation_before`/`generation` acompanham
+    o resultado; apagar pastas MANAGED (`deletions`) fica para o chamador, depois do COMMIT.
     """
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute("BEGIN IMMEDIATE")
     try:
         before = read_generation(conn)
-        result: dict[str, Any] = apply_plan(conn, plan, stamp, managed_shape, type_from_row=True)
+        result: dict[str, Any] = apply_plan(
+            conn, plan, stamp, managed_shape, type_from_row=True,
+            destination=locations.table_destination, protected_dbs=locations.LAYERS)
         if result["changed"]:
             _bump_generation(conn)
         after = read_generation(conn)

@@ -4,6 +4,7 @@ Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das l
 warehouse local: as tabelas MANAGED vivem no bucket (`s3a`) e o backend nunca apaga por prefixo, então a
 cascata só remove linhas e devolve os arquivos mantidos em `files_kept` (`s3a_kept`; `outside_warehouse` para
 uma linha MANAGED legada com location local). `folder_kept` é sempre falso: não há pasta de schema a remover.
+As 4 camadas do notislake (`locations.LAYERS`) existem nos dois catálogos e não são excluíveis (`cannot_drop_layer`).
 Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 """
 
@@ -33,6 +34,7 @@ _STATUS = {
     "schema_exists": 409,
     "catalog_changed": 409,
     "cannot_drop_default": 409,
+    "cannot_drop_layer": 409,
     "has_child_namespaces": 409,
     "unsupported_iceberg_catalog_schema": 409,
 }
@@ -144,6 +146,7 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
     managed = sum(1 for r in rows if r[2] == "MANAGED")
     kept = sum(1 for r in rows if r[2] == "MANAGED" and locations.managed_table(r[1]))
     is_default = key == registry.DEFAULT_DATABASE
+    is_layer = locations.layer_of_schema(key) is not None
     # `tables` = não-Hudi e `hudi` = Hudi. O backend não apaga arquivos: `managed` (apagadas) é sempre 0 e as pastas
     # MANAGED s3a ficam no bucket (`managed_kept`); `external` segue sendo as linhas que não são MANAGED.
     return {
@@ -153,8 +156,8 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         "managed": 0,
         "managed_kept": kept,
         "external": len(rows) - managed,
-        "can_delete": not is_default,
-        "reason": "cannot_drop_default" if is_default else None,
+        "can_delete": not (is_default or is_layer),
+        "reason": "cannot_drop_default" if is_default else "cannot_drop_layer" if is_layer else None,
         "etag": _spark_etag(rows),
     }
 
@@ -172,6 +175,7 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
     tables = [e for e in entries if e[1] != "VIEW"]
     kept = sum(1 for n, _, loc in tables if iceberg_jdbc.is_managed_s3a(loc, schema, n))
     children = iceberg_jdbc.has_child_namespaces(conn, schema)
+    is_layer = locations.layer_of_schema(schema) is not None
     return {
         "tables": len(tables),
         "hudi": 0,
@@ -179,8 +183,8 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
         "managed": 0,  # o backend não apaga arquivos do bucket
         "managed_kept": kept,
         "external": len(tables) - kept,
-        "can_delete": not children,
-        "reason": "has_child_namespaces" if children else None,
+        "can_delete": not (children or is_layer),
+        "reason": "cannot_drop_layer" if is_layer else "has_child_namespaces" if children else None,
         "etag": _iceberg_etag(entries),
     }
 
@@ -202,6 +206,8 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
     key = schema.lower()
     if key == registry.DEFAULT_DATABASE:
         raise SchemaError("cannot_drop_default")
+    if locations.layer_of_schema(key) is not None:
+        raise SchemaError("cannot_drop_layer")
     conn = _open_existing_for_delete(home)
     try:
         with _immediate(conn):
@@ -229,6 +235,8 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
 
 
 def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
+    if locations.layer_of_schema(schema) is not None:
+        raise SchemaError("cannot_drop_layer")
     conn = _open_existing_for_delete(home)
     try:
         try:

@@ -5,7 +5,10 @@ Iceberg 1.10.1 (schema V1) cria, mas com `IF NOT EXISTS`, para que kernels conco
 """
 
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
+
+from ..notislake import locations
 
 CATALOG_DB = "catalog.db"
 
@@ -92,6 +95,29 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
 )
 
 
+def _seed_layers(conn: sqlite3.Connection) -> None:
+    """Garante as camadas do notislake nos dois catálogos; idempotente (`INSERT OR IGNORE` pela chave primária).
+
+    Só sobe a `generation` quando insere linha, para as sessões abertas reconciliarem. Dentro de transação.
+    """
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    inserted = 0
+    for layer in locations.LAYERS:
+        inserted += conn.execute(
+            "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "
+            "VALUES ('spark_catalog', ?, NULL, ?)",
+            (layer, stamp),
+        ).rowcount
+        # Mesma linha que o `JdbcCatalog.createNamespace(ns, {})` grava.
+        inserted += conn.execute(
+            "INSERT OR IGNORE INTO iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) "
+            "VALUES ('iceberg', ?, 'exists', 'true')",
+            (layer,),
+        ).rowcount
+    if inserted:
+        conn.execute("UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'")
+
+
 def catalog_db_path(home: Path) -> Path:
     return home / CATALOG_DB
 
@@ -105,7 +131,7 @@ def connect(home: Path) -> sqlite3.Connection:
 
 
 def ensure_catalog_db(home: Path) -> None:
-    """Cria/migra o `catalog.db`; idempotente e seguro com partidas concorrentes. Levanta `sqlite3.Error`."""
+    """Cria/migra o `catalog.db` e semeia as camadas; idempotente e seguro com partidas concorrentes. Levanta `sqlite3.Error`."""
     conn = connect(home)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -118,6 +144,7 @@ def ensure_catalog_db(home: Path) -> None:
                 for statement in statements:
                     conn.execute(statement)
                 conn.execute(f"PRAGMA user_version={target}")
+            _seed_layers(conn)
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")
