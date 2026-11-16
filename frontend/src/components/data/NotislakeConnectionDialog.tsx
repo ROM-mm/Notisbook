@@ -12,6 +12,7 @@ import {
   putNotislakeConfig,
   testNotislakeConnection,
   type NotislakeConfigDraft,
+  type NotislakeLocalConnection,
 } from "../../api/notislake";
 import { useNotislake } from "../../state/notislake";
 import dlg from "../../styles/dialog.module.css";
@@ -56,6 +57,8 @@ function DialogBody({ onClose }: { onClose: () => void }) {
   const [region, setRegion] = useState(DEFAULT_REGION);
   const [timeoutS, setTimeoutS] = useState(DEFAULT_TIMEOUT_S);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [automatic, setAutomatic] = useState(false);
+  const [local, setLocal] = useState<NotislakeLocalConnection | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | "reset" | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -77,6 +80,10 @@ function DialogBody({ onClose }: { onClose: () => void }) {
           setTimeoutS(String(cfg.timeout_s));
           setLoaded({ endpoint: cfg.endpoint, accessKey: cfg.access_key, hasSecret: cfg.has_secret, resettable: true });
         } else {
+          if (cfg.mode === "automatic") {
+            setAutomatic(true);
+            setLocal(cfg.local);
+          }
           setLoaded({ endpoint: "", accessKey: "", hasSecret: false, resettable: cfg.mode === "invalid" });
         }
       })
@@ -202,6 +209,20 @@ function DialogBody({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className={styles.dialogBody}>
+          {automatic ? (
+            <div className={styles.dialogField} data-testid="notislake-current-connection">
+              {local ? (
+                <>
+                  <span>Current connection: local MinIO</span>
+                  <span className={styles.dialogHint}>Endpoint: {local.endpoint}</span>
+                  <span className={styles.dialogHint}>Access key: {local.access_key}</span>
+                  <span className={styles.dialogHint}>Region: {local.region}</span>
+                </>
+              ) : (
+                <span className={styles.dialogHint}>Local MinIO is not running.</span>
+              )}
+            </div>
+          ) : null}
           <div className={styles.dialogField}>
             <label htmlFor={ids.name}>Name</label>
             <input id={ids.name} ref={nameRef} className="input" value={name} disabled={locked} spellCheck={false} autoComplete="off" onChange={(e) => setName(e.target.value)} />

@@ -236,7 +236,14 @@ def get_config(request: Request) -> dict[str, Any]:
         config = settings_store.load(_home(request))
     except ConfigInvalid as exc:
         return {"mode": "invalid", "field": exc.field}
-    return {"mode": "automatic"} if config is None else _manual_view(config)
+    if config is not None:
+        return _manual_view(config)
+    supervisor = _supervisor(request)
+    connection = supervisor.connection() if supervisor is not None else None
+    if connection is None:
+        return {"mode": "automatic", "local": None}
+    local = {"endpoint": connection.endpoint, "access_key": connection.access_key, "region": DEFAULT_REGION}
+    return {"mode": "automatic", "local": local}
 
 
 @router.put("/config")

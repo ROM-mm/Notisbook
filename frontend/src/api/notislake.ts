@@ -23,9 +23,16 @@ export interface NotislakeStatus {
   local: NotislakeLocal | null;
 }
 
-/** `mode=invalid` traz só o campo inconsistente; `automatic` não traz nada além do modo. */
+/** Conexão do MinIO local exibida no modo automático; nunca inclui a secret key. */
+export interface NotislakeLocalConnection {
+  endpoint: string;
+  access_key: string;
+  region: string;
+}
+
+/** `mode=invalid` traz só o campo inconsistente; `automatic` traz o MinIO local (`null` se parado). */
 export type NotislakeConfig =
-  | { mode: "automatic" }
+  | { mode: "automatic"; local: NotislakeLocalConnection | null }
   | { mode: "invalid"; field: string | null }
   | {
       mode: "manual";
