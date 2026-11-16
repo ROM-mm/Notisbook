@@ -29,11 +29,10 @@ TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
 RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse", "--s3a-closed"}
-# As únicas URIs s3a aceitas; espelham `notislake.locations` (o incontainer não importa `notisbook.*`).
-S3A_WAREHOUSES = {
-    "--warehouse-dir": "s3a://notislake/bronze/spark",
-    "--iceberg-warehouse": "s3a://notislake/bronze/iceberg",
-}
+# Warehouse do Iceberg: só a raiz do bucket; espelha `notislake.locations.ROOT_URI` (o incontainer não importa `notisbook.*`).
+ICEBERG_WAREHOUSE_URI = "s3a://notislake"
+# Warehouse local de segurança do `spark_catalog`: `file:` absoluto, sem `..`, aspas, vírgula ou controle.
+LOCAL_WAREHOUSE_RE = re.compile(r"file:/[^\x00-\x1f\x7f\"',]{1,500}")
 # Config fechada do bucket vinda do launch (`sparkconf.closed_options()`): chave por bucket e valor simples.
 S3A_KEY_RE = re.compile(r"fs\.s3a\.bucket\.notislake\.[a-z][a-z0-9.]{0,80}")
 S3A_VALUE_RE = re.compile(r"[A-Za-z0-9:./_-]{1,200}")
@@ -290,9 +289,13 @@ def _run_options(rest: list[str]) -> dict[str, str] | None:
     options = dict(zip(rest[::2], rest[1::2]))
     if len(options) * 2 != len(rest) or not set(options) <= RUN_OPTIONS:
         return None
-    for name, s3a_uri in S3A_WAREHOUSES.items():
-        if name in options and options[name] != s3a_uri:
-            return None
+    warehouse = options.get("--warehouse-dir")
+    if warehouse is not None and not (
+        LOCAL_WAREHOUSE_RE.fullmatch(warehouse) and ".." not in warehouse.split("/")
+    ):
+        return None
+    if options.get("--iceberg-warehouse", ICEBERG_WAREHOUSE_URI) != ICEBERG_WAREHOUSE_URI:
+        return None
     if "--s3a-closed" in options and _parse_s3a_closed(options["--s3a-closed"]) is None:
         return None
     if ("--iceberg-uri" in options) != ("--iceberg-warehouse" in options):

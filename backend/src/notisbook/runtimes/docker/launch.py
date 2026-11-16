@@ -15,9 +15,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ...config import RUNTIME_HOST
-from ...notislake.locations import ICEBERG_WAREHOUSE, SPARK_WAREHOUSE
+from ...config import RUNTIME_HOST, default_home
+from ...notislake.locations import ROOT_URI
 from ...notislake.sparkconf import closed_options
+from ...spark.bundles import WAREHOUSE_DIR
 from . import catalog, cli
 
 # Porta do backend para o container alcançar o catálogo Iceberg REST; o KernelService a põe no env do kernel.
@@ -47,7 +48,12 @@ def iceberg_options() -> list[str]:
     port = os.environ.get(PORT_ENV, "")
     if not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
         return []
-    return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", ICEBERG_WAREHOUSE]
+    return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", ROOT_URI]
+
+
+def safety_warehouse() -> str:
+    """Warehouse local do `spark_catalog` no container: a pasta `warehouse/` do home, montada no mesmo caminho do Mac."""
+    return f"file:{default_home() / WAREHOUSE_DIR}"
 
 
 def incontainer_source() -> bytes:
@@ -134,7 +140,7 @@ def launch(key: str, connection_file: str) -> None:
         "--cwd",
         os.getcwd(),
         "--warehouse-dir",
-        SPARK_WAREHOUSE,
+        safety_warehouse(),
         *iceberg_options(),
         "--s3a-closed",
         json.dumps(closed_options(), sort_keys=True),

@@ -17,6 +17,7 @@ from ..catalog.store import catalog_db_path
 DEFAULT_MAVEN_URL = "https://repo1.maven.org/maven2"
 MAVEN_URL_ENV = "NOTISBOOK_MAVEN_URL"
 WAREHOUSE_DIR = "warehouse"
+SAFETY_WAREHOUSE_DIR = "spark-warehouse"
 _VERSION = re.compile(r"(\d+\.\d+)\.(\d+)", re.ASCII)
 
 EXT_ICEBERG = "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"
@@ -201,6 +202,11 @@ def catalog_uri(home: Path) -> str:
     return f"jdbc:sqlite:{catalog_db_path(home)}?busy_timeout={SQLITE_BUSY_TIMEOUT_MS}"
 
 
+def safety_warehouse_uri(home: Path) -> str:
+    """Warehouse local do `spark_catalog`: escrita que escapa da regra do notislake cai no disco, não no bucket."""
+    return f"file:{home / SAFETY_WAREHOUSE_DIR}"
+
+
 def render_base_defaults() -> list[str]:
     """Lines every managed env gets: the session catalog stays in memory.
 
@@ -211,24 +217,23 @@ def render_base_defaults() -> list[str]:
     return ["spark.sql.catalogImplementation in-memory"]
 
 
-def render_s3a_defaults() -> list[str]:
-    """Warehouse in the notislake bucket plus the closed S3A config (dead endpoint, no secret).
+def render_s3a_defaults(home: Path) -> list[str]:
+    """Local safety warehouse plus the closed S3A config (dead endpoint, no secret).
 
     The real connection is applied by the session hook after `getOrCreate`. Without the warehouse line the
     notebook folder would receive `spark-warehouse/`.
     """
     # Lazy import: `notislake.sparkconf` pulls `config`, which imports this module at load time.
-    from ..notislake.locations import SPARK_WAREHOUSE
     from ..notislake.sparkconf import closed_options
 
     return [
-        f"spark.sql.warehouse.dir {SPARK_WAREHOUSE}",
+        f"spark.sql.warehouse.dir {safety_warehouse_uri(home)}",
         *(f"spark.hadoop.{key} {value}" for key, value in closed_options().items()),
     ]
 
 
 def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> str:
-    """Content of `spark-defaults.conf`; with a bundle it also wires the three formats and the S3A warehouse.
+    """Content of `spark-defaults.conf`; with a bundle it also wires the three formats, the safety warehouse and the S3A bucket root for Iceberg.
 
     Without a bundle (no S3A jars) no `s3a://` or `fs.s3a` line is written: such an env is refused at open.
 
@@ -236,12 +241,12 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
     Delta's, since `SparkSessionCatalog` and `DeltaCatalog` cannot share the session catalog slot.
     Raises UnsupportedHome when `home` cannot go into the JDBC URL.
     """
-    from ..notislake.locations import ICEBERG_WAREHOUSE
+    from ..notislake.locations import ROOT_URI
 
     lines = render_base_defaults()
     if bundle is None:
         return "\n".join(lines) + "\n"
-    lines += render_s3a_defaults()
+    lines += render_s3a_defaults(home)
     jars = ",".join(str(jars_dir / artifact.filename) for artifact in bundle.artifacts)
     # JVM classpath, not a Spark list: entries are separated by the platform path separator, unlike `spark.jars`.
     driver_jars = os.pathsep.join(str(jars_dir / artifact.filename) for artifact in bundle.driver_artifacts)
@@ -254,7 +259,7 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
         "spark.sql.catalog.iceberg org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.iceberg.type jdbc",
         f"spark.sql.catalog.iceberg.uri {catalog_uri(home)}",
-        f"spark.sql.catalog.iceberg.warehouse {ICEBERG_WAREHOUSE}",
+        f"spark.sql.catalog.iceberg.warehouse {ROOT_URI}",
         # Tables live in the shared bucket: Iceberg must not garbage-collect files on its own.
         "spark.sql.catalog.iceberg.table-default.gc.enabled false",
         "spark.sql.catalog.iceberg.jdbc.schema-version V1",

@@ -25,7 +25,6 @@ from nbformat.v4 import output_from_msg
 from ..catalog.store import catalog_db_path
 from ..config import RUNTIME_HOST, Settings
 from ..notislake import objectstore, settings_store
-from ..notislake.locations import SPARK_WAREHOUSE
 from ..notislake.sparkconf import fingerprint, s3a_options
 from ..notislake.supervisor import NotislakeSupervisor
 from ..runtimes.docker import catalog as docker_catalog
@@ -49,6 +48,7 @@ from ..spark.bundles import (
     UnsupportedHome,
     bundle_for,
     render_spark_defaults,
+    safety_warehouse_uri,
     write_log4j2,
     write_spark_defaults,
 )
@@ -815,9 +815,9 @@ class KernelService:
         """Re-render `spark-defaults.conf` from the current matrix, only when every jar it names is installed.
 
         The kernel is offline, so nothing is downloaded here. A managed env with no bundle, or missing a jar
-        of its bundle (the S3A ones included), has no s3a warehouse to run on: raises `SparkEnvOutdated`.
+        of its bundle (the S3A ones included), has no S3A config to run on: raises `SparkEnvOutdated`.
         So does a conf that cannot be rewritten (unsupported home, write error), unless the current one already
-        points `spark.sql.warehouse.dir` at the s3a warehouse. That fallback only applies once the env is
+        points `spark.sql.warehouse.dir` at the local safety warehouse. That fallback only applies once the env is
         confirmed as a managed Spark env; any other failure is logged and never blocks the start.
         """
         confirmed = False
@@ -845,21 +845,20 @@ class KernelService:
         except UnsupportedHome as exc:
             log.warning("spark-defaults.conf of kernel %s not updated: %s", getattr(spec, "display_name", "?"), exc)
             if confirmed:
-                self._require_s3a_warehouse(spec)
+                self._require_safety_warehouse(spec)
         except Exception:
             log.warning("cannot ensure spark-defaults.conf for kernel %s", getattr(spec, "display_name", "?"), exc_info=True)
             if confirmed:
-                self._require_s3a_warehouse(spec)
+                self._require_safety_warehouse(spec)
 
-    @staticmethod
-    def _require_s3a_warehouse(spec: Any) -> None:
-        """Fail closed: the stale conf is only usable when it already names the s3a warehouse."""
+    def _require_safety_warehouse(self, spec: Any) -> None:
+        """Fail closed: the stale conf is only usable when it already names the local safety warehouse."""
         try:
             lines = (Path(spec.env["SPARK_CONF_DIR"]) / "spark-defaults.conf").read_text(encoding="utf-8").splitlines()
         except (KeyError, OSError, UnicodeDecodeError):
             raise SparkEnvOutdated from None
         values = [parts[1:] for parts in map(str.split, lines) if parts[:1] == ["spark.sql.warehouse.dir"]]
-        if not values or values[-1] != [SPARK_WAREHOUSE]:  # the last duplicate wins in a properties file
+        if not values or values[-1] != [safety_warehouse_uri(self._home)]:  # the last duplicate wins in a properties file
             raise SparkEnvOutdated
 
     async def create(
