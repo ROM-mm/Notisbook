@@ -12,7 +12,6 @@ import {
   putNotislakeConfig,
   testNotislakeConnection,
   type NotislakeConfigDraft,
-  type NotislakeLocalConnection,
 } from "../../api/notislake";
 import { useNotislake } from "../../state/notislake";
 import dlg from "../../styles/dialog.module.css";
@@ -27,14 +26,20 @@ const DEFAULT_REGION = "us-east-1";
 const DEFAULT_TIMEOUT_S = "10";
 const TIMEOUT_MIN = 1;
 const TIMEOUT_MAX = 120;
+const LOCAL_NAME = "local MinIO";
 
 interface Loaded {
+  name: string;
   endpoint: string;
   accessKey: string;
+  region: string;
+  timeoutS: string;
   hasSecret: boolean;
   /** `manual` e `invalid` permitem voltar ao automático. */
   resettable: boolean;
 }
+
+const EMPTY_FORM = { name: "", endpoint: "", accessKey: "", region: DEFAULT_REGION, timeoutS: DEFAULT_TIMEOUT_S };
 
 type Feedback = { kind: "ok" | "error"; text: string } | null;
 
@@ -58,7 +63,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
   const [timeoutS, setTimeoutS] = useState(DEFAULT_TIMEOUT_S);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [automatic, setAutomatic] = useState(false);
-  const [local, setLocal] = useState<NotislakeLocalConnection | null>(null);
+  const [localDown, setLocalDown] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"test" | "save" | "reset" | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
@@ -78,19 +83,39 @@ function DialogBody({ onClose }: { onClose: () => void }) {
           setAccessKey(cfg.access_key);
           setRegion(cfg.region);
           setTimeoutS(String(cfg.timeout_s));
-          setLoaded({ endpoint: cfg.endpoint, accessKey: cfg.access_key, hasSecret: cfg.has_secret, resettable: true });
+          setLoaded({
+            name: cfg.name,
+            endpoint: cfg.endpoint,
+            accessKey: cfg.access_key,
+            region: cfg.region,
+            timeoutS: String(cfg.timeout_s),
+            hasSecret: cfg.has_secret,
+            resettable: true,
+          });
         } else {
+          const snapshot = { ...EMPTY_FORM, hasSecret: false, resettable: cfg.mode === "invalid" };
           if (cfg.mode === "automatic") {
             setAutomatic(true);
-            setLocal(cfg.local);
+            if (cfg.local) {
+              snapshot.name = LOCAL_NAME;
+              snapshot.endpoint = cfg.local.endpoint;
+              snapshot.accessKey = cfg.local.access_key;
+              snapshot.region = cfg.local.region;
+              setName(snapshot.name);
+              setEndpoint(snapshot.endpoint);
+              setAccessKey(snapshot.accessKey);
+              setRegion(snapshot.region);
+            } else {
+              setLocalDown(true);
+            }
           }
-          setLoaded({ endpoint: "", accessKey: "", hasSecret: false, resettable: cfg.mode === "invalid" });
+          setLoaded(snapshot);
         }
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
         setLoadError(errorMessage(err));
-        setLoaded({ endpoint: "", accessKey: "", hasSecret: false, resettable: false });
+        setLoaded({ ...EMPTY_FORM, hasSecret: false, resettable: false });
       });
     return () => controller.abort();
   }, []);
@@ -115,6 +140,16 @@ function DialogBody({ onClose }: { onClose: () => void }) {
 
   const locked = !ready || busy !== null;
   const canSubmit = !locked && invalidReason === null;
+  const untouchedAutomatic =
+    automatic &&
+    loaded !== null &&
+    secretKey === "" &&
+    name === loaded.name &&
+    endpoint === loaded.endpoint &&
+    accessKey === loaded.accessKey &&
+    region === loaded.region &&
+    timeoutS === loaded.timeoutS;
+  const canSave = canSubmit && !untouchedAutomatic;
 
   function draft(): NotislakeConfigDraft {
     const d: NotislakeConfigDraft = {
@@ -160,7 +195,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (!canSave) return;
     setBusy("save");
     setFeedback(null);
     try {
@@ -209,20 +244,6 @@ function DialogBody({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <div className={styles.dialogBody}>
-          {automatic ? (
-            <div className={styles.dialogField} data-testid="notislake-current-connection">
-              {local ? (
-                <>
-                  <span>Current connection: local MinIO</span>
-                  <span className={styles.dialogHint}>Endpoint: {local.endpoint}</span>
-                  <span className={styles.dialogHint}>Access key: {local.access_key}</span>
-                  <span className={styles.dialogHint}>Region: {local.region}</span>
-                </>
-              ) : (
-                <span className={styles.dialogHint}>Local MinIO is not running.</span>
-              )}
-            </div>
-          ) : null}
           <div className={styles.dialogField}>
             <label htmlFor={ids.name}>Name</label>
             <input id={ids.name} ref={nameRef} className="input" value={name} disabled={locked} spellCheck={false} autoComplete="off" onChange={(e) => setName(e.target.value)} />
@@ -267,7 +288,8 @@ function DialogBody({ onClose }: { onClose: () => void }) {
               Could not load the current configuration: {loadError}
             </p>
           ) : null}
-          {ready && invalidReason && (name !== "" || endpoint !== "" || accessKey !== "") ? <span className={styles.dialogHint}>{invalidReason}</span> : null}
+          {localDown ? <span className={styles.dialogHint}>Local MinIO is not running.</span> : null}
+          {ready && !untouchedAutomatic && invalidReason && (name !== "" || endpoint !== "" || accessKey !== "") ? <span className={styles.dialogHint}>{invalidReason}</span> : null}
           {feedback ? (
             <p className={feedback.kind === "ok" ? styles.dialogOk : styles.dialogError} role={feedback.kind === "ok" ? "status" : "alert"}>
               {feedback.text}
@@ -302,7 +324,7 @@ function DialogBody({ onClose }: { onClose: () => void }) {
               <button type="button" className="btn" disabled={!canSubmit} onClick={() => void runTest()}>
                 {busy === "test" ? "Testing…" : "Test"}
               </button>
-              <button type="submit" className="btn btn-primary" disabled={!canSubmit}>
+              <button type="submit" className="btn btn-primary" disabled={!canSave}>
                 {busy === "save" ? "Saving…" : "Save"}
               </button>
             </>
