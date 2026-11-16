@@ -63,7 +63,7 @@ interface WorkspaceState {
   tabs: string[];
   /** Lateral esquerda (Catalog) aberta; começa fechada. */
   leftOpen: boolean;
-  /** Lateral direita (Notebooks, Connections, Variables) aberta; começa fechada. */
+  /** Lateral direita (Notebooks, Connections) aberta; começa fechada. */
   rightOpen: boolean;
   /** Modo foco: oculta as duas laterais sem alterar `leftOpen`/`rightOpen`. */
   focusMode: boolean;

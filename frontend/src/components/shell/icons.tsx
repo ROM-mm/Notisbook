@@ -219,13 +219,6 @@ export const ColumnIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const VariablesIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M5 4c-2.5 5 -2.5 10 0 16m14 -16c2.5 5 2.5 10 0 16m-10 -11h1c1 0 1 1 2.016 3.527c.984 2.473 .984 3.473 1.984 3.473h1" />
-    <path d="M8 16c1.5 0 3 -2 4 -3.5s2.5 -3.5 4 -3.5" />
-  </Svg>
-);
-
 export const PanelLeftIcon = (p: IconProps) => (
   <Svg {...p}>
     <rect x="4" y="4" width="16" height="16" rx="2" />

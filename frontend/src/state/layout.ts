@@ -12,16 +12,16 @@ export const SIDE_PANEL_MAX = 600;
 
 /**
  * Cartões de cada lateral, de cima para baixo (única fonte da composição e da
- * ordem). Esquerda: Catalog. Direita: Notebooks, Connections (chave `files`) e Variables.
+ * ordem). Esquerda: Catalog. Direita: Notebooks e Connections (chave `files`).
  */
 export const LEFT_CARDS = ["catalog"] as const;
-export const RIGHT_CARDS = ["notebooks", "files", "variables"] as const;
+export const RIGHT_CARDS = ["notebooks", "files"] as const;
 export type PanelSide = "left" | "right";
 export type PanelCard = (typeof LEFT_CARDS)[number] | (typeof RIGHT_CARDS)[number];
 
 export const CARDS_BY_SIDE: Record<PanelSide, readonly PanelCard[]> = { left: LEFT_CARDS, right: RIGHT_CARDS };
 
-export const DEFAULT_CARD_WEIGHTS: Record<PanelCard, number> = { catalog: 1, notebooks: 1, files: 1, variables: 1 };
+export const DEFAULT_CARD_WEIGHTS: Record<PanelCard, number> = { catalog: 1, notebooks: 1, files: 1 };
 
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
 
@@ -43,7 +43,7 @@ export const useLayout = create<LayoutState>()((set) => ({
   sidePanelWidth: DEFAULT_SIDE_PANEL_WIDTH,
   rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
   cardWeights: { ...DEFAULT_CARD_WEIGHTS },
-  cardCollapsed: { catalog: false, notebooks: false, files: false, variables: false },
+  cardCollapsed: { catalog: false, notebooks: false, files: false },
   setSidePanelWidth: (w) => set({ sidePanelWidth: clamp(w, SIDE_PANEL_MIN, SIDE_PANEL_MAX) }),
   setRightPanelWidth: (w) => set({ rightPanelWidth: clamp(w, SIDE_PANEL_MIN, SIDE_PANEL_MAX) }),
   setCardWeights: (weights) => set((s) => ({ cardWeights: { ...s.cardWeights, ...weights } })),

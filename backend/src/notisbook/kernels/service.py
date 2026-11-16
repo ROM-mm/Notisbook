@@ -10,7 +10,6 @@ import logging
 import os
 import sys
 import uuid
-from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -56,7 +55,6 @@ from ..spark.bundles import (
 from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
 from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
-from .introspect import Probe, VarOp, build_variables_request, parse_reply
 from .protocol import (
     ClearOutputEvent,
     ErrorEvent,
@@ -92,10 +90,8 @@ LIVENESS_INTERVAL = 2.0
 READY_TIMEOUT = 60.0
 IDLE_GRACE = 2.0
 SHUTDOWN_WAIT = 2.0
-PROBE_WAIT = 1.5
 ENSURE_WAIT = 3.0
 ENSURE_CHECK = f"__import__('sys').modules.get({MODULE_NAME!r}) is not None"
-MAX_CACHE = 100
 TRUNCATION_NOTICE = "\n[output truncated: 1 MB limit per cell reached]\n"
 DOCKER_KERNEL_PREFIX = "notisbook-docker-"
 # Limites do ramo Docker: o encerramento do app e o fechamento de sessão não podem ficar presos no CLI.
@@ -182,16 +178,6 @@ class _Pending:
     idle: bool = False
 
 
-@dataclass(frozen=True)
-class Snapshot:
-    """Variables probe answer: `status` is a Probe status, `busy` or `kernel_<state>`."""
-
-    status: str
-    data: Any = None
-    stale: bool = False
-    message: str | None = None
-
-
 @dataclass
 class KernelSession:
     session_id: str
@@ -233,11 +219,6 @@ class KernelSession:
     _ready_task: asyncio.Task[None] | None = None
     _bg_tasks: set[asyncio.Task[Any]] = field(default_factory=set)
     _probes: dict[str, asyncio.Future[dict[str, Any]]] = field(default_factory=dict)
-    # Faixa própria das variáveis: uma sonda por vez, cache próprio.
-    _var_task: asyncio.Task[Probe] | None = None
-    _var_key: str | None = None
-    _var_cache: OrderedDict[str, Any] = field(default_factory=OrderedDict)
-    _var_gen: int = 0
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def take_s3a_notice(self) -> tuple[str, str] | None:
@@ -480,7 +461,7 @@ class KernelSession:
             msg_id = msg.get("parent_header", {}).get("msg_id")
             probe = self._probes.get(msg_id) if msg_id else None
             if probe is not None:
-                # Internal introspection reply: never reaches the WS or `pending`.
+                # Resposta do execute silencioso de `_install_display`: nunca chega ao WS nem a `pending`.
                 if not probe.done():
                     probe.set_result(msg["content"])
                 continue
@@ -538,75 +519,6 @@ class KernelSession:
             return build_duckdb_code(code, self.duckdb_ext_dir)
         return code
 
-    async def _send_probe(self, client: AsyncKernelClient, code: str, expressions: dict[str, str]) -> Probe:
-        msg_id = client.execute(
-            code,
-            silent=True,
-            store_history=False,
-            user_expressions=expressions,
-            allow_stdin=False,
-            stop_on_error=False,
-        )
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._probes[msg_id] = future
-        try:
-            return parse_reply(await future)
-        finally:
-            self._probes.pop(msg_id, None)
-
-    async def introspect_variables(self, key: str, op: VarOp, args: dict[str, Any]) -> Snapshot:
-        """Variables probe (one in flight, own cache).
-
-        Kernel busy or probe slower than PROBE_WAIT: cached value marked `stale`, or
-        `busy` + stale with no data. A path that no longer resolves is `stale_path`.
-        """
-        if self.state not in ("idle", "busy") or self.client is None:
-            return Snapshot(f"kernel_{self.state}")
-        if self.state == "busy" or self.pending:
-            return self._var_from_cache(key)
-        task = self._var_task
-        if task is not None and self._var_key != key:
-            return self._var_from_cache(key)
-        if task is None:
-            task = asyncio.ensure_future(self._run_var_probe(key, op, args))
-            self._bg_tasks.add(task)
-            self._var_task, self._var_key = task, key
-            task.add_done_callback(self._bg_tasks.discard)
-            task.add_done_callback(self._var_done)
-        try:
-            probe = await asyncio.wait_for(asyncio.shield(task), PROBE_WAIT)
-        except TimeoutError:
-            return self._var_from_cache(key)
-        if probe.status == "ok":
-            return Snapshot("ok", probe.data)
-        if probe.status == "error":
-            return Snapshot("error", self._var_cache.get(key), stale=key in self._var_cache, message=probe.message)
-        return Snapshot(probe.status)
-
-    def _var_done(self, task: asyncio.Task[Probe]) -> None:
-        if self._var_task is task:
-            self._var_task, self._var_key = None, None
-
-    def _var_from_cache(self, key: str) -> Snapshot:
-        if key in self._var_cache:
-            self._var_cache.move_to_end(key)
-            return Snapshot("ok", self._var_cache[key], stale=True)
-        return Snapshot("busy", stale=True)
-
-    async def _run_var_probe(self, key: str, op: VarOp, args: dict[str, Any]) -> Probe:
-        client = self.client
-        if client is None:
-            return Probe("error", message="kernel has no client")
-        generation = self._var_gen
-        probe = await self._send_probe(client, *build_variables_request(op, args))
-        # Um restart durante a sonda invalida a resposta: não repovoa o cache limpo.
-        if probe.status == "ok" and generation == self._var_gen:
-            self._var_cache[key] = probe.data
-            self._var_cache.move_to_end(key)
-            while len(self._var_cache) > MAX_CACHE:
-                self._var_cache.popitem(last=False)
-        return probe
-
     async def interrupt(self) -> None:
         if self.state in ("dead", "restarting"):
             await self.emit(ErrorEvent(code=f"kernel_{self.state}", message=f"Kernel is {self.state}"))
@@ -636,8 +548,6 @@ class KernelSession:
                 await self._abort_pending()
                 await self._close_channels()
                 self.issue_runtime_token()  # o kernel novo recebe um token novo; o do kernel antigo morre aqui
-                self._var_cache.clear()
-                self._var_gen += 1
                 await self.manager.restart_kernel(now=True)
                 self._open_channels()
             except Exception:

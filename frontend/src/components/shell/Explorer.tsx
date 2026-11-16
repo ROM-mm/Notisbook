@@ -10,7 +10,6 @@ import { CARDS_BY_SIDE, useLayout, type PanelCard, type PanelSide } from "../../
 import { CatalogSection } from "../data/CatalogSection";
 import { FilesSection } from "../data/FilesSection";
 import { FileBrowser } from "../files/FileBrowser";
-import { VariablesPanel } from "../variables/VariablesPanel";
 import styles from "./Explorer.module.css";
 import { ResizeHandle } from "./ResizeHandle";
 
@@ -20,8 +19,7 @@ const MIN_CARD_HEIGHT = 120;
 const GRIP_LABELS: Record<PanelCard, string> = {
   catalog: "",
   notebooks: "Resize notebooks and connections sections",
-  files: "Resize connections and variables sections",
-  variables: "",
+  files: "",
 };
 
 export function Explorer({ side }: { side: PanelSide }) {
@@ -57,7 +55,6 @@ export function Explorer({ side }: { side: PanelSide }) {
   };
 
   const sections: Record<PanelCard, ReactNode> = {
-    variables: <VariablesPanel collapsed={collapsed.variables} onToggle={() => toggle("variables")} />,
     notebooks: <FileBrowser collapsed={collapsed.notebooks} onToggle={() => toggle("notebooks")} onExpand={() => expand("notebooks")} />,
     files: <FilesSection collapsed={collapsed.files} onToggle={() => toggle("files")} onExpand={() => expand("files")} />,
     catalog: <CatalogSection testId="data-catalog" collapsed={collapsed.catalog} onToggle={() => toggle("catalog")} />,
