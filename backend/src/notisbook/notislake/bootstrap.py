@@ -55,7 +55,7 @@ def wait_ready(
 
 
 def ensure_layout(port: int, credentials: Credentials) -> None:
-    """Cria o bucket `notislake` e os prefixos `landing/ bronze/ silver/ gold/`, de forma idempotente.
+    """Cria o bucket `notislake` e os prefixos `bronze/ silver/ gold/`, de forma idempotente.
 
     Os prefixos são marcadores de 0 byte; repetir a chamada não altera objetos existentes além deles.
     """

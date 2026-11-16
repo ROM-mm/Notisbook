@@ -4,7 +4,7 @@ Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das l
 warehouse local: as tabelas MANAGED vivem no bucket (`s3a`) e o backend nunca apaga por prefixo, então a
 cascata só remove linhas e devolve os arquivos mantidos em `files_kept` (`s3a_kept`; `outside_warehouse` para
 uma linha MANAGED legada com location local). `folder_kept` é sempre falso: não há pasta de schema a remover.
-As 4 camadas do notislake (`locations.LAYERS`) existem nos dois catálogos e não são excluíveis (`cannot_drop_layer`).
+As 3 camadas do notislake (`locations.LAYERS`) existem nos dois catálogos e não são excluíveis (`cannot_drop_layer`).
 Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 """
 

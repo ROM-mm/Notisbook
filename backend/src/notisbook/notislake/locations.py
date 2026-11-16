@@ -14,7 +14,8 @@ from dataclasses import dataclass
 
 BUCKET = "notislake"
 SCHEME = "s3a"
-LAYERS = ("landing", "bronze", "silver", "gold")
+LAYERS = ("bronze", "silver", "gold")
+LANDING = "landing"  # zona externa: não é camada de catálogo; paths sob ela são livres
 MIN_DEPTH = 2  # `<camada>/<dataset>`: a raiz do bucket e uma camada sozinha não são locations de tabela
 ROOT_URI = f"{SCHEME}://{BUCKET}"  # raiz do bucket: warehouse do Iceberg, que cria `<ns>/<t>` abaixo dela
 
@@ -83,6 +84,11 @@ def layer_of_schema(schema: str) -> str | None:
     """Camada que o schema nomeia (comparação sem caixa) ou `None` se não for uma das `LAYERS`."""
     name = schema.strip().lower() if isinstance(schema, str) else ""
     return name if name in LAYERS else None
+
+
+def layer_rank(schema: str) -> int:
+    """Posição da camada em `LAYERS` (grafia exata); os demais schemas ficam depois de todas."""
+    return LAYERS.index(schema) if schema in LAYERS else len(LAYERS)
 
 
 def is_layer_case_variant(schema: str) -> bool:
@@ -207,10 +213,12 @@ def check_path_write(
     """Valida escrita por path sem tabela no notislake e devolve a location normalizada.
 
     Exige profundidade >= 2 (`too_shallow`), dentro de uma camada (`outside_layer`) e sem sobrepor
-    tabela conhecida (`overlaps_table`). Exceção: `location` igual à pasta de `own_location` (a
-    própria tabela) é permitida; subpasta ou pasta-mãe dela continua recusada.
+    tabela conhecida (`overlaps_table`). Paths sob `landing/` passam sem checagem. Exceção: `location`
+    igual à pasta de `own_location` (a própria tabela) é permitida; subpasta ou pasta-mãe dela continua recusada.
     """
     effective = parse_notislake(location).uri
+    if _split(effective)[0] == LANDING:
+        return effective
     if layer_of_location(effective) is None:
         raise InvalidLocation("outside_layer")
     if own_location is not None and _normalized(own_location) == effective:

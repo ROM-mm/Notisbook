@@ -62,7 +62,7 @@ REJECTED = {
     "location_not_local": "a location não é uma pasta local",
     "managed_location_rejected": "a location gerenciada não tem a forma s3a://notislake/<camada>/<tabela>",
     "location_not_notislake": "a location s3a não é s3a://notislake/<camada>/<dataset>",
-    "schema_not_layer": "o schema não é uma camada (landing, bronze, silver ou gold) e o notislake só recebe tabelas de camada",
+    "schema_not_layer": "o schema não é uma camada (bronze, silver ou gold) e o notislake só recebe tabelas de camada",
     "not_notislake": "a location não é s3a://notislake/<camada>/<dataset> (s3:// e s3n:// não são aceitos)",
     "too_shallow": "a location precisa ter ao menos <camada>/<dataset>",
     "bad_segment": "a location ou o nome da tabela tem um segmento inválido ('.', '..', vazio ou com barra)",
@@ -70,13 +70,13 @@ REJECTED = {
     "overlaps_table": "a location sobrepõe a pasta de outra tabela",
     "name_in_other_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo Iceberg",
     "item_limits": "o nome, o schema ou a descrição excedem os limites permitidos",
-    "layer_protected": "as camadas landing, bronze, silver e gold não podem ser removidas nem mudar de location; "
+    "layer_protected": "as camadas bronze, silver e gold não podem ser removidas nem mudar de location; "
                        "uma camada só é criada com a location dela (LOCATION 's3a://notislake/<camada>')",
     "name_in_spark_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog)",
 }
 # Escrita por path (sem tabela): o texto fala em caminho, não em schema da tabela.
 REJECTED_PATH = {
-    "outside_layer": "o caminho não está dentro de uma camada (landing, bronze, silver ou gold)",
+    "outside_layer": "o caminho não está dentro de uma camada (bronze, silver ou gold) nem de landing",
     "too_shallow": "o caminho precisa ter ao menos <camada>/<dataset>; a raiz do bucket e a de uma camada não recebem gravação",
     "overlaps_table": "o caminho está dentro de, ou por cima de, outra tabela do catálogo",
 }

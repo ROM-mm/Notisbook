@@ -143,7 +143,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[
     }
     used = 0
     databases: list[dict[str, Any]] = []
-    for db in sorted(names):
+    for db in sorted(names, key=lambda n: (locations.layer_rank(n), n)):
         if used >= max_total:
             databases.append({"name": db, "tables": [], "truncated": True})
             continue

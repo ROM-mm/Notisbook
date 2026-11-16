@@ -167,7 +167,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False)
     """
     fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
     names = _display_names(conn, hudi)
-    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, n))
+    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, locations.layer_rank(n), n))
     used = 0
     databases: list[dict[str, Any]] = []
     for db in ordered:

@@ -565,7 +565,7 @@ def _notislake_uri(location: str) -> str | None:
 
 
 _DESTINATION_MESSAGES = {
-    "schema_not_layer": "O namespace precisa ser uma camada do notislake (landing, bronze, silver ou gold) para gravar em s3a",
+    "schema_not_layer": "O namespace precisa ser uma camada do notislake (bronze, silver ou gold) para gravar em s3a",
     "outside_layer": "A location deve ficar dentro da camada do namespace",
     "overlaps_table": "A location se sobrepõe à pasta de outra tabela registrada",
     "too_shallow": "A location s3a deve ter ao menos <camada>/<dataset>",
