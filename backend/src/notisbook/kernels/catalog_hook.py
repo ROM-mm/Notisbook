@@ -6,8 +6,7 @@ Installed by the same silent execute as the renderer. A `sys.meta_path` finder p
 (`pre_run_cell`) it picks up other kernels' writes. Only Delta/Parquet/Hudi tables of `spark_catalog` are
 registered; Iceberg lives in its own catalog. Each session creates the four layers with `LOCATION s3a://notislake/<layer>`.
 Before a write the destination rules run in Python and raise `Refused` (pt-BR text, nothing written): the
-layer by schema, no overlap between tables, no repeated `<schema>.<t>`, no drop or move of a layer, path rules
-(D8). Only a destination proven invalid is refused; a parser or registry failure lets the call go on, and the
+layer by schema, no overlap between tables, no repeated `<schema>.<t>`, no drop or move of a layer, path rules. Only a destination proven invalid is refused; a parser or registry failure lets the call go on, and the
 post-write validation (`location_problem`, `apply_plan`) stays the second net. Writes outside Python are not covered.
 s3a probes use the session's Hadoop FileSystem under a timeout and a 30 s breaker (`s3a_call`); the kernel deletes
 only the `managed_table` folder the registry authorized. With `transport: "http"` (Docker) the registry goes through the backend API.
@@ -1359,7 +1358,7 @@ def lake_locations(view, skip=None):
 def check_table(session, catalog, schema, table, location):
     """Raise Refused when creating `schema.table` (location None: the managed folder) breaks the destination rules.
 
-    D2 (same name in the other catalog) applies to any location; D3/D4 only to what lands in the notislake:
+    The same name in the other catalog is refused for any location; the layer rules only apply to what lands in the notislake:
     an explicit s3/s3a/s3n location there, a managed table of a layer, or any managed `iceberg` table (its
     warehouse is the bucket root). Other destinations (local disk, other buckets) are left to Spark.
     """
@@ -1369,6 +1368,8 @@ def check_table(session, catalog, schema, table, location):
     if view is not None and key not in view[mine] and key in view[other]:
         raise Refused(refuse_text(label, "name_in_other_catalog" if catalog == CATALOG else "name_in_spark_catalog"))
     on_lake = location is not None and LOCATIONS.targets_notislake(location)
+    if catalog == ICEBERG_CATALOG and (location is None or on_lake) and LOCATIONS.is_layer_case_variant(schema):
+        raise Refused(refuse_text(label, "schema_not_layer"))  # o JdbcCatalog gravaria em `<raiz>/Bronze/`, fora das camadas
     if not on_lake and (location is not None or (catalog == CATALOG and LOCATIONS.layer_of_schema(schema) is None)):
         return
     try:
@@ -1379,7 +1380,7 @@ def check_table(session, catalog, schema, table, location):
 
 
 def check_path(session, path):
-    """Raise Refused for a path write into the notislake that D8 forbids (a table's own folder is allowed)."""
+    """Raise Refused for a path write into the notislake that the path rules forbid (a table's own folder is allowed)."""
     if not isinstance(path, str) or not LOCATIONS.targets_notislake(path):
         return
     view = known_view(session)
@@ -1400,6 +1401,8 @@ def check_namespace(kind, session, parts, location=None):
         return
     ns = target[1]
     layer = LOCATIONS.layer_of_schema(ns)
+    if kind == "create" and target[0] == ICEBERG_CATALOG and LOCATIONS.is_layer_case_variant(ns):
+        raise Refused(refuse_text("criar o schema " + ns, "schema_not_layer"))
     label = {"drop": "remover o schema", "create": "criar o schema", "set": "mudar a location do schema"}[kind] + " " + ns
     if layer:
         moved = location is not None and location.rstrip("/") != LOCATIONS.layer_uri(layer)

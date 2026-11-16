@@ -2,7 +2,7 @@
 
 Módulo autocontido (só stdlib) para ser importado por catálogo, REST e hook sem ciclos. Não
 consulta rede nem disco: toda decisão é sintática e a sobreposição recebe as locations já
-conhecidas como argumento. O schema decide a camada (D1): a tabela MANAGED fica em
+conhecidas como argumento. O schema decide a camada: a tabela MANAGED fica em
 `s3a://notislake/<camada>/<tabela>`, sem `spark`/`iceberg` nem `.db` no caminho. Os erros são
 `InvalidLocation` com `code` categórico; a mensagem nunca repete a entrada.
 """
@@ -85,6 +85,16 @@ def layer_of_schema(schema: str) -> str | None:
     return name if name in LAYERS else None
 
 
+def is_layer_case_variant(schema: str) -> bool:
+    """`schema` difere de uma camada só pela caixa (ex.: `Bronze`).
+
+    No Iceberg (JdbcCatalog e REST) o namespace mantém a caixa e vira pasta própria na raiz do bucket,
+    fora das camadas; por isso essa grafia é recusada lá. No `spark_catalog` o Hive normaliza a caixa.
+    """
+    layer = layer_of_schema(schema)
+    return layer is not None and schema != layer
+
+
 def layer_uri(layer: str) -> str:
     """`s3a://notislake/<camada>`; `InvalidLocation("not_a_layer")` se `layer` não for uma camada."""
     if layer not in LAYERS:
@@ -102,9 +112,9 @@ def layer_of_location(uri: str) -> str | None:
 
 
 def managed_location(schema: str, table: str) -> str:
-    """Forma MANAGED `s3a://notislake/<camada>/<tabela>` (D1).
+    """Forma MANAGED `s3a://notislake/<camada>/<tabela>`.
 
-    Levanta `InvalidLocation`: `schema_not_layer` (D3) ou `bad_segment` (nome vazio, `.`, `..`,
+    Levanta `InvalidLocation`: `schema_not_layer` ou `bad_segment` (nome vazio, `.`, `..`,
     com `/`, `\\` ou caractere de controle). O nome da tabela entra no caminho como veio.
     """
     layer = layer_of_schema(schema)
@@ -170,7 +180,7 @@ def table_destination(
 ) -> str:
     """Location efetiva de `schema.table` no notislake: MANAGED se `location` é `None`, senão a externa.
 
-    D3: schema fora das camadas é recusado. D4: externa precisa estar na camada do schema. D2/D4:
+    Schema fora das camadas é recusado; a externa precisa estar na camada do schema e
     não pode sobrepor outra tabela de `known_locations` (`own_location`, a própria, é ignorada).
     Códigos: `schema_not_layer`, `not_notislake`, `too_shallow`, `bad_segment`, `outside_layer`,
     `overlaps_table`.
@@ -194,7 +204,7 @@ def check_path_write(
     known_locations: Iterable[str],
     own_location: str | None = None,
 ) -> str:
-    """Valida escrita por path sem tabela no notislake (D8) e devolve a location normalizada.
+    """Valida escrita por path sem tabela no notislake e devolve a location normalizada.
 
     Exige profundidade >= 2 (`too_shallow`), dentro de uma camada (`outside_layer`) e sem sobrepor
     tabela conhecida (`overlaps_table`). Exceção: `location` igual à pasta de `own_location` (a

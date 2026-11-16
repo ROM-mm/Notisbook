@@ -5,7 +5,7 @@ sessão (nunca o token da UI) e regra de Host própria. O plano do hook é valid
 formato, nomes, tamanho e `location`: local por realpath dentro das pastas montadas na sessão, ou `s3a` do
 notislake em forma estrita. Não há warehouse local: MANAGED só existe em `s3a`, na forma `<camada>/<t>`. Corpo
 malformado recusa o plano (422); item inválido por regra ou limite sai em `rejected` e os demais são gravados numa
-só transação, onde `apply_plan` ainda aplica camada pelo schema, sobreposição e nome repetido no Iceberg (D2). A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT: as s3a o backend
+só transação, onde `apply_plan` ainda aplica camada pelo schema, sobreposição e nome repetido no Iceberg. A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT: as s3a o backend
 devolve em `deletions` para o kernel apagar; ele nunca apaga arquivos (uma linha MANAGED legada com location
 local volta em `files_kept`). Respostas e logs não carregam segredo.
 """
@@ -277,7 +277,7 @@ def _generation(home: Path) -> int:
 
 
 def _iceberg_tables(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Tabelas do catálogo `iceberg` (`db`, `name`, `loc`) para o hook checar D2 e sobreposição antes de gravar.
+    """Tabelas do catálogo `iceberg` (`db`, `name`, `loc`) para o hook checar nome repetido e sobreposição antes de gravar.
 
     `loc` é a pasta `s3a://notislake/...` da tabela (pai de `metadata/`), ou `None` se o metadata não está no
     notislake. Catálogo Iceberg ausente ou em formato desconhecido dá lista vazia.

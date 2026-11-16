@@ -575,12 +575,12 @@ _DESTINATION_MESSAGES = {
 
 
 def _destination_refused(code: str) -> IcebergError:
-    """400 com o código estável (`InvalidLocation.code` ou D2) no fim da mensagem, para o hook reconhecê-lo."""
+    """400 com o código estável (`InvalidLocation.code` ou nome repetido) no fim da mensagem, para o hook reconhecê-lo."""
     return _bad_request(f"{_DESTINATION_MESSAGES.get(code, 'Destino da tabela recusado')} ({code})")
 
 
 def _require_free_name(conn: sqlite3.Connection, ns: str, table: str) -> None:
-    """D2: 400 se `<ns>.<t>` já existe no registro Delta/Parquet (as duas pastas coincidiriam no notislake)."""
+    """400 se `<ns>.<t>` já existe no registro Delta/Parquet (as duas pastas coincidiriam no notislake)."""
     if table_name_exists(conn, ns, table):
         raise _bad_request(f"A tabela já existe no catálogo spark_catalog ({ERR_NAME_IN_OTHER_CATALOG})")
 
@@ -601,10 +601,16 @@ def _require_no_overlap(conn: sqlite3.Connection, folder: Path | None) -> None:
                 raise _bad_request("A location se sobrepõe à pasta de outra tabela registrada")
 
 
+def _require_exact_layer_case(ns: str) -> None:
+    """400 se `ns` é uma camada só na caixa (`Bronze`): no JdbcCatalog ele vira pasta própria, fora das camadas."""
+    if locations.is_layer_case_variant(ns):
+        raise _destination_refused("schema_not_layer")
+
+
 def _require_destination(
     conn: sqlite3.Connection, ns: str, table: str, target: Path | locations.NotislakeLocation, own: str | None = None
 ) -> None:
-    """Recusa (400) antes de gravar: nome já usado no outro catálogo (D2) e destino fora da regra (D1/D3/D4).
+    """Recusa (400) antes de gravar: nome já usado no outro catálogo e destino fora da regra da camada.
 
     Em `s3a` vale `locations.table_destination` (camada pelo namespace, sem sobrepor outra tabela; `own` é a pasta da
     própria tabela, ignorada); em pasta local, a checagem de sobreposição local.
@@ -613,6 +619,7 @@ def _require_destination(
     if not isinstance(target, locations.NotislakeLocation):
         _require_no_overlap(conn, target)
         return
+    _require_exact_layer_case(ns)
     try:
         locations.table_destination(ns, table, target.uri, iceberg_jdbc.known_table_locations(conn), own)
     except locations.InvalidLocation as exc:
@@ -839,7 +846,8 @@ def _persist(
 
 
 def _default_location(ns: str, table: str) -> str:
-    """Location padrão MANAGED `s3a://notislake/<camada>/<t>`; 400 se o namespace não é uma camada (D3)."""
+    """Location padrão MANAGED `s3a://notislake/<camada>/<t>`; 400 se o namespace não é uma camada."""
+    _require_exact_layer_case(ns)
     try:
         return locations.managed_location(ns, table)
     except locations.InvalidLocation as exc:
@@ -964,6 +972,7 @@ def _drop_table(
 async def create_namespace(request: Request) -> dict[str, Any]:
     body = await _json_body(request)
     ns = _new_namespace(body.get("namespace"))
+    _require_exact_layer_case(ns)
     properties = _string_map(body.get("properties"), "Propriedades")
     if "exists" in properties:
         raise _bad_request("A propriedade 'exists' é reservada")
@@ -1063,7 +1072,11 @@ async def rename_table(request: Request, grant: Grant) -> Response:
             if prefix is None:
                 _require_free_name(conn, target[0], target[1])
             else:  # a pasta não muda no rename: o novo nome precisa continuar numa camada válida
-                _require_destination(conn, target[0], target[1], locations.parse_notislake(prefix), own=prefix)
+                try:
+                    prefix_location = locations.parse_notislake(prefix)
+                except locations.InvalidLocation as exc:
+                    raise _destination_refused(exc.code) from None
+                _require_destination(conn, target[0], target[1], prefix_location, own=prefix)
             if not iceberg_jdbc.rename_table_row(conn, source, target, has_type):
                 raise _no_such_table()
 
