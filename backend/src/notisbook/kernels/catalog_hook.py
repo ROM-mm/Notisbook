@@ -1,21 +1,17 @@
 """Hidden kernel module `_notisbook_catalog`: keeps the SparkSession in sync with `catalog.db`.
 
-Installed by the same silent execute as the renderer. It hooks `SparkSession.Builder.getOrCreate`
-and `SparkSession.stop` through a `sys.meta_path` finder (no pyspark import by the module itself),
-hydrates the session from the `nb_*` registry inside `getOrCreate`, reconciles creations, changes,
-renames and drops after every cell (`post_run_cell`) and picks up other kernels' writes before a
-cell (`pre_run_cell`, by `nb_meta.generation`). Only Delta/Parquet/Hudi tables of `spark_catalog` are
-registered (Hudi advances are detected by the latest completed timeline instant); the backend owns
-the schema and Iceberg lives in its own JDBC catalog. `s3a://notislake/...` tables are probed through the
-session's Hadoop FileSystem, bounded by a timeout and a 30 s circuit breaker (see `s3a_call`).
-
-The config reaches the kernel as JSON literals (the kernel reads no env vars). Hook errors never
-reach the user's cell: they are kept in `STATE["errors"]` and warned once, briefly, on stderr.
-Each session creates the four layers in `spark_catalog` with `LOCATION s3a://notislake/<layer>` (`ensure_layers`), so
-MANAGED tables sit in `<layer>/<t>`; the Spark warehouse is a local safety folder. The kernel deletes only the `managed_table`
-folder the registry row authorized, all of a cell's folders under one time budget (see `delete_managed_s3a`);
-a failure or a timeout keeps the files and warns. With `transport: "http"` (Docker runtime) the registry is read
-and written through the backend API (stdlib `urllib`, per-session token); the backend only authorizes deletions.
+Installed by the same silent execute as the renderer. A `sys.meta_path` finder patches `getOrCreate`,
+`stop`, `SparkSession.sql`, `DataFrameWriter(V2)` and `Catalog.createTable` (no pyspark import here). After a cell
+(`post_run_cell`) it reconciles creations, changes, renames and drops with the `nb_*` registry; before one
+(`pre_run_cell`) it picks up other kernels' writes. Only Delta/Parquet/Hudi tables of `spark_catalog` are
+registered; Iceberg lives in its own catalog. Each session creates the four layers with `LOCATION s3a://notislake/<layer>`.
+Before a write the destination rules run in Python and raise `Refused` (pt-BR text, nothing written): the
+layer by schema, no overlap between tables, no repeated `<schema>.<t>`, no drop or move of a layer, path rules
+(D8). Only a destination proven invalid is refused; a parser or registry failure lets the call go on, and the
+post-write validation (`location_problem`, `apply_plan`) stays the second net. Writes outside Python are not covered.
+s3a probes use the session's Hadoop FileSystem under a timeout and a 30 s breaker (`s3a_call`); the kernel deletes
+only the `managed_table` folder the registry authorized. With `transport: "http"` (Docker) the registry goes through the backend API.
+Config reaches the kernel as JSON literals; hook errors never reach the cell (kept in `STATE["errors"]`, warned once).
 """
 
 import hashlib
@@ -44,7 +40,8 @@ BASE_URL = CONFIG.get("base_url")
 TOKEN = CONFIG.get("token")
 # Folders shared with the runtime (http only): the backend rejects, item by item, a location outside them.
 ROOTS = tuple(CONFIG.get("roots") or ())
-WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session")
+WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session", "pyspark.sql.readwriter", "pyspark.sql.classic.readwriter",
+           "pyspark.sql.catalog", "pyspark.sql.classic.catalog")
 SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
@@ -74,7 +71,19 @@ REJECTED = {
     "overlaps_table": "a location sobrepõe a pasta de outra tabela",
     "name_in_other_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo Iceberg",
     "item_limits": "o nome, o schema ou a descrição excedem os limites permitidos",
+    "layer_protected": "as camadas landing, bronze, silver e gold não podem ser removidas nem mudar de location",
+    "name_in_spark_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog)",
 }
+# Escrita por path (sem tabela): o texto fala em caminho, não em schema da tabela.
+REJECTED_PATH = {
+    "outside_layer": "o caminho não está dentro de uma camada (landing, bronze, silver ou gold)",
+    "too_shallow": "o caminho precisa ter ao menos <camada>/<dataset>; a raiz do bucket e a de uma camada não recebem gravação",
+    "overlaps_table": "o caminho está dentro de, ou por cima de, outra tabela do catálogo",
+}
+ICEBERG_CATALOG = "iceberg"
+FORMAT_NAMES = ("delta", "parquet", "orc", "json", "csv", "hudi", "text", "avro", "iceberg")  # `delta.`<path>`` addresses a folder
+STATEMENT_RE = re.compile(r"\b(?:CREATE|REPLACE|INSERT|DROP|ALTER)\b", re.I)  # statements worth a parsePlan
+TABLE_NODES = ("CreateTable", "CreateTableAsSelect", "ReplaceTable", "ReplaceTableAsSelect")
 DEFAULT_DB = "default"
 CATALOG = "spark_catalog"
 # Cells that may change a table's schema/location without a new Delta commit (DDL words, never `.drop(`).
@@ -128,10 +137,24 @@ def note_error(where, exc):
     warn(("error", where), "catalog sync failed (%s): %s" % (where, short(exc)))
 
 
+BYPASS = threading.local()
+
+
+class Bypass:
+    """While active, the hook's own Spark calls skip the pre-write checks (the hook never refuses itself)."""
+
+    def __enter__(self):
+        BYPASS.depth = getattr(BYPASS, "depth", 0) + 1
+
+    def __exit__(self, *exc):
+        BYPASS.depth -= 1
+
+
 def guarded(where, fn, *args):
     # A hook failure must never surface in the user's cell.
     try:
-        return fn(*args)
+        with Bypass():
+            return fn(*args)
     except S3AUnavailable:
         return None  # already warned once by the breaker; the next cell retries
     except Exception as exc:
@@ -1204,6 +1227,436 @@ def reconcile(session, raw_cell):
         apply_changes(skey, *plan, keep_files=set(leaving), session=session)
 
 
+class Refused(ValueError):
+    """Destination refused before anything was written; `str(exc)` is the pt-BR text the user sees."""
+
+
+def refuse_text(what, code, path=False):
+    reason = (REJECTED_PATH.get(code) if path else None) or REJECTED.get(code, code)
+    return "Notisbook recusou %s antes de qualquer escrita (nada foi alterado): %s." % (what[:120], reason)
+
+
+def split_name(text):
+    """Parts of a dotted identifier (backticks quote a part); None when `text` is not one."""
+    if not isinstance(text, str):
+        return None
+    text, parts, cur, quoted, i = text.strip(), [], [], False, 0
+    while i < len(text):
+        ch = text[i]
+        if quoted and ch == "`" and text[i + 1:i + 2] == "`":
+            cur.append(ch)
+            i += 1
+        elif ch == "`":
+            quoted = not quoted
+        elif ch == "." and not quoted:
+            parts.append("".join(cur).strip())
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    parts.append("".join(cur).strip())
+    return None if quoted or not all(parts) else parts
+
+
+def catalog_registered(session, name):
+    return name.lower() == CATALOG or bool(conf_get(session, "spark.sql.catalog." + name.lower()))
+
+
+def current_catalog(session):
+    try:
+        return session.catalog.currentCatalog().lower()
+    except Exception:
+        return None
+
+
+def path_of_ident(parts):
+    """The folder of a path identifier such as delta.`s3a://...`, else None."""
+    if len(parts) == 2 and parts[0].lower() in FORMAT_NAMES and "/" in parts[1]:
+        return parts[1]
+    return None
+
+
+def resolve_table(session, parts):
+    """(catalog, schema, table) of a table name as Spark resolves it; None for paths, other catalogs or any doubt."""
+    parts = list(parts)
+    if not 1 <= len(parts) <= 3 or path_of_ident(parts):
+        return None
+    if len(parts) == 3:
+        catalog, schema, table = parts[0].lower(), parts[1], parts[2]
+    elif len(parts) == 2 and catalog_registered(session, parts[0]):
+        return None  # catalog.table, no namespace to decide on
+    elif len(parts) == 2:
+        catalog, schema, table = current_catalog(session), parts[0], parts[1]
+    else:
+        catalog = current_catalog(session)
+        schema, table = session.catalog.currentDatabase(), parts[0]
+    if catalog == CATALOG:
+        return catalog, schema.lower(), table.lower()  # the session catalog folds case
+    return (catalog, schema, table) if catalog == ICEBERG_CATALOG else None
+
+
+def resolve_namespace(session, parts):
+    """(catalog, namespace) of a one-level namespace in `spark_catalog` or `iceberg`, else None."""
+    parts = list(parts)
+    if len(parts) == 2 and catalog_registered(session, parts[0]):
+        catalog, ns = parts[0].lower(), parts[1]
+    elif len(parts) == 1:
+        catalog, ns = current_catalog(session), parts[0]
+    else:
+        return None
+    return (catalog, ns) if catalog in (CATALOG, ICEBERG_CATALOG) else None
+
+
+def iceberg_rows(conn):
+    """[((namespace, table), folder or None)] of the JDBC catalog `iceberg` (folder = parent of `metadata/`)."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone() is None:
+        return []
+    out = []
+    for ns, name, meta in conn.execute(
+            "SELECT table_namespace, table_name, metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg'"):
+        parts = (meta or "").rstrip("/").split("/")[:-1]
+        folder = "/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts) if meta else None
+        out.append(((ns, name), folder or None))
+    return out
+
+
+def read_known():
+    """Tables of both catalogs, `{"spark": {(db, t): loc}, "iceberg": {(ns, t): loc or None}}`, keys in lower case."""
+    if TRANSPORT == "http":
+        data = http_call("GET", "/registry")
+        spark = [((t["db"], t["name"]), t.get("loc")) for t in data["tables"]]
+        lake = [((t["db"], t["name"]), t.get("loc")) for t in data.get("iceberg") or ()]
+    else:
+        conn = connect()
+        try:
+            spark = [(key, row["loc"]) for key, row in read_snapshot(conn)[1].items()]
+            lake = iceberg_rows(conn)
+        finally:
+            conn.close()
+    return {name: {(k[0].lower(), k[1].lower()): loc for k, loc in items} for name, items in (("spark", spark), ("iceberg", lake))}
+
+
+def known_view(session):
+    """`read_known` plus what this session already approved in the running cell; None when the registry is unreadable."""
+    try:
+        view = read_known()
+    except Exception:
+        warn(("known", session_key(session)), "não foi possível ler o catálogo persistente; sobreposição entre tabelas e nome repetido só serão checados depois da gravação.")
+        return None
+    for (catalog, key), loc in STATE.get("intent", {}).get(session_key(session), {}).items():
+        view["spark" if catalog == CATALOG else "iceberg"][key] = loc
+    return view
+
+
+def lake_locations(view, skip=None):
+    """Folders of every known table of both catalogs, except the one named `skip` = (catalog, key)."""
+    if view is None:
+        return []
+    return [loc for name, rows in view.items() for key, loc in rows.items()
+            if loc and skip != (CATALOG if name == "spark" else ICEBERG_CATALOG, key)]
+
+
+def check_table(session, catalog, schema, table, location):
+    """Raise Refused when creating `schema.table` (location None: the managed folder) breaks the destination rules.
+
+    D2 (same name in the other catalog) applies to any location; D3/D4 only to what lands in the notislake:
+    an explicit s3/s3a/s3n location there, a managed table of a layer, or any managed `iceberg` table (its
+    warehouse is the bucket root). Other destinations (local disk, other buckets) are left to Spark.
+    """
+    key, label = (schema.lower(), table.lower()), "criar a tabela %s.%s" % (schema, table)
+    view = known_view(session)
+    mine, other = ("spark", "iceberg") if catalog == CATALOG else ("iceberg", "spark")
+    if view is not None and key not in view[mine] and key in view[other]:
+        raise Refused(refuse_text(label, "name_in_other_catalog" if catalog == CATALOG else "name_in_spark_catalog"))
+    on_lake = location is not None and LOCATIONS.targets_notislake(location)
+    if not on_lake and (location is not None or (catalog == CATALOG and LOCATIONS.layer_of_schema(schema) is None)):
+        return
+    try:
+        effective = LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, key)))
+    except LOCATIONS.InvalidLocation as exc:
+        raise Refused(refuse_text(label, exc.code)) from None
+    STATE.setdefault("intent", {}).setdefault(session_key(session), {})[(catalog, key)] = effective
+
+
+def check_path(session, path):
+    """Raise Refused for a path write into the notislake that D8 forbids (a table's own folder is allowed)."""
+    if not isinstance(path, str) or not LOCATIONS.targets_notislake(path):
+        return
+    view = known_view(session)
+    own = None
+    if view is not None:
+        wanted = notislake_uri(path)
+        own = next((loc for loc in view["spark"].values() if wanted and notislake_uri(loc or "") == wanted), None)
+    try:
+        LOCATIONS.check_path_write(path, lake_locations(view), own)
+    except LOCATIONS.InvalidLocation as exc:
+        raise Refused(refuse_text("gravar em %s" % path, exc.code, path=True)) from None
+
+
+def check_namespace(kind, session, parts, location=None):
+    """Layers are never dropped nor moved; a schema that is not a layer never points into the notislake."""
+    target = resolve_namespace(session, parts)
+    if target is None:
+        return
+    ns = target[1]
+    layer = LOCATIONS.layer_of_schema(ns)
+    label = {"drop": "remover o schema", "create": "criar o schema", "set": "mudar a location do schema"}[kind] + " " + ns
+    if layer:
+        moved = location is not None and location.rstrip("/") != LOCATIONS.layer_uri(layer)
+        if kind == "drop" or kind == "set" or moved:
+            raise Refused(refuse_text(label, "layer_protected"))
+    elif kind != "drop" and location and LOCATIONS.targets_notislake(location):
+        raise Refused(refuse_text(label, "schema_not_layer"))
+
+
+def check_table_location(session, parts, location):
+    """ALTER TABLE ... SET LOCATION: a destination in the notislake must pass the same rules as a new table."""
+    target = resolve_table(session, parts)
+    if target is None or not LOCATIONS.targets_notislake(location):
+        return
+    catalog, schema, table = target
+    view = known_view(session)
+    label = "mudar a location de %s.%s" % (schema, table)
+    try:
+        LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, (schema.lower(), table.lower()))))
+    except LOCATIONS.InvalidLocation as exc:
+        raise Refused(refuse_text(label, exc.code)) from None
+
+
+def table_statement(session, parts, location):
+    path = path_of_ident(parts)
+    if path:
+        check_path(session, path)
+        return
+    target = resolve_table(session, parts)
+    if target is not None:
+        check_table(session, *target, location)
+
+
+def jtype(obj):
+    getter = getattr(obj, "getClass", None)  # py4j objects only; str/bool/None have no such attribute
+    return getter().getSimpleName() if callable(getter) else type(obj).__name__
+
+
+def jseq(seq):
+    return [seq.apply(i) for i in range(seq.size())]
+
+
+def jopt(opt):
+    return opt.get() if opt.isDefined() else None
+
+
+def identifier_parts(tid):
+    """Parts of a catalyst TableIdentifier (catalog, database, table), skipping the absent ones."""
+    return [str(v) for v in (jopt(tid.catalog()), jopt(tid.database()), tid.table()) if v is not None]
+
+
+def check_plan(session, plan):
+    """Run the destination rules on the parsed statement (node shapes verified on Spark 3.5.4 and 3.5.9)."""
+    kind = jtype(plan)
+    items = [plan.productElement(i) for i in range(plan.productArity())]
+    named = {}
+    for item in items:
+        named.setdefault(jtype(item), item)
+    if kind in TABLE_NODES:
+        ident, spec = named.get("UnresolvedIdentifier"), named.get("UnresolvedTableSpec")
+        if ident is not None and spec is not None:
+            table_statement(session, jseq(ident.nameParts()), jopt(spec.location()))
+    elif kind == "CreateTableLikeCommand":
+        storage = named.get("CatalogStorageFormat")
+        location = jopt(storage.locationUri()) if storage is not None else None
+        table_statement(session, identifier_parts(items[0]), None if location is None else str(location))
+    elif kind == "InsertIntoStatement":
+        relation = named.get("UnresolvedRelation")
+        path = path_of_ident(jseq(relation.multipartIdentifier())) if relation is not None else None
+        if path:
+            check_path(session, path)
+    elif kind == "InsertIntoDir":
+        location = jopt(named["CatalogStorageFormat"].locationUri())
+        if location is not None:
+            check_path(session, str(location))
+    elif kind == "DropNamespace":
+        check_namespace("drop", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()))
+    elif kind == "CreateNamespace":
+        check_namespace("create", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), jopt(items[2].get("location")))
+    elif kind == "SetNamespaceLocation":
+        check_namespace("set", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), items[1])
+    elif kind == "SetTableLocation":
+        check_table_location(session, jseq(named["UnresolvedTable"].multipartIdentifier()), next(i for i in items if isinstance(i, str)))
+
+
+def checks_on(session):
+    """The checks apply to an attached session, never to the hook's own calls."""
+    if session is None or getattr(BYPASS, "depth", 0):
+        return False
+    try:
+        skey = session_key(session)
+    except Exception:
+        return False
+    return skey in STATE.get("attached", ()) and skey not in STATE.get("off", ())
+
+
+def precheck(fn, *args):
+    """Run a check; only `Refused` reaches the user. Any other failure lets the call go on (post-write validation still runs).
+
+    Fail-safe on purpose: a statement the parser or the introspection cannot read must not be blocked
+    in an opaque way; only a destination proven invalid is refused.
+    """
+    try:
+        fn(*args)
+    except Refused:
+        raise
+    except Exception as exc:
+        errors = STATE.setdefault("errors", [])
+        errors.append("precheck %s: %s" % (fn.__name__, type(exc).__name__))
+        del errors[:-MAX_ERRORS]
+        warn(("precheck", fn.__name__), "a checagem prévia do destino não pôde ser feita; a gravação segue e a validação posterior continua valendo.")
+
+
+def sql_text(args, kwargs):
+    text = args[0] if args else kwargs.get("sqlQuery")
+    if not isinstance(text, str):
+        return None
+    fields = {k: v for k, v in kwargs.items() if k not in ("sqlQuery", "args")}
+    if fields:
+        if not all(isinstance(v, (str, int, float)) for v in fields.values()):
+            return None
+        try:
+            text = text.format(**fields)
+        except (KeyError, IndexError, ValueError):
+            return None
+    return text
+
+
+def before_sql(session, args, kwargs):
+    text = sql_text(args, kwargs)
+    if text is None or not STATEMENT_RE.search(text) or not checks_on(session):
+        return
+    try:
+        plan = session._jsparkSession.sessionState().sqlParser().parsePlan(text)
+    except Exception:
+        return  # Spark reports its own syntax error
+    check_plan(session, plan)
+
+
+def writer_session(writer):
+    session = getattr(writer, "_spark", None) or current_session()
+    return session if checks_on(session) else None
+
+
+def record_of(obj):
+    return obj.__dict__.setdefault("_notisbook", {"opts": {}, "props": {}})
+
+
+def arg_of(args, kwargs, index, name):
+    return args[index] if len(args) > index else kwargs.get(name)
+
+
+def before_path_write(writer, args, kwargs):
+    session = writer_session(writer)
+    if session is None:
+        return
+    path = arg_of(args, kwargs, 0, "path")
+    check_path(session, path if path is not None else record_of(writer)["opts"].get("path"))
+
+
+def before_save_as_table(writer, args, kwargs):
+    session = writer_session(writer)
+    parts = split_name(arg_of(args, kwargs, 0, "name")) if session is not None else None
+    target = resolve_table(session, parts) if parts else None
+    if target is not None:
+        path = kwargs.get("path", record_of(writer)["opts"].get("path"))
+        check_table(session, *target, None if path is None else str(path))
+
+
+def before_create_v2(writer, args, kwargs):
+    session = writer_session(writer)
+    rec = record_of(writer)
+    parts = split_name(rec.get("table")) if session is not None else None
+    target = resolve_table(session, parts) if parts else None
+    if target is None:
+        return
+    # Spike (Spark 3.5.9 and Glue 3.5.4): both Delta and Iceberg honour only `option("path")` and
+    # `tableProperty("location")`; `option("location")` and `tableProperty("path")` are ignored in silence.
+    locations = [v for v in (rec["opts"].get("path"), rec["props"].get("location")) if v is not None]
+    for location in locations or [None]:
+        check_table(session, *target, str(location) if location is not None else None)
+
+
+def before_create_table(catalog, args, kwargs):
+    session = getattr(catalog, "_sparkSession", None) or current_session()
+    parts = split_name(arg_of(args, kwargs, 0, "tableName")) if checks_on(session) else None
+    target = resolve_table(session, parts) if parts else None
+    if target is not None:
+        path = arg_of(args, kwargs, 1, "path")
+        path = kwargs.get("path", path) if path is None else path
+        check_table(session, *target, None if path is None else str(path))
+
+
+def wrap_checked(original, before):
+    @functools.wraps(original)
+    def method(self, *args, **kwargs):
+        precheck(before, self, args, kwargs)
+        return original(self, *args, **kwargs)
+    method._notisbook_original = original
+    return method
+
+
+def wrap_recorded(original, record):
+    @functools.wraps(original)
+    def method(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        try:
+            record(self, args, kwargs)
+        except Exception:
+            pass  # a missed record only means a missed pre-check
+        return result
+    method._notisbook_original = original
+    return method
+
+
+def record_format(writer, args, kwargs):
+    record_of(writer)["format"] = arg_of(args, kwargs, 0, "source") or arg_of(args, kwargs, 0, "provider")
+
+
+def record_option(writer, args, kwargs):
+    record_of(writer)["opts"][str(arg_of(args, kwargs, 0, "key")).lower()] = arg_of(args, kwargs, 1, "value")
+
+
+def record_options(writer, args, kwargs):
+    record_of(writer)["opts"].update({str(k).lower(): v for k, v in kwargs.items()})
+
+
+def record_property(writer, args, kwargs):
+    record_of(writer)["props"][str(arg_of(args, kwargs, 0, "property")).lower()] = arg_of(args, kwargs, 1, "value")
+
+
+def record_table(writer, args, kwargs):
+    record_of(writer)["table"] = arg_of(args, kwargs, 1, "table")
+
+
+def intercepts():
+    """`{class name: [(method, wrapper factory)]}`: where each pre-write check hangs."""
+    def checked(before):
+        return lambda original: wrap_checked(original, before)
+
+    def recorded(record):
+        return lambda original: wrap_recorded(original, record)
+
+    writer = [("format", recorded(record_format)), ("option", recorded(record_option)), ("options", recorded(record_options)),
+              ("save", checked(before_path_write)), ("saveAsTable", checked(before_save_as_table))]
+    writer += [(name, checked(before_path_write)) for name in ("parquet", "json", "csv", "orc", "text")]
+    return {
+        "DataFrameWriter": writer,
+        "DataFrameWriterV2": [("__init__", recorded(record_table)), ("using", recorded(record_format)),
+                              ("option", recorded(record_option)), ("options", recorded(record_options)),
+                              ("tableProperty", recorded(record_property))]
+                             + [(name, checked(before_create_v2)) for name in ("create", "createOrReplace", "replace")],
+        "Catalog": [("createTable", checked(before_create_table))],
+        "SparkSession": [("sql", checked(before_sql))],
+    }
+
+
 def unwrap(func):
     while hasattr(func, "_notisbook_original"):
         func = func._notisbook_original
@@ -1228,7 +1681,7 @@ def wrap_stop(original):
                 reconcile(self, None)
                 STATE.get("attached", set()).discard(session_key(self))
                 STATE.get("s3a_done", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked"):
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked", "intent"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
@@ -1238,14 +1691,19 @@ def wrap_stop(original):
 
 
 def patch(module):
+    """Wrap, in the classes `module` defines, the session lifecycle and the pre-write checks; `unwrap` first, so never twice."""
     cls = getattr(module, "SparkSession", None)
-    if cls is None:
-        return
-    builder = getattr(cls, "Builder", None)
-    if builder is not None and "getOrCreate" in vars(builder):
-        builder.getOrCreate = wrap_get_or_create(unwrap(vars(builder)["getOrCreate"]))
-    if "stop" in vars(cls):
-        cls.stop = wrap_stop(unwrap(vars(cls)["stop"]))
+    if cls is not None:
+        builder = getattr(cls, "Builder", None)
+        if builder is not None and "getOrCreate" in vars(builder):
+            builder.getOrCreate = wrap_get_or_create(unwrap(vars(builder)["getOrCreate"]))
+        if "stop" in vars(cls):
+            cls.stop = wrap_stop(unwrap(vars(cls)["stop"]))
+    for name, specs in intercepts().items():
+        target = getattr(module, name, None)
+        for method, factory in specs if isinstance(target, type) else ():
+            if method in vars(target):
+                setattr(target, method, factory(unwrap(vars(target)[method])))
 
 
 class Finder(importlib.abc.MetaPathFinder):
@@ -1296,8 +1754,9 @@ def _pre():
 
 
 def _post(result):
-    session, _ = cell_session(True)
+    session, skey = cell_session(True)
     if session is not None:
+        STATE.get("intent", {}).pop(skey, None)  # the cell is over: what it created is in the session catalog now
         info = getattr(result, "info", None)
         reconcile(session, getattr(info, "raw_cell", None))
 
