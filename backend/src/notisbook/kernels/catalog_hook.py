@@ -876,8 +876,9 @@ def ensure_layers(session, skey, dbs=None):
     for layer in LOCATIONS.LAYERS:
         if layer in checked:
             continue
-        checked.add(layer)
-        if (layer_location(session, layer) or "").rstrip("/") != LOCATIONS.layer_uri(layer):
+        location = layer_location(session, layer)
+        checked.add(layer)  # only after the DESCRIBE answered: a failure leaves the layer to be checked again
+        if (location or "").rstrip("/") != LOCATIONS.layer_uri(layer):
             warn(("layer", skey, layer), "a camada %s já existia nesta sessão com outra location; as tabelas gerenciadas dela não vão para s3a://notislake/%s." % (layer, layer))
 
 
@@ -1277,35 +1278,46 @@ def path_of_ident(parts):
     return None
 
 
+def named_catalog(session, first):
+    """True when the first part of a name is a catalog (`iceberg` counts even before its conf is read)."""
+    return first.lower() == ICEBERG_CATALOG or catalog_registered(session, first)
+
+
 def resolve_table(session, parts):
-    """(catalog, schema, table) of a table name as Spark resolves it; None for paths, other catalogs or any doubt."""
+    """(catalog, schema, table) of a table name as Spark resolves it; None for paths, other catalogs or any doubt.
+
+    In `iceberg` the namespace may be nested: the schema is then the dotted join (`foo.bar`), which no layer
+    matches, so the destination rules refuse it. `spark_catalog` has no nested namespace.
+    """
     parts = list(parts)
-    if not 1 <= len(parts) <= 3 or path_of_ident(parts):
+    if not parts or path_of_ident(parts):
         return None
-    if len(parts) == 3:
-        catalog, schema, table = parts[0].lower(), parts[1], parts[2]
-    elif len(parts) == 2 and catalog_registered(session, parts[0]):
-        return None  # catalog.table, no namespace to decide on
-    elif len(parts) == 2:
-        catalog, schema, table = current_catalog(session), parts[0], parts[1]
-    else:
+    if len(parts) == 1:
         catalog = current_catalog(session)
         schema, table = session.catalog.currentDatabase(), parts[0]
+    elif len(parts) == 2 and catalog_registered(session, parts[0]):
+        return None  # catalog.table, no namespace to decide on
+    elif len(parts) >= 3 and named_catalog(session, parts[0]):
+        catalog, schema, table = parts[0].lower(), ".".join(parts[1:-1]), parts[-1]
+    else:
+        catalog, schema, table = current_catalog(session), ".".join(parts[:-1]), parts[-1]
     if catalog == CATALOG:
-        return catalog, schema.lower(), table.lower()  # the session catalog folds case
+        return None if "." in schema else (catalog, schema.lower(), table.lower())  # the session catalog folds case
     return (catalog, schema, table) if catalog == ICEBERG_CATALOG else None
 
 
 def resolve_namespace(session, parts):
-    """(catalog, namespace) of a one-level namespace in `spark_catalog` or `iceberg`, else None."""
+    """(catalog, namespace) of a namespace in `spark_catalog` (one level) or `iceberg` (nested as a dotted join), else None."""
     parts = list(parts)
-    if len(parts) == 2 and catalog_registered(session, parts[0]):
-        catalog, ns = parts[0].lower(), parts[1]
-    elif len(parts) == 1:
-        catalog, ns = current_catalog(session), parts[0]
+    if len(parts) >= 2 and catalog_registered(session, parts[0]):
+        catalog, ns = parts[0].lower(), ".".join(parts[1:])
+    elif parts:
+        catalog, ns = current_catalog(session), ".".join(parts)
     else:
         return None
-    return (catalog, ns) if catalog in (CATALOG, ICEBERG_CATALOG) else None
+    if catalog == CATALOG:
+        return None if "." in ns else (catalog, ns)
+    return (catalog, ns) if catalog == ICEBERG_CATALOG else None
 
 
 def iceberg_rows(conn):
