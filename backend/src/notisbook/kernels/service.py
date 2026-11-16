@@ -857,8 +857,9 @@ class KernelService:
             lines = (Path(spec.env["SPARK_CONF_DIR"]) / "spark-defaults.conf").read_text(encoding="utf-8").splitlines()
         except (KeyError, OSError, UnicodeDecodeError):
             raise SparkEnvOutdated from None
-        values = [parts[1:] for parts in map(str.split, lines) if parts[:1] == ["spark.sql.warehouse.dir"]]
-        if not values or values[-1] != [safety_warehouse_uri(self._home)]:  # the last duplicate wins in a properties file
+        pairs = (line.split(None, 1) for line in lines)
+        values = [pair[1].strip() for pair in pairs if len(pair) == 2 and pair[0] == "spark.sql.warehouse.dir"]
+        if not values or values[-1] != safety_warehouse_uri(self._home):  # the last duplicate wins in a properties file
             raise SparkEnvOutdated
 
     async def create(
@@ -922,6 +923,7 @@ class KernelService:
             env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
             if docker_runtime is not None:
                 env[docker_launch.PORT_ENV] = str(self._port)
+                env[docker_launch.HOME_ENV] = str(self._home)
             try:
                 await session.start(env, cwd)
             except Exception:

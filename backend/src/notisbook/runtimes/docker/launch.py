@@ -15,14 +15,16 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from ...config import RUNTIME_HOST, default_home
+from ...config import RUNTIME_HOST
 from ...notislake.locations import ROOT_URI
 from ...notislake.sparkconf import closed_options
-from ...spark.bundles import WAREHOUSE_DIR
+from ...spark.bundles import docker_safety_warehouse_uri
 from . import catalog, cli
 
 # Porta do backend para o container alcançar o catálogo Iceberg REST; o KernelService a põe no env do kernel.
 PORT_ENV = "NOTISBOOK_RUNTIME_PORT"
+# Home que o backend usa (o mesmo que o DockerService monta); o `launch` roda em outro processo e o recebe pelo ambiente.
+HOME_ENV = "NOTISBOOK_RUNTIME_HOME"
 START_TIMEOUT_S = 60.0
 CALL_TIMEOUT_S = 30.0
 INCONTAINER = Path(__file__).with_name("incontainer.py")
@@ -52,8 +54,11 @@ def iceberg_options() -> list[str]:
 
 
 def safety_warehouse() -> str:
-    """Warehouse local do `spark_catalog` no container: a pasta `warehouse/` do home, montada no mesmo caminho do Mac."""
-    return f"file:{default_home() / WAREHOUSE_DIR}"
+    """Warehouse local do `spark_catalog` no container, derivado do home que o backend informou em `HOME_ENV`."""
+    home = os.environ.get(HOME_ENV, "")
+    if not home:
+        raise LaunchError("home do Notisbook não informado ao launch")
+    return docker_safety_warehouse_uri(Path(home))
 
 
 def incontainer_source() -> bytes:

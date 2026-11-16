@@ -16,6 +16,8 @@ from ..catalog.store import catalog_db_path
 
 DEFAULT_MAVEN_URL = "https://repo1.maven.org/maven2"
 MAVEN_URL_ENV = "NOTISBOOK_MAVEN_URL"
+# Warehouse de segurança do `spark_catalog` (escrita que escapa da regra do notislake). No Docker só existe o que já
+# está montado no container (`warehouse/`); no local o kernel usa uma pasta própria do home (`spark-warehouse/`).
 WAREHOUSE_DIR = "warehouse"
 SAFETY_WAREHOUSE_DIR = "spark-warehouse"
 _VERSION = re.compile(r"(\d+\.\d+)\.(\d+)", re.ASCII)
@@ -205,6 +207,11 @@ def catalog_uri(home: Path) -> str:
 def safety_warehouse_uri(home: Path) -> str:
     """Warehouse local do `spark_catalog`: escrita que escapa da regra do notislake cai no disco, não no bucket."""
     return f"file:{home / SAFETY_WAREHOUSE_DIR}"
+
+
+def docker_safety_warehouse_uri(home: Path) -> str:
+    """Warehouse de segurança no container: a pasta `warehouse/` do `home`, montada no mesmo caminho do host."""
+    return f"file:{home / WAREHOUSE_DIR}"
 
 
 def render_base_defaults() -> list[str]:
