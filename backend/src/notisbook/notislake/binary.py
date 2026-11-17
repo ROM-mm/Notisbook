@@ -1,6 +1,7 @@
 """Localiza o pacote `minio`/`mc` distribuído, valida contra o manifesto e instala em `<home>/minio/bin/`.
 
-O pacote vem só de `$NOTISBOOK_MINIO_DIST` (tarball ou diretório). O sha256 esperado fica em
+O pacote vem de `$NOTISBOOK_MINIO_DIST` (tarball ou diretório); sem ela, do diretório padrão
+`${XDG_DATA_HOME:-~/.local/share}/notisbook/notislake`, onde o `install.sh` o coloca. O sha256 esperado fica em
 `minio_manifest.json`; nada é instalado se algo divergir. A instalação é atômica por arquivo
 (temporário no mesmo diretório + `os.replace`) e idempotente. Não sobe o MinIO.
 """
@@ -24,6 +25,8 @@ from ..config import default_home
 logger = logging.getLogger(__name__)
 
 DIST_ENV = "NOTISBOOK_MINIO_DIST"
+DEFAULT_DIST_DIR = "~/.local/share/notisbook/notislake"
+_XDG_DIST_SUFFIX = ("notisbook", "notislake")
 MANIFEST_PATH = Path(__file__).with_name("minio_manifest.json")
 BINARIES = ("minio", "mc")
 _INSTALL_MODE = 0o755
@@ -38,7 +41,7 @@ class BinaryError(Exception):
 
 
 class BinaryNotInstalledError(BinaryError):
-    """Pacote não encontrado: `$NOTISBOOK_MINIO_DIST` ausente ou apontando para algo inexistente."""
+    """Pacote não encontrado: `$NOTISBOOK_MINIO_DIST` inexistente ou diretório padrão ausente."""
 
 
 class BinaryIntegrityError(BinaryError):
@@ -118,10 +121,22 @@ def _arch_entry(manifest: dict) -> dict:
     return entry
 
 
+def default_dist_dir() -> Path:
+    """Diretório padrão do pacote: `$XDG_DATA_HOME/notisbook/notislake` ou `~/.local/share/notisbook/notislake`."""
+    xdg = Path(os.environ.get("XDG_DATA_HOME", "").strip()).expanduser()
+    # A spec XDG manda ignorar valor relativo (inclui o vazio, que vira ".").
+    if xdg.is_absolute():
+        return xdg.joinpath(*_XDG_DIST_SUFFIX)
+    return Path(DEFAULT_DIST_DIR).expanduser()
+
+
 def _resolve_dist() -> Path:
     raw = os.environ.get(DIST_ENV, "").strip()
     if not raw:
-        raise BinaryNotInstalledError(f"binário não instalado: defina {DIST_ENV} com o diretório ou tarball do pacote")
+        dist = default_dist_dir()
+        if not dist.exists():
+            raise BinaryNotInstalledError(f"MinIO package not found: looked in {dist}; set {DIST_ENV} to the package directory or tarball")
+        return dist
     dist = Path(raw).expanduser()
     if not dist.exists():
         raise BinaryNotInstalledError(f"binário não instalado: {DIST_ENV}={dist} não existe")
