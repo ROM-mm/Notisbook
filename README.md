@@ -1,136 +1,115 @@
-# Notisbook
+<div align="center">
 
 ![Notisbook](assets/banner.png)
 
-## Título & Visão Geral do Negócio
+# Notisbook — local Spark notebooks for macOS
 
-O Notisbook é uma aplicação local de notebooks que roda na própria máquina da pessoa usuária e reúne, em uma interface web, a edição e execução de notebooks Jupyter (`.ipynb`) e o gerenciamento de ambientes Apache Spark com formatos de lakehouse (Delta Lake, Apache Iceberg e Apache Hudi). O pacote se descreve como "Local notebook UI and Spark environment manager" (`backend/pyproject.toml`).
+### Notebooks, versioned Spark environments and a local lakehouse in one browser UI.
 
-Versão do pacote no código analisado: `0.4.1` (`backend/pyproject.toml`, `frontend/package.json`).
+Edit `.ipynb` notebooks and run Python, Spark SQL and DuckDB SQL cells in Jupyter kernels. Notisbook installs
+Spark environments with Delta Lake, Apache Iceberg and Apache Hudi jars verified by sha256, keeps a persistent
+table catalog in SQLite and runs a local MinIO bucket organized in `bronze`, `silver` and `gold` layers. Everything
+runs on your machine: the backend listens on `127.0.0.1` only.
 
-## Problema que Resolve
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/ROM-mm/Notisbook)](https://github.com/ROM-mm/Notisbook/releases)
+[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)](#requirements)
 
-Montar um ambiente local de Spark com lakehouse exige combinar versão do Spark, JDK compatível, bibliotecas Python e jars de Delta/Iceberg/Hudi, além de um catálogo de tabelas que sobreviva entre sessões. O Notisbook automatiza essa montagem e oferece uma interface única para:
+[Releases](https://github.com/ROM-mm/Notisbook/releases) • [Architecture](docs/ARCHITECTURE.md) • [ADRs](docs/adr/) • [HTTP API](docs/api/swagger.yaml)
 
-- instalar e remover versões do Spark em ambientes isolados, com os jars de lakehouse verificados por sha256 (`backend/src/notisbook/spark/installer.py`, `backend/src/notisbook/spark/bundles.py`);
-- escolher automaticamente o JDK adequado à linha do Spark (`backend/src/notisbook/spark/prereqs.py`);
-- manter um catálogo persistente de bancos e tabelas em SQLite, compartilhado entre kernels (`backend/src/notisbook/catalog/`);
-- editar, executar e exportar notebooks sem depender de um servidor Jupyter completo (`backend/src/notisbook/kernels/service.py`).
-
-Impacto de negócio quantificado (tempo economizado, adoção, custo): Não identificado no código analisado.
-
-## Como Funciona (conceito)
-
-1. O comando `notisbook` prepara a pasta de dados local, cria o catálogo SQLite e, na primeira execução, cria a pasta padrão de notebooks com exemplos (`backend/src/notisbook/__main__.py`, `backend/src/notisbook/onboarding.py`).
-2. Um servidor local (FastAPI/Uvicorn) sobe apenas em `127.0.0.1`, gera um token de sessão aleatório e abre o navegador com esse token (`backend/src/notisbook/config.py`, `backend/src/notisbook/__main__.py`).
-3. A interface web (React) é servida pelo próprio servidor e conversa com ele por REST e WebSocket (`backend/src/notisbook/static.py`, `frontend/src/api/`, `frontend/src/ws/`).
-4. Cada notebook aberto pode iniciar um kernel IPython; ambientes Spark gerenciados ganham um kernelspec próprio com `JAVA_HOME` definido (`backend/src/notisbook/spark/kernelspec.py`).
-5. Dentro do kernel, módulos ocultos renderizam resultados de células SQL (Spark SQL ou DuckDB) e mantêm a `SparkSession` sincronizada com o catálogo (`backend/src/notisbook/kernels/sql_cell.py`, `backend/src/notisbook/kernels/catalog_hook.py`).
-
-## Benefícios
-
-Benefícios observáveis no código (não são métricas medidas):
-
-- **Ambientes reprodutíveis e reversíveis:** cada instalação do Spark cria um diretório novo, valida e só então troca o kernelspec; em falha, o ambiente anterior permanece intacto (`backend/src/notisbook/spark/installer.py`).
-- **Downloads verificados:** jars de lakehouse têm sha256 fixado e são conferidos antes de entrar no ambiente (`backend/src/notisbook/spark/bundles.py`, `backend/src/notisbook/spark/installer.py`).
-- **Catálogo persistente sem Hive:** bancos e tabelas ficam em `catalog.db` (SQLite) e podem ser consultados e alterados pela interface sem iniciar uma `SparkSession` (`backend/src/notisbook/api/catalog.py`, `backend/src/notisbook/catalog/`).
-- **Acesso restrito à máquina local:** escuta somente em loopback e exige token em todas as rotas de API (`backend/src/notisbook/config.py`, `backend/src/notisbook/security.py`).
-- **Exportação de notebooks:** `.py` no formato "notebook source" do Databricks, `.ipynb` e relatório HTML autocontido (`backend/src/notisbook/api/export.py`, `backend/src/notisbook/export/`).
-
-## Casos de Uso
-
-- Estudar ou prototipar pipelines PySpark localmente com Delta Lake, Iceberg ou Hudi; o pacote traz notebooks de exemplo para os três formatos (`backend/src/notisbook/samples/delta.ipynb`, `iceberg.ipynb`, `hudi.ipynb`).
-- Consultar dados com células SQL em Spark SQL ou DuckDB no mesmo notebook (`backend/src/notisbook/kernels/sql_cell.py`).
-- Manter várias versões do Spark instaladas e adicionar ou remover bibliotecas PyPI em cada ambiente (`backend/src/notisbook/api/spark.py`, `backend/src/notisbook/spark/packages.py`).
-- Navegar pelo catálogo (bancos, tabelas e colunas), criar e excluir schemas (`backend/src/notisbook/api/catalog.py`).
-- Exportar um notebook para levar o código a outra plataforma, como Databricks (`backend/src/notisbook/export/py_source.py`).
-
-## Para Quem é
-
-- Pessoas engenheiras e analistas de dados que querem um ambiente Spark/lakehouse local sem configurar Jupyter, JDK e jars manualmente.
-- Uso individual em estação de trabalho macOS: a detecção de JDK usa `/usr/libexec/java_home` e o seletor de pastas nativo usa `osascript` (`backend/src/notisbook/spark/prereqs.py`, `backend/src/notisbook/files/native_picker.py`). Suporte a outros sistemas operacionais: Não identificado no código analisado.
-
-## Começo Rápido (básico)
-
-### Pré-requisitos
-
-- Para usar ambientes Spark: `uv` e um JDK compatível (17 para Spark 3.x; 21 ou 17 para as demais linhas) (`backend/src/notisbook/spark/prereqs.py`, `backend/src/notisbook/spark/installer.py`).
-- Para rodar a partir do código-fonte: `uv`, `node` e `npm` (`start.sh`) e Python `>=3.12` (`backend/pyproject.toml`).
-
-### Instalação via Homebrew
-
-A distribuição é feita pela fórmula `notisbook` do tap `rom-mm/tap` (`scripts/release.sh`, variáveis `TAP_NAME` e `FORMULA_REF`):
-
-```bash
-brew install rom-mm/tap/notisbook
-```
-
-Atualização, conforme a mensagem final de `scripts/release.sh`:
-
-```bash
-brew update && brew upgrade notisbook
-```
-
-O conteúdo da fórmula (dependências declaradas, caveats) não está neste repositório: Não identificado no código analisado.
-
-### Executar
-
-```bash
-notisbook
-```
-
-O comando imprime a URL `http://127.0.0.1:<porta>/?token=<token>` e abre o navegador (`backend/src/notisbook/__main__.py`).
-
-### A partir do código-fonte
-
-```bash
-./start.sh
-```
-
-O script instala as dependências do frontend se necessário, recompila o frontend quando há mudanças e executa `uv run --project backend notisbook`, repassando os argumentos (`start.sh`).
-
-## Exemplos de Uso
-
-Opções da CLI (`backend/src/notisbook/__main__.py`):
-
-```bash
-# Porta diferente da padrão (8765)
-notisbook --port 9000
-
-# Pasta de notebooks fixa (trava a troca de pasta pela interface)
-notisbook --root ~/meus-notebooks
-
-# Não abrir o navegador automaticamente
-notisbook --no-browser
-
-# Exibir a versão
-notisbook --version
-```
-
-Pasta de dados alternativa, pela variável de ambiente lida em `backend/src/notisbook/config.py`:
-
-```bash
-NOTISBOOK_HOME=/caminho/para/dados notisbook
-```
-
-Na primeira execução (sem `--root` e sem `preferences.json`), os notebooks de exemplo de Delta, Iceberg e Hudi são copiados para `<pasta de dados>/notebooks` (`backend/src/notisbook/onboarding.py`).
-
-## Onde Encontrar Mais Detalhes
-
-- Backend (servidor, kernels, catálogo e ambientes Spark): [backend/src/notisbook/](backend/src/notisbook/)
-- Frontend (interface web): [frontend/src/](frontend/src/)
-- Build e release: [scripts/](scripts/)
-
-## Licença
-
-Apache License 2.0, declarada em `backend/pyproject.toml` (`license = "Apache-2.0"`) e confirmada pelo texto em `LICENSE` e `backend/LICENSE`.
+</div>
 
 ---
 
-**Autor:** Romerito Morais
+## Quick start
 
-**Versão:** 20261113022607
+```bash
+curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh
+notisbook
+```
 
-**Data:** 2026-11-13 02:26:07
+The installer downloads the release's `SHA256SUMS` and checks the sha256 of the Notisbook wheel, the
+*constraints* file and the MinIO tarball for your architecture before installing anything. It stops a running
+Notisbook, installs the wheel with `uv tool install --no-build` on Python 3.12 (installing `uv` first if it is
+missing) and places the MinIO package (the **notislake**) in `~/.local/share/notisbook/notislake`. To update, run
+the same command again. `--uninstall` removes Notisbook and keeps your data in `~/.notisbook`. The `notisbook`
+command lives in the `uv tool` bin directory (usually `~/.local/bin`); if it is not on your `PATH`, the installer
+tells you how to add it.
+
+`notisbook` starts the backend on `http://127.0.0.1:8765`, prints the address with a per-startup token
+(`/?token=<token>`) and opens your default browser. On the first run, the default notebooks folder
+(`~/.notisbook/notebooks`) is seeded with the samples `delta.ipynb`, `hudi.ipynb`, `iceberg.ipynb` and `glue.ipynb`.
+
+| Option | Effect |
+|---|---|
+| `--port N` | HTTP port on `127.0.0.1` (default `8765`) |
+| `--root DIR` | Pins the notebooks folder for this run (the UI cannot change it) |
+| `--no-browser` | Does not open the browser |
+| `--version` | Prints the installed version |
+| `--stop-running` | Stops the instance registered in the data folder and exits |
+| `--check-notislake` | Installs the bundled MinIO into a temporary folder, checks it and exits |
+
+## What's in the box
+
+| Capability | What it means |
+|---|---|
+| **Notebook editor** | Browser UI for `.ipynb` files in a local folder, with Python, Spark SQL and DuckDB SQL cells run in Jupyter kernels. |
+| **Spark environments** | Each Spark version is installed in its own isolated, versioned environment (Python 3.12 via `uv`, `pyspark`, `ipykernel`, `duckdb`) and registered as a kernel. A failed reinstall keeps the previous environment. |
+| **Lakehouse formats** | A static bundle matrix per Spark line (3.5 and 4.1) pins Delta Lake, Iceberg, Hudi and Hadoop/S3A jars, each checked by sha256. |
+| **JDK selection** | Picks a JDK per Spark line (17 for Spark 3.x; 21 or 17 for Spark 4.x) and writes it to the kernelspec. |
+| **Persistent catalog** | Tables created by notebooks are registered in a local SQLite file (`catalog.db`), shown in the data panel without an open Spark session. Iceberg lives in a separate `iceberg` catalog. |
+| **notislake** | A local MinIO, started and supervised by Notisbook, serves the `notislake` bucket with `bronze`, `silver` and `gold` layers. A manual S3 endpoint can be configured instead. |
+| **Docker runtime** | Optional runtime based on the AWS Glue 5.0 image (Delta and Iceberg) in a local container, which reaches the catalog only through the backend API. |
+| **Library management** | Install, upgrade and remove Python libraries in a Spark environment from the UI, with `uv pip`. |
+| **Export** | Notebooks export to `.py` (Databricks *notebook source*), `.ipynb` and an HTML report without JavaScript. |
+| **Local-only access** | Fixed `127.0.0.1` bind, a random token per startup, `Host`/`Origin` checks and a strict CSP with sanitized HTML outputs. |
+
+### Other ways to install
+
+| Method | Command | Notes |
+|---|---|---|
+| Install script | `curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh \| sh` | macOS, Apple silicon and Intel. `sh -s -- --version X.Y.Z` (or `NOTISBOOK_VERSION`) pins a release; `sh -s -- --uninstall` removes it. |
+| Release assets | [GitHub releases](https://github.com/ROM-mm/Notisbook/releases) | Wheel `notisbook-<version>-py3-none-any.whl`, `constraints-<version>.txt`, MinIO tarballs per architecture, `SHA256SUMS` and `install.sh`. |
+| Source (development) | `./start.sh` | Needs `uv`, `node` and `npm`. Installs frontend dependencies when needed, rebuilds the frontend if it changed and runs the backend with `uv run`. `./start.sh --replace` stops the registered instance first. |
+
+## Requirements
+
+- macOS on Apple silicon or Intel (the installer refuses other systems).
+- `curl` (or `wget`), `awk` and `shasum` for the installer.
+- `uv` 0.8.4 or newer; if it is missing, the installer installs `uv` 0.10.8.
+- To create Spark environments: JDK 17 for Spark 3.x; JDK 21 (or 17) for Spark 4.x.
+- Only for the Docker runtime: Docker (for example via Colima), with about 15 GiB of free disk space for the image build.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md): components, flows, configuration, data folder layout and security controls.
+- [Diagrams](docs/arch/): context, containers, components, deployment and data flow (Mermaid).
+- [Architecture decision records](docs/adr/): retrospective records of the choices observed in the code.
+- [HTTP API](docs/api/swagger.yaml): OpenAPI 3.0 description of the backend REST routes.
+
+## Contributing
+
+Run from source with the repository scripts:
+
+```bash
+./start.sh                      # build the frontend if needed and start the backend with uv run
+./start.sh --replace            # stop the registered instance first
+./start.sh --port 8800 --no-browser
+npm --prefix frontend run typecheck
+npm --prefix frontend run build
+```
+
+Releases are produced by `scripts/release.sh <X.Y.Z>`; `scripts/release.sh --dry-run <X.Y.Z>` runs only the checks
+and prints the commands without publishing.
+
+Licensed under [Apache-2.0](LICENSE).
+
+---
+
+**Author:** Romerito Morais
+
+**Version:** 20261117074712
+
+**Date:** 2026-11-17 07:47:12
 
 **SKILL:** Document
