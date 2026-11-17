@@ -21,7 +21,14 @@ from . import __version__
 from .api import lifecycle
 from .app import create_app
 from .catalog.store import ensure_catalog_db
-from .config import DEFAULT_PORT, HOST, Settings, default_root, ensure_home
+from .config import (
+    DEFAULT_PORT,
+    HOST,
+    Settings,
+    default_home,
+    default_root,
+    ensure_home,
+)
 from .notislake import binary
 from .notislake.supervisor import NotislakeSupervisor, StartError
 from .onboarding import run_onboarding
@@ -51,6 +58,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="install the bundled MinIO into a temporary home, verify it and exit (starts no server)",
     )
+    parser.add_argument(
+        "--stop-running",
+        action="store_true",
+        help="stop the running Notisbook registered in the data folder, whatever its version, and exit (starts no server)",
+    )
     return parser.parse_args(argv)
 
 
@@ -70,7 +82,11 @@ def _check_notislake() -> int:
                 check=False,
             )
     except binary.BinaryNotInstalledError:
-        print(f"Notisbook: notislake check failed: {binary.DIST_ENV} is not set or points to a missing path.", file=sys.stderr)
+        print(
+            f"Notisbook: notislake check failed: package not found; {binary.DIST_ENV} is unset or points to a missing "
+            f"path, and the default directory {binary.default_dist_dir()} does not exist.",
+            file=sys.stderr,
+        )
         return 1
     except binary.BinaryIntegrityError:
         print("Notisbook: notislake check failed: the package does not match the checksums in the manifest.", file=sys.stderr)
@@ -89,6 +105,16 @@ def _check_notislake() -> int:
         return 1
     first_line = (result.stdout.strip().splitlines() or ["(no output)"])[0]
     print(f"Notisbook: notislake OK (MinIO {installed.tag}: {first_line})")
+    return 0
+
+
+def _stop_running() -> int:
+    """Encerra a instância registrada no home de dados; 0 = parou ou não havia nada rodando, 1 = falhou."""
+    try:
+        lifecycle.stop_running_instance(default_home())
+    except lifecycle.PreviousInstanceError as exc:
+        print(f"Notisbook: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -231,6 +257,8 @@ def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     if args.check_notislake:
         sys.exit(_check_notislake())
+    if args.stop_running:
+        sys.exit(_stop_running())
     signals = _ShutdownSignals()
     signals.install()
     try:

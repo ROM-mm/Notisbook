@@ -175,21 +175,19 @@ def _wait_exit(pid: int, timeout: float) -> bool:
     return True
 
 
-def stop_previous_instance(home: Path, current_version: str, own_pid: int | None = None) -> None:
-    """Resolve a instância registrada em `backend.json` antes de a atual subir.
+def _live_instance(home: Path, own_pid: int | None = None) -> BackendRecord | None:
+    """Registro de uma instância viva respondendo como Notisbook, ou None se não há (registro obsoleto é removido).
 
-    Registro obsoleto (pid morto, ou pid reaproveitado por outro serviço HTTP na porta) é removido. Pid vivo com
-    a porta muda após a espera: `PreviousInstanceError` sem apagar o registro. Versão diferente viva: pede o
-    encerramento pela rota e espera o pid sair. Mesma versão viva ou falha ao encerrar: `PreviousInstanceError`.
+    Pid vivo com a porta muda após a espera: `PreviousInstanceError` sem apagar o registro.
     """
     record = read_record(home)
     if record is None:
-        return
+        return None
     if record.pid == (own_pid if own_pid is not None else os.getpid()):
-        return
+        return None
     if not _pid_alive(record.pid):
         remove_record(home, record.pid)
-        return
+        return None
     probe = _probe_alive_pid(record)
     if probe is None:
         raise PreviousInstanceError(
@@ -198,6 +196,27 @@ def stop_previous_instance(home: Path, current_version: str, own_pid: int | None
         )
     if not probe:
         remove_record(home, record.pid)
+        return None
+    return record
+
+
+def _shutdown_and_wait(record: BackendRecord) -> None:
+    _request_shutdown(record)
+    if not _wait_exit(record.pid, EXIT_WAIT_S):
+        raise PreviousInstanceError(
+            f"Notisbook {record.version} (pid {record.pid}) did not exit within {int(EXIT_WAIT_S)} s. "
+            "Close it and run notisbook again."
+        )
+
+
+def stop_previous_instance(home: Path, current_version: str, own_pid: int | None = None) -> None:
+    """Resolve a instância registrada em `backend.json` antes de a atual subir.
+
+    Registro obsoleto (pid morto, ou pid pertencente a outro serviço HTTP na porta) é removido. Versão diferente
+    viva: pede o encerramento pela rota e espera o pid sair. Mesma versão viva ou falha: `PreviousInstanceError`.
+    """
+    record = _live_instance(home, own_pid)
+    if record is None:
         return
     if record.version == current_version:
         raise PreviousInstanceError(
@@ -208,12 +227,22 @@ def stop_previous_instance(home: Path, current_version: str, own_pid: int | None
         f"Notisbook: stopping the running Notisbook {record.version} (pid {record.pid}) to start {current_version}...",
         flush=True,
     )
-    _request_shutdown(record)
-    if not _wait_exit(record.pid, EXIT_WAIT_S):
-        raise PreviousInstanceError(
-            f"Notisbook {record.version} (pid {record.pid}) did not exit within {int(EXIT_WAIT_S)} s. "
-            "Close it and run notisbook again."
-        )
+    _shutdown_and_wait(record)
+    print(f"Notisbook: Notisbook {record.version} stopped.", flush=True)
+
+
+def stop_running_instance(home: Path) -> None:
+    """Encerra a instância registrada em `backend.json` de qualquer versão, inclusive a atual.
+
+    Sem registro ou com registro obsoleto não há o que parar (sem erro). Falha ao encerrar: `PreviousInstanceError`.
+    """
+    record = _live_instance(home)
+    if record is None:
+        print("Notisbook: no running instance found.", flush=True)
+        return
+    print(f"Notisbook: stopping the running Notisbook {record.version} (pid {record.pid})...", flush=True)
+    _shutdown_and_wait(record)
+    remove_record(home, record.pid)
     print(f"Notisbook: Notisbook {record.version} stopped.", flush=True)
 
 
