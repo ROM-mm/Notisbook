@@ -48,8 +48,8 @@ if [[ "$needs_build" -eq 1 ]]; then
 fi
 
 # O backend aceita um diretório e escolhe o tarball da arquitetura pelo manifesto; o valor do operador prevalece.
-if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/minio" ]]; then
-  export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/minio"
+if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/notislake" ]]; then
+  export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/notislake"
 fi
 
 exec uv run --project "$ROOT_DIR/backend" notisbook "$@"

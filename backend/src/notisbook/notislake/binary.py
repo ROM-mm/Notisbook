@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import platform
+import sys
 import tarfile
 import tempfile
 from dataclasses import dataclass
@@ -245,6 +246,24 @@ def _find_tarball(dist: Path, entry: dict) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
+def _prune_other_tags(bin_dir: Path, keep: set[str]) -> None:
+    """Apaga `minio-*`/`mc-*` de outras tags (só arquivos regulares do diretório); falha vira aviso."""
+    try:
+        entries = list(bin_dir.iterdir())
+    except OSError as exc:
+        logger.warning("notislake: não foi possível listar %s para limpar tags antigas (%s)", bin_dir, exc)
+        return
+    for entry in entries:
+        if entry.name in keep or not entry.name.startswith(tuple(f"{name}-" for name in BINARIES)):
+            continue
+        try:
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            entry.unlink()
+        except OSError as exc:
+            logger.warning("notislake: não foi possível apagar o binário antigo %s (%s)", entry.name, exc)
+
+
 def install(home: Path | None = None) -> InstalledMinio:
     """Instala `minio` e `mc` em `<home>/minio/bin/<nome>-<tag>` (0755) e devolve os caminhos.
 
@@ -260,6 +279,7 @@ def install(home: Path | None = None) -> InstalledMinio:
 
     wanted = [name for name in BINARIES if _sha256_file(targets[name]) != entry[name]["sha256"]]
     if wanted:
+        print(f"Installing MinIO {tag}...", file=sys.stderr, flush=True)
         dist = _resolve_dist()
         try:
             bin_dir.mkdir(parents=True, exist_ok=True)
@@ -282,8 +302,10 @@ def install(home: Path | None = None) -> InstalledMinio:
         finally:
             _discard({n: t for n, t in staged.items() if t.exists()})
         logger.info("notislake: instalado %s em %s", ", ".join(wanted), bin_dir)
+        print("MinIO ready", file=sys.stderr, flush=True)
 
     for path in targets.values():
         if (path.stat().st_mode & 0o777) != _INSTALL_MODE:
             _guard_write(bin_dir, os.chmod, path, _INSTALL_MODE)
+    _prune_other_tags(bin_dir, {path.name for path in targets.values()})
     return InstalledMinio(tag=tag, minio=targets["minio"], mc=targets["mc"])

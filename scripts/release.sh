@@ -75,7 +75,7 @@ limpar() {
         printf 'Se não existir (a partir da raiz do repo):\n'
         printf '  cd %q\n' "$ROOT"
         printf '  %q' "${CMD_RELEASE[@]}"; printf '\n'
-        printf 'Depois siga com o tap manualmente: sha256 do asset, url/sha256 em %s, brew reinstall/test/audit, commit+push.\n' "$FORMULA_REL"
+        printf 'Depois siga com o tap manualmente: sha256 do asset, url/sha256 em %s, scripts/gen_formula_minio.py (resources do MinIO), brew reinstall/test/audit, commit+push.\n' "$FORMULA_REL"
       else
         printf 'Nada foi enviado ao remoto (o push é atômico); confirme com git ls-remote --tags origin %s.\n' "$TAG"
         printf 'Para restaurar o estado local (as conferências garantiram árvore limpa e main == origin/main):\n'
@@ -137,7 +137,7 @@ fi
 
 cd "$ROOT"
 [ "$(git rev-parse --show-toplevel)" = "$ROOT" ] || die "$ROOT não é a raiz de um repositório git próprio"
-[ -f scripts/build_release.py ] && [ -f backend/pyproject.toml ] && [ -f frontend/package.json ] \
+[ -f scripts/build_release.py ] && [ -f scripts/gen_formula_minio.py ] && [ -f backend/pyproject.toml ] && [ -f frontend/package.json ] \
   || die "$ROOT não parece a raiz do Notisbook-app"
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
@@ -270,9 +270,17 @@ if [ "$DRY_RUN" -eq 0 ]; then
   git diff --quiet -- "$MINIO_MANIFEST" || die "$MINIO_MANIFEST mudou após o build; revise, faça commit e rode a release de novo"
   for i in "${!MINIO_NAMES[@]}"; do
     [ -f "$MINIO_DIST/${MINIO_NAMES[$i]}" ] || die "tarball esperado não encontrado: $MINIO_DIST/${MINIO_NAMES[$i]}"
-    MINIO_SHAS[$i]="$(shasum -a 256 "$MINIO_DIST/${MINIO_NAMES[$i]}" | awk '{print $1}')"
+    # A fórmula usa o sha do manifesto; o arquivo publicado precisa bater com ele
+    sha_arquivo="$(shasum -a 256 "$MINIO_DIST/${MINIO_NAMES[$i]}" | awk '{print $1}')"
+    [ "$sha_arquivo" = "${MINIO_SHAS[$i]}" ] \
+      || die "sha256 de ${MINIO_NAMES[$i]} difere do manifesto ($sha_arquivo != ${MINIO_SHAS[$i]})"
   done
 fi
+
+# Gera a fórmula só para validar a entrada, antes do push (em --dry-run também: lê o tap e escreve no WORKDIR)
+python3 scripts/gen_formula_minio.py --formula "$TAP/$FORMULA_REL" --manifest "$MINIO_MANIFEST" \
+  --repo "$REPO_SLUG" --tag "$TAG" --out "$WORKDIR/notisbook.check.rb" \
+  || die "a fórmula do tap não aceita a geração do MinIO (scripts/gen_formula_minio.py)"
 
 # Push e release
 ETAPA="push/release"
@@ -281,16 +289,6 @@ run git push --atomic origin main "$TAG"
 PUSH_FEITO=1
 run "${CMD_RELEASE[@]}"
 RELEASE_CRIADA=1
-
-# A fórmula do tap é atualizada à mão com estes sha256
-if [ "$DRY_RUN" -eq 1 ]; then
-  info "sha256 dos tarballs do notislake (valores do manifesto; em release real vêm dos arquivos)"
-else
-  info "sha256 dos tarballs do notislake (para a fórmula)"
-fi
-for i in "${!MINIO_NAMES[@]}"; do
-  echo "  ${MINIO_SHAS[$i]}  ${MINIO_NAMES[$i]}"
-done
 
 # sha256 do asset publicado
 ETAPA="sha256"
@@ -311,7 +309,7 @@ ETAPA="fórmula"
 info "Atualizando $FORMULA_REL no tap"
 FORMULA="$TAP/$FORMULA_REL"
 if [ "$DRY_RUN" -eq 1 ]; then
-  printf '[dry-run] atualizar url/sha256 principais em %s (url=%s)\n' "$FORMULA" "$ASSET_URL"
+  printf '[dry-run] atualizar url/sha256 principais e resources do MinIO em %s (url=%s)\n' "$FORMULA" "$ASSET_URL"
 else
   tmp_rb="$WORKDIR/notisbook.rb"
   # Só a primeira ocorrência de cada (os blocos resource ficam indentados mais fundo)
@@ -321,7 +319,11 @@ else
     { print }
     END { if (!u || !s) exit 1 }
   ' "$FORMULA" >"$tmp_rb" || die "url/sha256 principais não encontrados na fórmula"
-  cat "$tmp_rb" >"$FORMULA"
+  # Resources do MinIO (url do asset + sha do manifesto), instalação e env NOTISBOOK_MINIO_DIST
+  python3 scripts/gen_formula_minio.py --formula "$tmp_rb" --manifest "$MINIO_MANIFEST" \
+    --repo "$REPO_SLUG" --tag "$TAG" --out "$WORKDIR/notisbook.minio.rb" \
+    || die "falha ao gerar os resources do MinIO na fórmula"
+  cat "$WORKDIR/notisbook.minio.rb" >"$FORMULA"
 fi
 
 # Sem auto-update o brew não mexe no tap/fórmula durante os comandos abaixo

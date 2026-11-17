@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from .api import catalog, contents, docker, export, files, iceberg_rest, jobs, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
+from .api import catalog, contents, docker, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
 from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
@@ -36,7 +36,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await kernels.stop_docker_runtimes()
 
 
-def create_app(settings: Settings, notislake: NotislakeSupervisor | None = None) -> FastAPI:
+def create_app(
+    settings: Settings,
+    notislake: NotislakeSupervisor | None = None,
+    control: lifecycle.LifecycleControl | None = None,
+) -> FastAPI:
     app = FastAPI(title="Notisbook", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.settings = settings
     app.state.store = NotebookStore(settings.root, protected_paths(settings.home))
@@ -44,6 +48,7 @@ def create_app(settings: Settings, notislake: NotislakeSupervisor | None = None)
     app.state.root_generation = 0
     app.state.kernels = KernelService(settings.port, home=settings.home)
     app.state.notislake = notislake
+    app.state.lifecycle = control
     app.state.channels = {}
     app.state.jobs = JobRegistry()
     kernels = app.state.kernels
@@ -78,6 +83,7 @@ def create_app(settings: Settings, notislake: NotislakeSupervisor | None = None)
     app.include_router(jobs.router)
     app.include_router(jobs.ws_router)
     app.include_router(notislake_api.router)
+    app.include_router(lifecycle.router)
     mount_frontend(app, settings.frontend_dist)
 
     @app.middleware("http")
