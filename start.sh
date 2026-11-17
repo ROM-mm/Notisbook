@@ -1,13 +1,20 @@
 #!/usr/bin/env bash
 # Abre o Notisbook com um comando: prepara o frontend se preciso e sobe o backend.
 # Argumentos (--port, --root, --no-browser) são repassados ao `notisbook`.
+# --replace é consumido aqui (não vai ao `notisbook`): encerra a instância registrada
+# (`notisbook --stop-running`, de qualquer versão) antes de subir; se falhar, aborta.
+# Sem --replace, o backend decide: troca uma instância de outra versão e recusa a mesma.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND="$ROOT_DIR/frontend"
 PORT=8765
 
-args=("$@")
+REPLACE=0
+args=()
+for a in "$@"; do
+  if [[ "$a" == "--replace" ]]; then REPLACE=1; else args+=("$a"); fi
+done
 for ((i = 0; i < ${#args[@]}; i++)); do
   case "${args[i]}" in
     --port) PORT="${args[i + 1]:-$PORT}" ;;
@@ -22,13 +29,17 @@ need uv "Instale em https://docs.astral.sh/uv/"
 need node "Instale o Node.js (https://nodejs.org/)."
 need npm "Instale o Node.js (https://nodejs.org/)."
 
+if [[ "$REPLACE" -eq 1 ]]; then
+  uv run --project "$ROOT_DIR/backend" notisbook --stop-running \
+    || { echo "Erro: não foi possível encerrar a instância em execução (--replace)." >&2; exit 1; }
+fi
+
+# Porta ocupada por um Notisbook segue adiante: o backend troca a versão ou recusa a mesma.
 if (exec 3<>"/dev/tcp/127.0.0.1/$PORT") 2>/dev/null; then
-  if curl -sSI --max-time 3 "http://127.0.0.1:$PORT/api/health" 2>/dev/null | grep -qi '^x-notisbook:'; then
-    echo "Notisbook já está rodando na porta $PORT. Nada foi alterado." >&2
-  else
+  if ! curl -sSI --max-time 3 "http://127.0.0.1:$PORT/api/health" 2>/dev/null | grep -qi '^x-notisbook:'; then
     echo "Erro: a porta $PORT está ocupada por outro processo. Use --port <outra>." >&2
+    exit 1
   fi
-  exit 1
 fi
 
 if [[ ! -d "$FRONTEND/node_modules" ]]; then
@@ -52,4 +63,4 @@ if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/notislake" ]]
   export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/notislake"
 fi
 
-exec uv run --project "$ROOT_DIR/backend" notisbook "$@"
+exec uv run --project "$ROOT_DIR/backend" notisbook "${args[@]}"

@@ -88,7 +88,8 @@ def create_app(
 
     @app.middleware("http")
     async def identify(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        # Unauthenticated marker so start.sh can tell a running Notisbook from another process.
+        # Unauthenticated marker: start.sh uses it to tell a Notisbook on the port from another process
+        # (the latter is an error; for a Notisbook, the backend decides replace/refuse).
         response = await call_next(request)
         response.headers["X-Notisbook"] = "1"
         return response
