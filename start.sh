@@ -63,4 +63,4 @@ if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/notislake" ]]
   export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/notislake"
 fi
 
-exec uv run --project "$ROOT_DIR/backend" notisbook "${args[@]}"
+exec uv run --project "$ROOT_DIR/backend" notisbook ${args[@]+"${args[@]}"}

@@ -29,7 +29,22 @@ err() {
 need() { command -v "$1" >/dev/null 2>&1 || err "needs \`$1\`; install it and retry"; }
 
 usage() {
-  sed -n '2,/^set -eu$/{/^set -eu$/d;/^#/s/^# \{0,1\}//p;}' "$0" 2>/dev/null || true
+  cat <<'EOF'
+Notisbook installer (macOS, Apple silicon and Intel).
+
+  curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh
+
+Installs the Notisbook wheel with `uv tool` (Python 3.12, no source builds)
+and the bundled MinIO package into ~/.local/share/notisbook/notislake, after
+checking the SHA-256 of every downloaded file. Your data folder is never touched.
+
+  --version <X.Y.Z>   NOTISBOOK_VERSION       release to install (default: latest)
+  --uninstall                                 remove Notisbook; keeps ~/.notisbook
+  -h, --help                                  show this help
+
+NOTISBOOK_INSTALL_FROM=<dir> reads the assets from a local folder (same file
+names as a release) instead of GitHub; used to test without a published release.
+EOF
 }
 
 fetch() {
@@ -126,7 +141,14 @@ notisbook_bin() {
   fi
 }
 
-dist_dir() { echo "${XDG_DATA_HOME:-${HOME:?HOME is not set}/.local/share}/notisbook/notislake"; }
+dist_dir() {
+  # A relative XDG_DATA_HOME is ignored, as in binary.py.
+  case "${XDG_DATA_HOME:-}" in
+    /*) data_home="$XDG_DATA_HOME" ;;
+    *) data_home="${HOME:?HOME is not set}/.local/share" ;;
+  esac
+  echo "$data_home/notisbook/notislake"
+}
 
 warn_path() {
   bindir="$(uv_bin_dir)"
