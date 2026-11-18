@@ -12,11 +12,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { bootstrapAuth, errorMessage } from "./api";
 import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
-import { BrandIcon } from "./components/data/BrandIcon";
-import deltaIconUrl from "../icons/delta.png";
-import hudiIconUrl from "../icons/hudi.png";
-import icebergIconUrl from "../icons/iceberg.png";
-import parquetIconUrl from "../icons/parquet.png";
+import { HomeBrandMark } from "./components/shell/icons";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { getTargetDir, useNotebookTree } from "./state/notebookTree";
@@ -73,30 +69,18 @@ export function App() {
   }
 }
 
-const FORMATS: { name: string; src: string }[] = [
-  { name: "Iceberg", src: icebergIconUrl },
-  { name: "Delta", src: deltaIconUrl },
-  { name: "Hudi", src: hudiIconUrl },
-  { name: "Parquet", src: parquetIconUrl },
-];
-
 function Home() {
   const setRightOpen = useWorkspace((s) => s.setRightOpen);
   const [error, setError] = useState<string | null>(null);
   return (
     <div className={shellStyles.home}>
-      <h2 className={shellStyles.homeHero}>
-        <span className={shellStyles.homeMark}>Spark it up locally.</span>
-      </h2>
-      <p className={shellStyles.homeSub}>Iceberg, Delta, Hudi &amp; Parquet — on your laptop.</p>
-      <ul className={shellStyles.homeFormats} aria-label="Supported table formats">
-        {FORMATS.map(({ name, src }) => (
-          <li key={name} className={shellStyles.homeFormat}>
-            <BrandIcon src={src} size={32} />
-            <span>{name}</span>
-          </li>
-        ))}
-      </ul>
+      <div className={shellStyles.homeBrand}>
+        <HomeBrandMark size={112} />
+        <div className={shellStyles.homeBrandText}>
+          <h2 className={shellStyles.homeName}>notisbook</h2>
+          <p className={shellStyles.homeTagline}>Process anything. Locally.</p>
+        </div>
+      </div>
       <div className={shellStyles.homeActions}>
         <button
           type="button"

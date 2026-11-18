@@ -1,4 +1,4 @@
-/** Ícones SVG inline (paths Tabler, viewBox 24, traço 2.25 com pontas retas); herdam `currentColor`. */
+/** Ícones SVG inline (paths Tabler, viewBox 24, traço 2.25 com pontas retas); herdam `currentColor`, exceto as marcas (`BrandMark`, `HomeBrandMark`), que usam cores fixas ou tokens de tema. */
 import type { ReactNode, SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
@@ -78,34 +78,61 @@ export const RefreshIcon = (p: IconProps) => (
   </Svg>
 );
 
-/** Marca N-Block monocromática: monograma N com faísca, em `--color-text` sobre `--color-bg` (invertida no escuro). A sombra deslocada usa `--brand-mark-shadow`. */
-export function BrandMark({ size = 32, ...rest }: IconProps) {
+type MarkColors = { shadow: string; fill: string; ink: string; star: string };
+
+/** Geometria N-Block compartilhada pelas marcas; as cores chegam por props. */
+function BrandMarkShape({ size, colors, ...rest }: IconProps & { size: number; colors: MarkColors }) {
+  const { shadow, fill, ink, star } = colors;
   return (
     <svg width={size} height={size} viewBox="0 0 64 64" aria-hidden="true" focusable="false" {...rest}>
-      <rect x="11" y="11" width="48" height="48" fill="var(--brand-mark-shadow)" />
+      <rect x="11" y="11" width="48" height="48" fill={shadow} />
       <rect
         x="6"
         y="6"
         width="48"
         height="48"
-        fill="var(--color-bg)"
-        stroke="var(--color-text)"
+        fill={fill}
+        stroke={ink}
         strokeWidth="3.5"
         strokeLinejoin="miter"
         strokeLinecap="square"
       />
-      <rect x="15" y="16" width="8" height="30" fill="var(--color-text)" />
-      <rect x="37" y="16" width="8" height="30" fill="var(--color-text)" />
-      <polygon points="15,16 23,16 45,46 37,46" fill="var(--color-text)" />
+      <rect x="15" y="16" width="8" height="30" fill={ink} />
+      <rect x="37" y="16" width="8" height="30" fill={ink} />
+      <polygon points="15,16 23,16 45,46 37,46" fill={ink} />
       <polygon
         points="53.0,1.0 56.2,7.8 63.0,11.0 56.2,14.2 53.0,21.0 49.8,14.2 43.0,11.0 49.8,7.8"
-        fill="var(--color-bg)"
-        stroke="var(--color-text)"
+        fill={star}
+        stroke={ink}
         strokeWidth="2.5"
         strokeLinejoin="miter"
       />
     </svg>
   );
+}
+
+const BRAND_COLORS: MarkColors = {
+  shadow: "var(--brand-mark-shadow)",
+  fill: "var(--color-bg)",
+  ink: "var(--color-text)",
+  star: "var(--color-bg)",
+};
+
+const HOME_COLORS: MarkColors = {
+  shadow: "var(--home-mark-shadow)",
+  fill: "#BBF7D0",
+  ink: "#000",
+  star: "#FDE68A",
+};
+
+/** Marca N-Block monocromática: monograma N com faísca, em `--color-text` sobre `--color-bg` (invertida no escuro). A sombra deslocada usa `--brand-mark-shadow`. */
+export function BrandMark({ size = 32, ...rest }: IconProps) {
+  return <BrandMarkShape size={size} colors={BRAND_COLORS} {...rest} />;
+}
+
+/** Marca da tela inicial com as cores do favicon; a sombra segue o tema via `--home-mark-shadow`. */
+export function HomeBrandMark({ size = 112, ...rest }: IconProps) {
+  return <BrandMarkShape size={size} colors={HOME_COLORS} {...rest} />;
 }
 
 export const DatabaseIcon = (p: IconProps) => (

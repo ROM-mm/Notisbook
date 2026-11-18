@@ -109,6 +109,7 @@
 
   /* Marca: sem sombra deslocada */
   --brand-mark-shadow: transparent;
+  --home-mark-shadow: #000;
 
   /* Paleta de sintaxe */
   --sx-kw: #0033b3;
@@ -172,6 +173,7 @@
     --coral: #4a1f22;
     --creamy: #171b20;
     --brand-mark-shadow: transparent;
+    --home-mark-shadow: #CFC9BC;
     --sx-kw: #d8dce0;
     --sx-text: #949ca3;
     --sx-str: #8a939b;
@@ -234,6 +236,7 @@
   --coral: #4a1f22;
   --creamy: #171b20;
   --brand-mark-shadow: transparent;
+  --home-mark-shadow: #CFC9BC;
   --sx-kw: #d8dce0;
   --sx-text: #949ca3;
   --sx-str: #8a939b;
@@ -251,4 +254,5 @@
 :root[data-theme="light"] {
   color-scheme: light;
   --brand-mark-shadow: transparent;
+  --home-mark-shadow: #000;
 }
