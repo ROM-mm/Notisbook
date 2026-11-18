@@ -18,6 +18,7 @@ import { joinPath, NOTEBOOK_EXT, uniqueName } from "../lib/paths";
 import { createKernelStore, type KernelStore } from "./kernel";
 import { createNotebookStore, type NotebookStore } from "./notebook";
 import { useNotebookTree } from "./notebookTree";
+import { useRecent } from "./recent";
 import { openHome, openNotebook, useRouter } from "./router";
 
 export interface NotebookEntry {
@@ -55,7 +56,10 @@ export async function refreshKernelspecs(): Promise<void> {
 async function start(entry: NotebookEntry): Promise<void> {
   await entry.notebook.getState().load();
   if (entries.get(entry.path) !== entry) return;
-  if (entry.notebook.getState().status === "ready") void entry.kernel.getState().open();
+  if (entry.notebook.getState().status !== "ready") return;
+  // Só notebooks que carregaram entram nos recentes (caminho inexistente não polui a lista).
+  useRecent.getState().touch(entry.path);
+  void entry.kernel.getState().open();
 }
 
 interface WorkspaceState {
@@ -65,6 +69,8 @@ interface WorkspaceState {
   leftOpen: boolean;
   /** Lateral direita (Notebooks, Connections) aberta; começa fechada. */
   rightOpen: boolean;
+  /** "Browse notebooks…" da Home: mostra o AppShell sem notebook aberto. Só em memória. */
+  browsing: boolean;
   /** Modo foco: oculta as duas laterais sem alterar `leftOpen`/`rightOpen`. */
   focusMode: boolean;
   /** Raiz dos notebooks (null até carregar; só carrega depois de `bootstrapAuth()`). */
@@ -83,6 +89,8 @@ interface WorkspaceState {
   setLeftOpen: (open: boolean) => void;
   toggleRight: () => void;
   setRightOpen: (open: boolean) => void;
+  /** Abre o AppShell com o painel Notebooks, sem notebook aberto. */
+  startBrowsing: () => void;
   toggleFocusMode: () => void;
   /** Busca a raiz uma vez; semeia a geração só se ainda desconhecida (não mascara troca feita noutra janela). */
   loadRoot: () => Promise<void>;
@@ -96,6 +104,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   tabs: [],
   leftOpen: false,
   rightOpen: false,
+  browsing: false,
   focusMode: false,
   root: null,
   shortcutsOpen: false,
@@ -103,11 +112,14 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   ensureTab: (path) => {
     const existing = entries.get(path);
-    if (existing) return existing;
+    if (existing) {
+      if (existing.notebook.getState().status === "ready") useRecent.getState().touch(path);
+      return existing;
+    }
     const notebook = createNotebookStore(path);
     const entry: NotebookEntry = { path, notebook, kernel: createKernelStore(notebook), view: { scrollTop: 0 } };
     entries.set(path, entry);
-    set((s) => ({ tabs: [...s.tabs, path] }));
+    set((s) => ({ tabs: [...s.tabs, path], browsing: false }));
     void start(entry);
     return entry;
   },
@@ -142,17 +154,28 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   toggleLeft: () => set((s) => (s.focusMode || !s.leftOpen ? { leftOpen: true, focusMode: false } : { leftOpen: false })),
   setLeftOpen: (open) => set(open ? { leftOpen: true, focusMode: false } : { leftOpen: false }),
+  // Fechar o painel direito sempre encerra a navegação (`browsing`).
   toggleRight: () =>
-    set((s) => (s.focusMode || !s.rightOpen ? { rightOpen: true, focusMode: false } : { rightOpen: false })),
-  setRightOpen: (open) => set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false }),
+    set((s) =>
+      s.focusMode || !s.rightOpen
+        ? { rightOpen: true, focusMode: false }
+        : { rightOpen: false, browsing: false },
+    ),
+  setRightOpen: (open) =>
+    set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false, browsing: false }),
+  startBrowsing: () => set({ browsing: true, rightOpen: true, focusMode: false }),
   toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
   loadRoot: async () => {
     if (get().root) return;
     const root = await getNotebooksRoot();
     if (getRootGeneration() === null) setRootGeneration(root.generation);
+    useRecent.getState().setRoot(root.path);
     set({ root });
   },
-  applyRoot: (root) => set({ root }),
+  applyRoot: (root) => {
+    useRecent.getState().setRoot(root.path);
+    set({ root });
+  },
   setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
   setAboutOpen: (open) => set({ aboutOpen: open }),
 }));

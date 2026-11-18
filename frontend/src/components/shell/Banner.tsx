@@ -69,7 +69,7 @@ export function Banner({ entry }: { entry: NotebookEntry | null }) {
       <BrandMark size={32} />
       <div className={styles.brandText}>
         <span className={styles.wordmark}>notisbook</span>
-        <span className={styles.tagline}>explore. code. transform.</span>
+        <span className={styles.tagline}>Process anything. Locally.</span>
       </div>
       <span className={styles.separator} aria-hidden="true" />
       <MenuBar entry={entry} />

@@ -3,21 +3,25 @@
  * (`AppShell`: header, abas, painel lateral, conteúdo).
  *
  * Conteúdo por rota (`state/router.ts`):
- * - "files"    → início (nenhum notebook ativo); `/tree/<dir>` abre o painel
- *                Notebooks com a árvore expandida até <dir>
+ * - "files"    → sem abas e fora de `browsing`: início limpo (marca, "New notebook",
+ *                recentes), SEM `AppShell`; `/tree/<dir>` idem. Com abas abertas: `AppShell`
+ *                com o início no centro. `browsing` sem abas: `AppShell` com painel Notebooks e centro vazio
  * - "notebook" → aba do notebook (abre se preciso) com components/kernel/NotebookPage
  * - "settings" → components/settings/SettingsPage ("Ambientes Spark")
  */
 import { lazy, Suspense, useEffect, useState } from "react";
 import { bootstrapAuth, errorMessage } from "./api";
+import { listDir } from "./api/contents";
+import { ApiError } from "./api/http";
 import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
 import { HomeBrandMark } from "./components/shell/icons";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
 import { SettingsPage } from "./components/settings/SettingsPage";
-import { getTargetDir, useNotebookTree } from "./state/notebookTree";
+import { dirname, notebookTitle } from "./lib/paths";
+import { useRecent } from "./state/recent";
 import { useFiles } from "./state/files";
-import { type Route, useRouter } from "./state/router";
+import { openNotebook, type Route, useRouter } from "./state/router";
 import { useSystemResources } from "./state/systemResources";
 import { createUntitledNotebook, getEntry, useWorkspace } from "./state/workspace";
 
@@ -69,11 +73,31 @@ export function App() {
   }
 }
 
-function Home() {
-  const setRightOpen = useWorkspace((s) => s.setRightOpen);
+/** Abre um recente após checar que o arquivo existe; se não existe mais, retira da lista. */
+async function openRecent(path: string): Promise<void> {
+  try {
+    const siblings = await listDir(dirname(path));
+    if (!siblings.some((e) => e.path === path && e.type === "notebook")) {
+      useRecent.getState().remove(path);
+      return;
+    }
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      useRecent.getState().remove(path);
+      return;
+    }
+    throw err;
+  }
+  openNotebook(path);
+}
+
+/** `embedded`: dentro do `<main>` do AppShell (evita `<main>` aninhado). */
+function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
+  const Root = embedded ? "div" : "main";
+  const recent = useRecent((s) => s.paths);
   const [error, setError] = useState<string | null>(null);
   return (
-    <div className={shellStyles.home}>
+    <Root className={shellStyles.home}>
       <div className={shellStyles.homeBrand}>
         <HomeBrandMark size={112} />
         <div className={shellStyles.homeBrandText}>
@@ -86,46 +110,71 @@ function Home() {
           type="button"
           className="btn btn-primary"
           onClick={() =>
-            void createUntitledNotebook(getTargetDir()).catch((err: unknown) => setError(errorMessage(err)))
+            void createUntitledNotebook(dir).catch((err: unknown) => setError(errorMessage(err)))
           }
         >
           New notebook
         </button>
-        <button type="button" className="btn" onClick={() => setRightOpen(true)}>
-          Open notebooks
-        </button>
       </div>
+      {recent.length > 0 ? (
+        <ul className={shellStyles.homeRecent} aria-label="Recent notebooks">
+          {recent.map((path) => (
+            <li key={path}>
+              <button
+                type="button"
+                className={shellStyles.homeRecentItem}
+                title={path}
+                onClick={() => {
+                  setError(null);
+                  void openRecent(path).catch((err: unknown) => setError(errorMessage(err)));
+                }}
+              >
+                <span className={shellStyles.homeRecentName}>{notebookTitle(path)}</span>
+                <span className={shellStyles.homeRecentPath}>{dirname(path) || "/"}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <button type="button" className={shellStyles.homeBrowse} onClick={() => useWorkspace.getState().startBrowsing()}>
+        Browse notebooks…
+      </button>
       {error ? <p role="alert">{error}</p> : null}
-    </div>
+    </Root>
   );
 }
 
 function Workspace({ route }: { route: Route }) {
   const ensureTab = useWorkspace((s) => s.ensureTab);
   const tabs = useWorkspace((s) => s.tabs);
+  const browsing = useWorkspace((s) => s.browsing);
 
-  // A rota define a aba ativa (abre a aba se preciso) e até onde a árvore do painel se expande.
+  // A rota define a aba ativa (abre a aba se preciso).
   useEffect(() => {
     if (route.view === "notebook") ensureTab(route.path);
-    else if (route.view === "files" && route.dir) {
-      useNotebookTree.getState().expandTo(route.dir);
-      useWorkspace.getState().setRightOpen(true);
-    }
   }, [route, ensureTab]);
+
+  // `browsing` só vale na rota `files`; ao sair dela, não pode ficar preso.
+  useEffect(() => {
+    if (route.view !== "files" && browsing) useWorkspace.setState({ browsing: false });
+  }, [route.view, browsing]);
+
+  // Início limpo (sem AppShell) só sem abas e fora da navegação.
+  if (route.view === "files" && tabs.length === 0 && !browsing) return <Home dir={route.dir} />;
 
   const entry = route.view === "notebook" && tabs.includes(route.path) ? (getEntry(route.path) ?? null) : null;
 
   let content;
   if (route.view === "settings") {
     content = <SettingsPage />;
-  } else if (route.view === "notebook") {
+  } else if (route.view === "files") {
+    content = tabs.length > 0 ? <Home dir={route.dir} embedded /> : null;
+  } else {
     content = entry ? (
       <Suspense fallback={<Placeholder title="Notisbook">Opening editor…</Placeholder>}>
         <NotebookPage key={entry.path} entry={entry} />
       </Suspense>
     ) : null;
-  } else {
-    content = <Home />;
   }
 
   return <AppShell entry={entry}>{content}</AppShell>;
