@@ -1,10 +1,11 @@
 <div align="center">
 
-![Notisbook](assets/banner.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="frontend/public/favicon-dark.svg">
+  <img alt="Notisbook" src="frontend/public/favicon-light.svg" width="96" height="96">
+</picture>
 
-# Notisbook — local Spark notebooks for macOS
-
-### Notebooks, versioned Spark environments and a local lakehouse in one browser UI.
+# Notisbook — Process anything. Locally.
 
 Edit `.ipynb` notebooks and run Python, Spark SQL and DuckDB SQL cells in Jupyter kernels. Notisbook installs
 Spark environments with Delta Lake, Apache Iceberg and Apache Hudi jars verified by sha256, keeps a persistent
