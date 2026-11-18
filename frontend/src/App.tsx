@@ -18,7 +18,7 @@ import shellStyles from "./components/shell/AppShell.module.css";
 import { HomeBrandMark } from "./components/shell/icons";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
 import { SettingsPage } from "./components/settings/SettingsPage";
-import { dirname, notebookTitle } from "./lib/paths";
+import { dirname, joinPath, notebookTitle } from "./lib/paths";
 import { useRecent } from "./state/recent";
 import { useFiles } from "./state/files";
 import { openNotebook, type Route, useRouter } from "./state/router";
@@ -95,6 +95,7 @@ async function openRecent(path: string): Promise<void> {
 function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
   const Root = embedded ? "div" : "main";
   const recent = useRecent((s) => s.paths);
+  const recentRoot = useRecent((s) => s.root);
   const [error, setError] = useState<string | null>(null);
   return (
     <Root className={shellStyles.home}>
@@ -118,22 +119,27 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
       </div>
       {recent.length > 0 ? (
         <ul className={shellStyles.homeRecent} aria-label="Recent notebooks">
-          {recent.map((path) => (
+          {recent.map((path) => {
+            const fullPath = recentRoot ? joinPath(recentRoot, path) : path;
+            return (
             <li key={path}>
               <button
                 type="button"
                 className={shellStyles.homeRecentItem}
-                title={path}
+                title={fullPath}
                 onClick={() => {
                   setError(null);
                   void openRecent(path).catch((err: unknown) => setError(errorMessage(err)));
                 }}
               >
                 <span className={shellStyles.homeRecentName}>{notebookTitle(path)}</span>
-                <span className={shellStyles.homeRecentPath}>{dirname(path) || "/"}</span>
+                <span className={shellStyles.homeRecentPath}>
+                  <bdi>{fullPath}</bdi>
+                </span>
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : null}
       <button type="button" className={shellStyles.homeBrowse} onClick={() => useWorkspace.getState().startBrowsing()}>

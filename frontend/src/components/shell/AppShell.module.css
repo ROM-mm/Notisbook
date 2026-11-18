@@ -315,8 +315,10 @@
   white-space: nowrap;
 }
 
+/* direction: rtl põe as reticências no início; o <bdi> interno mantém a ordem LTR do caminho. */
 .homeRecentPath {
   max-width: 100%;
+  direction: rtl;
   overflow: hidden;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
