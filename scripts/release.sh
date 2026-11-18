@@ -140,20 +140,25 @@ cd "$ROOT"
   || die "$ROOT não parece a raiz do Notisbook-app"
 
 # Notas da release: corpo da seção "## [X.Y.Z]" do CHANGELOG.md, sem o cabeçalho,
-# sem definições de link "[x]: url" e sem linhas em branco nas pontas. A seção termina
-# em qualquer título "# " ou "## "; index() compara a versão literalmente.
+# sem as definições de rodapé "[X.Y.Z]: url" / "[Unreleased]: url" e sem linhas em
+# branco nas pontas. A seção termina em qualquer título "# " ou "## " fora de bloco
+# de código; dentro de cercas (``` ou ~~~) tudo é mantido. index() compara a versão
+# literalmente. Outras definições "[x]: url" ficam, pois o corpo pode referenciá-las.
 extrair_notas() {
   awk -v v="$VERSION" '
-    /^##? / { if (dentro) exit; dentro = (index($0, "## [" v "]") == 1); next }
-    /^\[[^]]+\]: / { next }
-    dentro {
-      if ($0 ~ /^[[:space:]]*$/) { if (iniciou) vazias = vazias $0 "\n"; next }
-      iniciou = 1; printf "%s", vazias; vazias = ""; print
+    function emite(l) {
+      if (l ~ /^[[:space:]]*$/) { if (iniciou) vazias = vazias l "\n"; return }
+      iniciou = 1; printf "%s", vazias; vazias = ""; print l
     }
+    /^(```|~~~)/ { cerca = !cerca; if (dentro) emite($0); next }
+    cerca { if (dentro) emite($0); next }
+    /^##? / { if (dentro) exit; dentro = (index($0, "## [" v "]") == 1); next }
+    /^\[[vV]?[0-9]+\.[0-9]+\.[0-9]+[^]]*\]: / || tolower($0) ~ /^\[unreleased\]: / { next }
+    dentro { emite($0) }
   ' CHANGELOG.md
 }
 [ -f CHANGELOG.md ] || die "CHANGELOG.md não encontrado em $ROOT; a release usa a seção da versão como notas"
-NOTAS="$(extrair_notas)"
+NOTAS="$(extrair_notas)" || die "falha ao ler CHANGELOG.md"
 [ -n "$NOTAS" ] || die "CHANGELOG.md sem a seção '## [$VERSION]' ou com a seção vazia; escreva as notas antes de publicar"
 if [ "$DRY_RUN" -eq 1 ]; then
   info "Notas da release $TAG (extraídas do CHANGELOG.md)"
