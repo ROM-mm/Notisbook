@@ -44,6 +44,12 @@ run() {
 
 limpar() {
   local codigo=$?
+  local notas_salvas=""
+  # Pós-push, as notas precisam sobreviver à remoção do WORKDIR para a retomada manual
+  if [ "$codigo" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$PUSH_FEITO" -eq 1 ] && [ -f "${NOTES_FILE:-}" ]; then
+    notas_salvas="$ROOT/backend/dist/release-notes-$TAG.md"
+    mkdir -p "$ROOT/backend/dist" && cp "$NOTES_FILE" "$notas_salvas" || notas_salvas=""
+  fi
   if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
     rm -rf "$WORKDIR"
   fi
@@ -57,8 +63,18 @@ limpar() {
         printf '  cd %q\n' "$ROOT"
         printf '  gh release upload %s' "$TAG"; printf ' %q' "${CMD_RELEASE[@]:4:$N_ASSETS}"; printf ' --repo %s --clobber\n' "$REPO_SLUG"
         printf 'Se não existir (a partir da raiz do repo):\n'
+        if [ -n "$notas_salvas" ]; then
+          printf '  (notas da release salvas em %s)\n' "$notas_salvas"
+        else
+          printf '  (não foi possível salvar as notas: recrie o arquivo com o corpo da seção "## [%s]" do CHANGELOG.md e ajuste --notes-file)\n' "$VERSION"
+        fi
         printf '  cd %q\n' "$ROOT"
-        printf '  %q' "${CMD_RELEASE[@]}"; printf '\n'
+        printf ' '
+        for arg in "${CMD_RELEASE[@]}"; do
+          if [ -n "$notas_salvas" ] && [ "$arg" = "$NOTES_FILE" ]; then arg="$notas_salvas"; fi
+          printf ' %q' "$arg"
+        done
+        printf '\n'
       else
         printf 'Nada foi enviado ao remoto (o push é atômico); confirme com git ls-remote --tags origin %s.\n' "$TAG"
         printf 'Para restaurar o estado local (as conferências garantiram árvore limpa e main == origin/main):\n'
@@ -123,6 +139,27 @@ cd "$ROOT"
 [ -f scripts/build_release.py ] && [ -f scripts/build_minio.py ] && [ -f "$INSTALL_SH" ] && [ -f backend/pyproject.toml ] && [ -f frontend/package.json ] \
   || die "$ROOT não parece a raiz do Notisbook-app"
 
+# Notas da release: corpo da seção "## [X.Y.Z]" do CHANGELOG.md, sem o cabeçalho,
+# sem definições de link "[x]: url" e sem linhas em branco nas pontas. A seção termina
+# em qualquer título "# " ou "## "; index() compara a versão literalmente.
+extrair_notas() {
+  awk -v v="$VERSION" '
+    /^##? / { if (dentro) exit; dentro = (index($0, "## [" v "]") == 1); next }
+    /^\[[^]]+\]: / { next }
+    dentro {
+      if ($0 ~ /^[[:space:]]*$/) { if (iniciou) vazias = vazias $0 "\n"; next }
+      iniciou = 1; printf "%s", vazias; vazias = ""; print
+    }
+  ' CHANGELOG.md
+}
+[ -f CHANGELOG.md ] || die "CHANGELOG.md não encontrado em $ROOT; a release usa a seção da versão como notas"
+NOTAS="$(extrair_notas)"
+[ -n "$NOTAS" ] || die "CHANGELOG.md sem a seção '## [$VERSION]' ou com a seção vazia; escreva as notas antes de publicar"
+if [ "$DRY_RUN" -eq 1 ]; then
+  info "Notas da release $TAG (extraídas do CHANGELOG.md)"
+  printf '%s\n' "$NOTAS"
+fi
+
 branch="$(git rev-parse --abbrev-ref HEAD)"
 [ "$branch" = "main" ] || die "branch atual é '$branch'; a release sai de 'main'"
 
@@ -166,6 +203,8 @@ info "Conferências ok para $TAG"
 
 # Temporários ficam aqui dentro; o trap limpar remove o diretório inteiro
 WORKDIR="$(mktemp -d)"
+NOTES_FILE="$WORKDIR/release-notes.md"
+printf '%s\n' "$NOTAS" >"$NOTES_FILE"
 
 # Versão, commit e tag
 ETAPA="versão"
@@ -248,7 +287,7 @@ fi
 N_ASSETS=$((4 + ${#MINIO_ASSETS[@]}))
 CMD_RELEASE=(gh release create "$TAG" "$WHEEL_PATH" "$CONSTRAINTS_PATH"
   "${MINIO_ASSETS[@]}" "$SUMS_PATH" "$INSTALL_SH"
-  --repo "$REPO_SLUG" --title "Notisbook $VERSION" --generate-notes --verify-tag)
+  --repo "$REPO_SLUG" --title "$TAG" --notes-file "$NOTES_FILE" --verify-tag)
 
 # Push e release
 ETAPA="push/release"
