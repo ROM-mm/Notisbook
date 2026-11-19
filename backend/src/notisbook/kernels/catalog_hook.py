@@ -26,7 +26,7 @@ MODULE_NAME = "_notisbook_catalog"
 
 # Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__, __REGISTRY_HELPERS__ and __LOCATIONS_SOURCE__.
 _KERNEL_TEMPLATE = r'''
-import functools, importlib.abc, importlib.util, json, os, re, sqlite3, sys, threading, time, types
+import functools, importlib.abc, importlib.util, inspect, json, os, re, select, sqlite3, sys, threading, time, types
 import urllib.error, urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,7 +39,7 @@ BASE_URL = CONFIG.get("base_url")
 TOKEN = CONFIG.get("token")
 # Folders shared with the runtime (http only): the backend rejects, item by item, a location outside them.
 ROOTS = tuple(CONFIG.get("roots") or ())
-WATCHED = ("pyspark.sql.session", "pyspark.sql.classic.session", "pyspark.sql.readwriter", "pyspark.sql.classic.readwriter",
+WATCHED = ("pyspark.context", "pyspark.sql.session", "pyspark.sql.classic.session", "pyspark.sql.readwriter", "pyspark.sql.classic.readwriter",
            "pyspark.sql.catalog", "pyspark.sql.classic.catalog")
 SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
@@ -1803,8 +1803,260 @@ def wrap_stop(original):
     return stop
 
 
+IVY_PREFIXES = (":: ", "Ivy Default Cache set to", "The jars for the packages stored in",
+                "\t:: ", "\tconfs:", "\tfound ", "\tdownloading ", "\t|", "\t-")
+IVY_ADDED_RE = re.compile(r"^\S+ added as a dependency$")
+IVY_COPIED_RE = re.compile(r"^\s*\d+ artifacts copied, \d+ already retrieved")
+IVY_MODULE_RE = re.compile(r"^\t(\S+)#(\S+);(\S+) from (\S+) in \[")
+IVY_RESOLVE_RE = re.compile(r"^:: resolution report :: resolve (\d+)ms")
+IVY_ORIGINS = {"central": "central", "local-m2-cache": "cache local (m2)", "local-ivy-cache": "cache local (ivy)"}
+IVY_EVICTED_RE = re.compile(r"^\t\S+#\S+;\S+ by \[")  # rows under ":: evicted modules:" (the header starts with ":: ")
+IVY_FAILURE = (":: problems summary ::", "UNRESOLVED DEPENDENCIES", "unresolved dependency", "[NOT FOUND", "[FAILED", "SERVER ERROR")
+IVY_ERROR_RE = re.compile(r"^\s*ERROR:", re.MULTILINE)
+IVY_COPIED_MARK = ":: retrieving ::"
+
+
+def has_ivy_failure(text):
+    return any(mark in text for mark in IVY_FAILURE) or bool(IVY_ERROR_RE.search(text))
+
+
+def ivy_complete(text):
+    # The retrieve step is the last thing Ivy prints: its "artifacts copied" line closes the block.
+    return IVY_COPIED_MARK in text and any(IVY_COPIED_RE.match(line) for line in text.splitlines())
+
+
+def is_ivy_line(line):
+    # Only known Ivy patterns; anything else is someone else's output and is forwarded untouched.
+    return (line.startswith(IVY_PREFIXES) or line.lstrip().startswith("[SUCCESSFUL")
+            or bool(IVY_ADDED_RE.match(line) or IVY_COPIED_RE.match(line) or IVY_MODULE_RE.match(line)
+                    or IVY_EVICTED_RE.match(line)))
+
+
+def summarize_ivy(lines):
+    """Return `(summary, rest)`: the format-A text and the lines that are not Ivy; `summary` is None when no module line was found (then `rest` is every line)."""
+    modules, millis, rest = [], None, []
+    for line in lines:
+        match = IVY_MODULE_RE.match(line)
+        if match:
+            modules.append(("%s:%s:%s" % match.group(1, 2, 3), IVY_ORIGINS.get(match.group(4), match.group(4))))
+        elif is_ivy_line(line):
+            found = IVY_RESOLVE_RE.match(line)
+            millis = found.group(1) if found else millis
+        else:
+            rest.append(line)
+    if not modules:
+        return None, list(lines)
+    took = ", resolvidos em %s ms" % millis if millis else ""
+    width = max(len(name) for name, _ in modules)
+    rows = ["   %s  %s" % (name.ljust(width), origin) for name, origin in modules]
+    return "\n".join(["\U0001F4E6 Pacotes Spark (%d%s)" % (len(modules), took)] + rows), rest
+
+
+def forward_fd(fd, data):
+    # Straight to the kernel's own fd (the pipe ipykernel routes to the current cell); never raises, so a reader keeps draining the JVM.
+    view = memoryview(data)
+    deadline = time.monotonic() + 2.0
+    while view:
+        try:
+            view = view[os.write(fd, view):]
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                note_error("forward_fd", BlockingIOError("fd %d stayed full; %d bytes of JVM output dropped" % (fd, len(view))))
+                return
+            try:
+                select.select([], [fd], [], 0.05)
+            except Exception:
+                time.sleep(0.01)  # select unsupported for this fd (e.g. Windows): plain polling
+        except OSError:
+            return
+
+
+def render_startup(held, failed):
+    """Return `(summary, outputs)` for the startup output `held` (`(fd, bytes)` in arrival order).
+
+    `summary` None means "forward `held` raw"; otherwise `outputs` holds only the non-Ivy remainder.
+    """
+    text = b"".join(data for _, data in held).decode("utf-8", "replace")
+    if failed or has_ivy_failure(text):
+        return None, held
+    streams = {fd: b"".join(data for f, data in held if f == fd).decode("utf-8", "replace").splitlines(True) for fd in (1, 2)}
+    summary, _ = summarize_ivy([line.rstrip("\r\n") for lines in streams.values() for line in lines])
+    if summary is None:
+        return None, held
+    outputs = []
+    for fd, lines in streams.items():
+        rest = "".join(line for line in lines if not is_ivy_line(line.rstrip("\r\n")))
+        if rest:
+            outputs.append((fd, rest.encode("utf-8")))
+    return summary, outputs
+
+
+def close_quietly(fd):
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+class GatewayRelay:
+    """Owns the pipes of the JVM spawned by `launch_gateway`.
+
+    The JVM keeps the fds it was born with for its whole life, so two daemon readers forward everything
+    (stdout to fd 1, stderr to fd 2) forever; only the startup output is held back until `finish` has seen the Ivy block.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.buffering = True
+        self.held = []  # (fd, bytes) in arrival order
+        self.reading = 0  # pump cycles between "pipe had data" and "chunk handed to feed" (select mode only), guarded by `lock`
+        self.can_select = True
+        pairs, started = {}, set()
+        try:
+            for fd in (1, 2):
+                pairs[fd] = os.pipe()
+            self.writers = {fd: pair[1] for fd, pair in pairs.items()}
+            self.readers = {fd: pair[0] for fd, pair in pairs.items()}
+            for fd, rfd in list(self.readers.items()):
+                threading.Thread(target=self.pump, args=(fd, rfd), daemon=True, name="notisbook-jvm-fd%d" % fd).start()
+                started.add(fd)
+        except BaseException:
+            for fd, (rfd, wfd) in pairs.items():
+                close_quietly(wfd)  # a started pump sees EOF and closes its own read end
+                if fd not in started:
+                    close_quietly(rfd)
+            raise
+
+    def wait_readable(self, rfd):
+        if not self.can_select:
+            return
+        try:
+            select.select([rfd], [], [], None)
+        except Exception:
+            self.can_select = False  # e.g. Windows: select only works on sockets; fall back to a blocking read
+
+    def pump(self, fd, rfd):
+        try:
+            while True:
+                self.wait_readable(rfd)
+                with self.lock:
+                    self.reading += 1  # counted before the chunk leaves the pipe, so `finish` cannot miss it
+                try:
+                    data = os.read(rfd, 65536)
+                    if data:
+                        self.feed(fd, data)
+                finally:
+                    with self.lock:
+                        self.reading -= 1
+                if not data:
+                    return
+        except Exception:
+            pass
+        finally:
+            with self.lock:
+                self.readers.pop(fd, None)  # so `quiet` never selects on a closed (possibly reused) fd
+            close_quietly(rfd)
+
+    def feed(self, fd, data):
+        try:
+            with self.lock:
+                if self.buffering:
+                    self.held.append((fd, data))
+                    return
+        except Exception:
+            self.release_raw()  # internal error: plain forwarding, the JVM must never wait on us
+        forward_fd(fd, data)
+
+    def release_raw(self):
+        held, self.held, self.buffering = self.held, [], False
+        for fd, data in held:
+            forward_fd(fd, data)
+
+    def close_writers(self):
+        # The child has its own copies; closing ours lets a reader see EOF when the JVM dies.
+        for wfd in self.writers.values():
+            try:
+                os.close(wfd)
+            except OSError:
+                pass
+
+    def quiet(self, started):
+        # Caller holds `lock`. True once nothing the JVM already wrote can still be on its way to `held`.
+        if self.can_select:
+            if self.reading:
+                return False  # without select the counter spans the blocking read, so it says nothing there
+            try:
+                return not select.select(list(self.readers.values()), [], [], 0)[0]
+            except Exception:
+                self.can_select = False
+        # No way to peek at the pipes: rely on the end-of-Ivy marker, or on a short grace period when there is no Ivy block.
+        text = b"".join(data for _, data in self.held).decode("utf-8", "replace")
+        return ivy_complete(text) or time.monotonic() - started >= 0.3
+
+    def finish(self, failed):
+        started = time.monotonic()
+        deadline = started + 1.0
+        time.sleep(0.05)
+        while True:
+            with self.lock:
+                if self.quiet(started) or time.monotonic() >= deadline:
+                    held, self.held, self.buffering = self.held, [], False
+                    self.emit(held, failed)
+                    return
+            time.sleep(0.02)
+
+    def emit(self, held, failed):
+        # Runs under `lock` so late lines from the pumps land after the summary; never loses `held`.
+        try:
+            summary, outputs = render_startup(held, failed)
+            if summary is not None:
+                print(summary)
+        except Exception as exc:
+            summary, outputs = None, held
+            note_error("launch_gateway", exc)
+        for fd, data in (held if summary is None else outputs):
+            forward_fd(fd, data)  # failure or unrecognised output: full raw; otherwise just the non-Ivy remainder
+
+
+def wrap_launch_gateway(original):
+    try:
+        accepts = "popen_kwargs" in inspect.signature(original).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    if not accepts:
+        return original  # unknown signature: behave as before
+
+    @functools.wraps(original)
+    def launch_gateway(conf=None, popen_kwargs=None):
+        relay = None
+        kwargs = popen_kwargs
+        if not (popen_kwargs and ("stdout" in popen_kwargs or "stderr" in popen_kwargs)):
+            try:
+                relay = GatewayRelay()
+                kwargs = {**(popen_kwargs or {}), "stdout": relay.writers[1], "stderr": relay.writers[2]}
+            except Exception as exc:
+                note_error("launch_gateway", exc)
+                relay = None
+                kwargs = popen_kwargs
+        if relay is None:
+            return original(conf, kwargs)
+        try:
+            gateway = original(conf, kwargs)  # deliberately outside `guarded`: its errors belong to the cell
+        except BaseException:
+            relay.close_writers()
+            guarded("launch_gateway", relay.finish, True)
+            raise
+        relay.close_writers()
+        guarded("launch_gateway", relay.finish, False)
+        return gateway
+    launch_gateway._notisbook_original = original
+    return launch_gateway
+
+
 def patch(module):
     """Wrap, in the classes `module` defines, the session lifecycle and the pre-write checks; `unwrap` first, so never twice."""
+    if "launch_gateway" in vars(module):
+        module.launch_gateway = wrap_launch_gateway(unwrap(vars(module)["launch_gateway"]))
     cls = getattr(module, "SparkSession", None)
     if cls is not None:
         builder = getattr(cls, "Builder", None)

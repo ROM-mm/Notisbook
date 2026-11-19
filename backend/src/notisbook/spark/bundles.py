@@ -284,8 +284,10 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
 # Spark's own log4j2-defaults.properties (identical in 3.5.9 and 4.3.0, except the Hive logger
 # that each line quiets) plus the curated filters. A log4j2.properties on the classpath replaces
 # the default wholesale, so the defaults must be reproduced. Unlike Spark's defaults, root and
-# `logger.repl` are set to error: the JVM shares the kernel's stderr, so lower levels would
-# surface as output of the last executed cell. `logger.repl` is the threshold of the pyspark shell.
+# `logger.pygateway`/`logger.repl` are set to error: the JVM shares the kernel's stderr, so lower
+# levels would surface as output of the last executed cell. PySpark's threshold logger is
+# `PythonGatewayServer`: Spark prints the "Setting default log level" lines to System.err when its
+# level differs from root, so it must always equal rootLogger.level. `repl.Main` is spark-shell.
 _LOG4J2_DEFAULTS = """\
 rootLogger.level = error
 rootLogger.appenderRef.stdout.ref = console
@@ -307,6 +309,8 @@ logger.repl2.level = info
 
 logger.repl.name = org.apache.spark.repl.Main
 logger.repl.level = error
+logger.pygateway.name = org.apache.spark.api.python.PythonGatewayServer
+logger.pygateway.level = error
 
 logger.metastore.name = org.apache.hadoop.hive.metastore.RetryingHMSHandler
 logger.metastore.level = fatal
