@@ -22,6 +22,30 @@ runs on your machine: the backend listens on `127.0.0.1` only.
 
 ---
 
+## Requirements
+
+Make sure your Mac meets these requirements **before** installing Notisbook.
+
+- macOS on Apple silicon or Intel (the installer refuses other systems).
+- `curl` (or `wget`), `awk` and `shasum` for the installer.
+- `uv` 0.8.4 or newer; if it is missing, the installer installs `uv` 0.10.8.
+- To create Spark environments: JDK 17 for Spark 3.x; JDK 21 (or 17) for Spark 4.x.
+
+### Optional: AWS Glue Docker runtime
+
+Only needed if you want to run notebooks on the AWS Glue runtime (Glue 5.0: Spark 3.5, Python 3.11, Java 17).
+
+- Docker (for example via Colima), with about 15 GiB of free disk space for the image build.
+- The AWS Glue base image, pulled with Docker and kept locally:
+
+  ```bash
+  docker pull public.ecr.aws/glue/aws-glue-libs:5@sha256:a54bd25fb72c55a2f28d07656a3cda943a042f345cc25f4c2c170667be864f01
+  ```
+
+  This is the exact image Notisbook builds its Glue runtime on (pinned by digest in
+  `backend/src/notisbook/runtimes/glue/Dockerfile`). Keep it: removing it forces the next runtime build to
+  download it again.
+
 ## Quick start
 
 ```bash
@@ -72,14 +96,6 @@ tells you how to add it.
 | Install script | `curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh \| sh` | macOS, Apple silicon and Intel. `sh -s -- --version X.Y.Z` (or `NOTISBOOK_VERSION`) pins a release; `sh -s -- --uninstall` removes it. |
 | Release assets | [GitHub releases](https://github.com/ROM-mm/Notisbook/releases) | Wheel `notisbook-<version>-py3-none-any.whl`, `constraints-<version>.txt`, MinIO tarballs per architecture, `SHA256SUMS` and `install.sh`. |
 | Source (development) | `./start.sh` | Needs `uv`, `node` and `npm`. Installs frontend dependencies when needed, rebuilds the frontend if it changed and runs the backend with `uv run`. `./start.sh --replace` stops the registered instance first. |
-
-## Requirements
-
-- macOS on Apple silicon or Intel (the installer refuses other systems).
-- `curl` (or `wget`), `awk` and `shasum` for the installer.
-- `uv` 0.8.4 or newer; if it is missing, the installer installs `uv` 0.10.8.
-- To create Spark environments: JDK 17 for Spark 3.x; JDK 21 (or 17) for Spark 4.x.
-- Only for the Docker runtime: Docker (for example via Colima), with about 15 GiB of free disk space for the image build.
 
 ## Documentation
 
