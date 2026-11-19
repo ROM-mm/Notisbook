@@ -5,6 +5,14 @@ All notable changes to Notisbook are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Requirements before installation.** The README lists the system requirements before Quick start, including
+  the AWS Glue 5.0 base image (`public.ecr.aws/glue/aws-glue-libs:5`, pinned by digest) to pull before using the
+  Docker runtime.
+
 ## [0.2.0] - 2026-11-19
 
 A cleaner start screen with your recent notebooks, and sample notebooks that show the notislake lakehouse layout.
