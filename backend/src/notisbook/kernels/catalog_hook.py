@@ -883,9 +883,20 @@ def ensure_layers(session, skey, dbs=None):
             warn(("layer", skey, layer), "a camada %s já existia nesta sessão com outra location; as tabelas gerenciadas dela não vão para s3a://notislake/%s." % (layer, layer))
 
 
+def quiet_spark_logs(session):
+    """Set the SparkContext log level to ERROR once per context (applicationId:startTime), so a later user `sc.setLogLevel` sticks."""
+    skey = session_key(session)
+    done = STATE.setdefault("log_level_done", set())
+    if skey in done:
+        return
+    done.add(skey)  # before the call: a failing setLogLevel is not retried on every getOrCreate
+    session.sparkContext.setLogLevel("ERROR")
+
+
 def attach(session):
     if getattr(session, "_jsparkSession", None) is None:
         return
+    guarded("log_level", quiet_spark_logs, session)
     # Sessions made by `SparkSession(sc)` or `newSession()` never pass through getOrCreate.
     # Credential first: the FileSystem that Spark builds later must already find the bucket configured.
     guarded("s3a", set_s3a, session)

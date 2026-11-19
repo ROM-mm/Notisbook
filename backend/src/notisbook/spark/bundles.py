@@ -283,10 +283,11 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
 
 # Spark's own log4j2-defaults.properties (identical in 3.5.9 and 4.3.0, except the Hive logger
 # that each line quiets) plus the curated filters. A log4j2.properties on the classpath replaces
-# the default wholesale, so the defaults must be reproduced; `logger.repl` at warn is what keeps
-# the root level from staying at info in a pyspark session.
+# the default wholesale, so the defaults must be reproduced. Unlike Spark's defaults, root and
+# `logger.repl` are set to error: the JVM shares the kernel's stderr, so lower levels would
+# surface as output of the last executed cell. `logger.repl` is the threshold of the pyspark shell.
 _LOG4J2_DEFAULTS = """\
-rootLogger.level = info
+rootLogger.level = error
 rootLogger.appenderRef.stdout.ref = console
 
 appender.console.type = Console
@@ -305,7 +306,7 @@ logger.repl2.name = org.apache.spark.repl.SparkILoop$SparkILoopInterpreter
 logger.repl2.level = info
 
 logger.repl.name = org.apache.spark.repl.Main
-logger.repl.level = warn
+logger.repl.level = error
 
 logger.metastore.name = org.apache.hadoop.hive.metastore.RetryingHMSHandler
 logger.metastore.level = fatal
