@@ -5,6 +5,33 @@ All notable changes to Notisbook are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-11-19
+
+A cleaner start screen with your recent notebooks, and sample notebooks that show the notislake lakehouse layout.
+
+### Added
+
+- **Recent notebooks on the start screen.** With no tab open, Notisbook shows only the brand, "New notebook" and
+  the five most recently opened notebooks, each with its full path on disk. Recents are kept per notebooks folder,
+  drop files that no longer exist and follow renames and deletes made in the file browser. A "Browse notebooks…"
+  link opens the Notebooks panel.
+
+### Changed
+
+- **Start screen without the app chrome.** The full interface appears once a notebook is open; with tabs open, the
+  start screen is shown inside it so your notebooks stay visible. The "Open notebooks" button was removed.
+- **New brand mark and tagline.** The start screen shows the app icon in color, the "notisbook" wordmark and the
+  tagline "Process anything. Locally.", which also replaces "Spark it up locally." in the header.
+- **Sample notebooks write external tables to notislake.** The Delta, Hudi, Iceberg and Glue samples now register
+  only external tables in the `bronze` schema, with their files in `s3a://notislake/bronze/<table>_files`, and can
+  be run again without errors. The Glue sample was reduced to a single Delta table, in the same format as the
+  others. Samples are copied only on the first run, so existing installations keep their current notebooks.
+
+### Fixed
+
+- **Sample notebooks on a fresh install.** The samples no longer query tables they do not create, so every cell
+  runs on a new installation.
+
 ## [0.1.0] - 2026-11-17
 
 First public release of Notisbook: local Spark notebooks for macOS, with versioned Spark environments and a local
