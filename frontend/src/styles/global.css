@@ -204,7 +204,7 @@ kbd {
   white-space: nowrap;
 }
 
-/* Código e saídas mantêm a fonte de conteúdo; a VT323 fica só na UI. */
+/* O editor (CodeMirror + editorTheme.ts) mantém a fonte de conteúdo; saídas e markdown fazem o mesmo nos próprios módulos. */
 .cm-editor {
   --font-sans: var(--font-content);
 }

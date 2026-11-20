@@ -143,16 +143,17 @@
 .homeName {
   margin: 0;
   color: var(--color-text);
-  font-family: "VT323", var(--font-sans);
+  font-family: var(--font-sans);
   font-size: clamp(40px, 7vw, 72px);
   font-weight: 700;
+  font-synthesis: none;
   line-height: 1;
 }
 
 .homeTagline {
   margin: 0;
   color: var(--color-text-muted);
-  font-family: "VT323", var(--font-sans);
+  font-family: var(--font-sans);
   font-size: var(--font-size-lg);
 }
 

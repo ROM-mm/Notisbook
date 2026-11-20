@@ -1,4 +1,9 @@
-/** Ícones SVG inline (paths Tabler, viewBox 24, traço 2.25 com pontas retas); herdam `currentColor`, exceto as marcas (`BrandMark`, `HomeBrandMark`), que usam cores fixas ou tokens de tema. */
+/**
+ * Ícones SVG inline (paths Tabler, viewBox 24, traço 2.25 com pontas retas); herdam `currentColor`.
+ * Exceção: PanelLeft, PanelRight, Focus e o "N" das marcas são desenhos em pixel preenchidos
+ * (`shape-rendering: crispEdges`), não paths Tabler com traço. As marcas (`BrandMark`,
+ * `HomeBrandMark`) usam cores fixas ou tokens de tema.
+ */
 import type { ReactNode, SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
