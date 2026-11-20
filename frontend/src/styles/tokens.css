@@ -13,7 +13,8 @@
   color-scheme: light;
 
   /* Tipografia */
-  --font-sans: "VT323", "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-content: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "VT323", var(--font-content);
   --font-head: var(--font-sans);
   --font-display: var(--font-sans);
   --font-script: var(--font-sans);

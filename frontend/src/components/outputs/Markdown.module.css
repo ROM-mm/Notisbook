@@ -1,6 +1,7 @@
 /* Markdown renderizado (células markdown e saídas text/markdown). */
 
 .markdown {
+  --font-sans: var(--font-content);
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--font-size-md);

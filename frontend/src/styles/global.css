@@ -203,3 +203,8 @@ kbd {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Código e saídas mantêm a fonte de conteúdo; a VT323 fica só na UI. */
+.cm-editor {
+  --font-sans: var(--font-content);
+}
