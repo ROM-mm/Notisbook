@@ -3,7 +3,7 @@
   display: inline-flex;
 }
 
-/* A VT323 pesa nos menus; suavizamos cor e traço para legibilidade. */
+/* A VT323 pesa nos menus; suavizamos cor, antialiasing e espaçamento para legibilidade. */
 .barTrigger,
 .list {
   --menu-text: color-mix(in srgb, var(--color-text) 85%, var(--color-text-muted));

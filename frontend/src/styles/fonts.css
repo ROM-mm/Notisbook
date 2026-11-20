@@ -15,10 +15,10 @@
   font-display: swap;
 }
 
-/* VT323 (SIL OFL 1.1), fonte da UI. Só existe o peso 400 (negrito é sintetizado).
-   O size-adjust aplica o ×1,4 só aos glifos da VT323: os tokens --font-size-* são
-   compartilhados com o código (Monocode) e com
-   saídas/markdown (fonte de conteúdo), que ficam como estão. */
+/* VT323 (SIL OFL 1.1), fonte da UI, do código e das saídas. Só existe o peso 400.
+   O size-adjust aplica o ×1,4 só aos glifos da VT323, em todos esses usos; o texto
+   do markdown fica em Roboto. Onde há `font-synthesis: none` (código, saídas e
+   marca), o navegador não sintetiza negrito nem itálico. */
 @font-face {
   font-family: "VT323";
   src: url("./fonts/VT323-Regular.ttf") format("truetype");
