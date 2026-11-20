@@ -245,25 +245,21 @@ export const ColumnIcon = (p: IconProps) => (
 );
 
 export const PanelLeftIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <rect x="4" y="4" width="16" height="16" rx="2" />
-    <path d="M9 4v16" />
+  <Svg shapeRendering="crispEdges" stroke="none" fill="currentColor" {...p}>
+    <path fillRule="evenodd" d="M6 4h12v2h2v12h-2v2h-12v-2h-2v-12h2zM6 6v12h12v-12z" />
+    <path d="M6 6h4v12h-4z" />
   </Svg>
 );
 
 export const PanelRightIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <rect x="4" y="4" width="16" height="16" rx="2" />
-    <path d="M15 4v16" />
+  <Svg shapeRendering="crispEdges" stroke="none" fill="currentColor" {...p}>
+    <path fillRule="evenodd" d="M6 4h12v2h2v12h-2v2h-12v-2h-2v-12h2zM6 6v12h12v-12z" />
+    <path d="M14 6h4v12h-4z" />
   </Svg>
 );
 
 export const FocusIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M4 8v-2a2 2 0 0 1 2 -2h2" />
-    <path d="M4 16v2a2 2 0 0 0 2 2h2" />
-    <path d="M16 4h2a2 2 0 0 1 2 2v2" />
-    <path d="M16 20h2a2 2 0 0 0 2 -2v-2" />
-    <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+  <Svg shapeRendering="crispEdges" stroke="none" fill="currentColor" {...p}>
+    <path d="M4 4h6v2h-4v4h-2zM14 4h6v6h-2v-4h-4zM4 14h2v4h4v2h-6zM18 14h2v6h-6v-2h4zM10 10h4v4h-4z" />
   </Svg>
 );
