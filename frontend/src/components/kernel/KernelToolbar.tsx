@@ -1,6 +1,6 @@
 /**
  * Controles do kernel na barra superior: seletor de ambiente (com o estado do
- * kernel), Run all, Interrupt, Restart kernel e menu ⋮ (Restart and run all).
+ * kernel), Run all, Interrupt, Restart kernel, Clear all outputs e menu ⋮ (Restart and run all).
  * Os notebooks abertos ficam na lista ao lado, no Banner. Usa as mesmas regras de habilitação do menu Run.
  */
 import { useKernel, useKernelStore, useNotebookStore } from "../../state/notebookContext";
@@ -66,7 +66,7 @@ export function KernelToolbar() {
       <button
         type="button"
         className={styles.toolBtn}
-        data-testid="clear-all-outputs"
+        data-testid="toolbar-clear-all-outputs"
         title="Clear all outputs"
         aria-label="Clear all outputs"
         disabled={hasWork}
