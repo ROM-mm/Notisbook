@@ -143,7 +143,7 @@
 .homeName {
   margin: 0;
   color: var(--color-text);
-  font-family: "Comic Sans MS", "Comic Sans", cursive;
+  font-family: "VT323", var(--font-sans);
   font-size: clamp(40px, 7vw, 72px);
   font-weight: 700;
   line-height: 1;
@@ -152,7 +152,7 @@
 .homeTagline {
   margin: 0;
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
+  font-family: "VT323", var(--font-sans);
   font-size: var(--font-size-lg);
 }
 

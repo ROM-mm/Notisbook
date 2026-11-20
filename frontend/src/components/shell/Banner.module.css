@@ -1,6 +1,6 @@
 /**
  * Barra superior única (padrão do mock da landing): fina, fundo das laterais, linha
- * de 1px embaixo; marca em Comic Sans; menus revelados no hover/foco/clique da marca,
+ * de 1px embaixo; marca em VT323; menus revelados no hover/foco/clique da marca,
  * sobrepostos à lista de notebooks abertos que vem logo depois dela; à direita,
  * salvamento, kernel e toggles. Só variáveis de tema.
  */
@@ -32,7 +32,7 @@
   height: 100%;
 }
 
-/* Marca: ícone N + "notisbook" em Comic Sans bold; botão que alterna os menus. */
+/* Marca: ícone N + "notisbook" em VT323; botão que alterna os menus. */
 .brand {
   display: flex;
   flex: none;
@@ -52,7 +52,7 @@
 }
 
 .wordmark {
-  font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Comic Neue", cursive;
+  font-family: "VT323", var(--font-sans);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-bold);
   line-height: 1;
