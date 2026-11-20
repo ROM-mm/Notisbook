@@ -97,9 +97,7 @@ function BrandMarkShape({ size, colors, ...rest }: IconProps & { size: number; c
         strokeLinejoin="miter"
         strokeLinecap="square"
       />
-      <rect x="15" y="16" width="8" height="30" fill={ink} />
-      <rect x="37" y="16" width="8" height="30" fill={ink} />
-      <polygon points="15,16 23,16 45,46 37,46" fill={ink} />
+      <path shapeRendering="crispEdges" fill={ink} d="M12 14h12v32h-12zM36 14h12v32h-12zM24 14h8v16h-8zM28 30h8v16h-8z" />
       <polygon
         points="53.0,1.0 56.2,7.8 63.0,11.0 56.2,14.2 53.0,21.0 49.8,14.2 43.0,11.0 49.8,7.8"
         fill={star}
