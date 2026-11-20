@@ -144,10 +144,12 @@
               <span class="run-dur">0.84 s</span>
               <div class="out-table-wrap">
                 <table>
-                  <tr><th>id</th><th>nome</th><th>area</th></tr>
-                  <tr><td>1</td><td>Ana</td><td>Dados</td></tr>
-                  <tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr>
-                  <tr><td>3</td><td>Carla</td><td>Segurança</td></tr>
+                  <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
+                  <tbody>
+                    <tr><td>1</td><td>Ana</td><td>Dados</td></tr>
+                    <tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr>
+                    <tr><td>3</td><td>Carla</td><td>Segurança</td></tr>
+                  </tbody>
                 </table>
               </div>
             </div>
@@ -456,7 +458,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
         <p data-i18n="ft.cells.p">Edit <code>.ipynb</code> notebooks in the browser and run Python, Spark SQL and DuckDB SQL cells in Jupyter kernels.</p>
       </article>
       <article class="feature">
-        <div class="feature-icons"><kbd class="glyph">⇧↵</kbd><kbd class="glyph">⌘↵</kbd><kbd class="glyph">Esc</kbd></div>
+        <div class="feature-icons" aria-hidden="true"><kbd class="glyph">⇧↵</kbd><kbd class="glyph">⌘↵</kbd><kbd class="glyph">Esc</kbd></div>
         <h3 data-i18n="ft.keys.t">Keyboard-first cells</h3>
         <p data-i18n="ft.keys.p"><kbd>Shift+Enter</kbd> runs a cell and moves to the next one; <kbd>⌘Enter</kbd> runs it and stays. A Jupyter-style command mode adds <kbd>Esc</kbd>/<kbd>Enter</kbd>, <kbd>J</kbd>/<kbd>K</kbd> to move, <kbd>A</kbd>/<kbd>B</kbd> to insert, <kbd>M</kbd>/<kbd>Y</kbd> to convert and <kbd>D D</kbd> to delete.</p>
       </article>
