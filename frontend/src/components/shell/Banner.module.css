@@ -1,7 +1,7 @@
 /**
  * Barra superior única (padrão do mock da landing): fina, fundo das laterais, linha
- * de 1px embaixo; marca em Comic Sans; menus revelados no hover da barra; nomes dos
- * notebooks abertos; kernel e toggles à direita. Só variáveis de tema.
+ * de 1px embaixo; marca em Comic Sans; menus revelados no hover/foco/clique da marca; à direita,
+ * notebooks abertos, kernel e toggles. Só variáveis de tema.
  */
 
 .banner {
@@ -19,7 +19,17 @@
   font-size: var(--font-size-sm);
 }
 
-/* Marca: ícone N + "notisbook" em Comic Sans bold. */
+/* Área da marca: envolve marca + menubar para o ponteiro ir de uma ao outro sem
+   o menu sumir. A menubar fica absoluta ao lado da marca e não reserva largura. */
+.brandArea {
+  position: relative;
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: 100%;
+}
+
+/* Marca: ícone N + "notisbook" em Comic Sans bold; botão que alterna os menus. */
 .brand {
   display: flex;
   flex: none;
@@ -27,7 +37,15 @@
   gap: var(--space-2);
   height: 100%;
   padding: 0 var(--space-2) 0 var(--space-1);
-  cursor: default;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.brand:focus-visible {
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: -1px;
 }
 
 .wordmark {
@@ -37,20 +55,30 @@
   line-height: 1;
 }
 
-/* Menubar: revelada no hover da barra inteira, com foco dentro dela ou com um menu
-   aberto. O overflow fica visível para não cortar os dropdowns absolutos. */
+/* Menubar: revelada só pela área da marca — hover ou foco de teclado (:focus-visible,
+   não o foco de clique) nela, salvo se dispensada; fixada por clique/teclado na
+   marca, ou com um menu aberto. Escondida, não recebe ponteiro. O overflow fica
+   visível para não cortar os dropdowns absolutos. */
 .menubar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  z-index: 1;
   display: flex;
-  flex: none;
   align-items: center;
   gap: 0;
+  padding-right: var(--space-2);
+  background: var(--color-bg-side);
+  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--transition-fast);
 }
 
-.banner:hover .menubar,
-.menubar:focus-within,
+.brandArea:not([data-state="closed"]):hover .menubar,
+.brandArea:not([data-state="closed"]):has(:focus-visible) .menubar,
+.brandArea[data-state="open"] .menubar,
 .menubar:has([data-open]) {
   opacity: 1;
   pointer-events: auto;
@@ -78,81 +106,89 @@
   background: var(--color-bg-hover);
 }
 
-/* Nomes dos notebooks abertos: rolam na horizontal; o "+" fica fora do tablist. */
-.tabBar {
+/* Notebooks abertos (à direita, antes do kernel): lado a lado, sem caixa, borda ou
+   sombra; a lista encolhe e rola na horizontal; o "+" fica fora do tablist. */
+.nbBar {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 2px;
   min-width: 0;
-  margin-left: var(--space-1);
 }
 
-.tabs {
+.nbList {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 2px;
+  gap: var(--space-1);
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
 }
 
-.tab {
+.nb {
   display: flex;
   flex: none;
   align-items: center;
   max-width: 220px;
   height: 26px;
-  border: 1px solid transparent;
   color: var(--color-text-muted);
 }
 
-.tab:hover {
-  background: var(--color-bg-hover);
+.nb:hover,
+.nb[data-active] {
   color: var(--color-text);
 }
 
-/* Ativo: fundo leve e borda fina, sem sombra. */
-.tab[data-active] {
-  border-color: var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text);
-}
-
-.tabMain {
+.nbMain {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   height: 100%;
-  padding: 0 var(--space-1) 0 var(--space-2);
+  padding: 0 2px 0 var(--space-1);
   border: none;
   background: transparent;
   color: inherit;
   font-size: var(--font-size-sm);
 }
 
-.tabLabel {
+.nbMain:focus-visible,
+.nbClose:focus-visible,
+.nbAdd:focus-visible {
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: -1px;
+}
+
+/* Quadradinho de cantos retos: verde no notebook ativo, cinza claro nos demais. */
+.nbMark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--color-border-strong);
+}
+
+.nb[data-active] .nbMark {
+  background: var(--color-success);
+}
+
+.nbLabel {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.tabDirty {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  background: currentColor;
+/* Não salvo: nome em itálico. */
+.nb[data-dirty] .nbLabel {
+  font-style: italic;
 }
 
-.tabClose {
+.nbClose {
   display: grid;
   flex: none;
   place-items: center;
   width: 16px;
   height: 16px;
-  margin-right: var(--space-1);
   padding: 0;
   border: none;
   background: transparent;
@@ -160,41 +196,52 @@
   opacity: 0;
 }
 
-/* Oculto só por opacidade: o × das abas inativas continua focável pelo teclado. */
-.tab:hover .tabClose,
-.tab[data-active] .tabClose,
-.tab:focus-within .tabClose,
-.tabClose:focus-visible {
+/* Oculto só por opacidade: o × continua focável pelo teclado. */
+.nb:hover .nbClose,
+.nb:focus-within .nbClose,
+.nbClose:focus-visible {
   opacity: 1;
 }
 
-.tabClose:hover {
-  background: var(--color-bg-active);
+.nbClose:hover {
+  background: var(--color-bg-hover);
   color: var(--color-text);
 }
 
-.tabAdd {
+.nbAdd {
   display: inline-grid;
   flex: none;
   place-items: center;
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   color: var(--color-text-muted);
 }
 
-.tabAdd:hover {
+.nbAdd:hover {
   background: var(--color-bg-hover);
   color: var(--color-text);
 }
 
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Grupo da direita: ocupa o resto da barra, alinhado à direita e centralizado na vertical. */
 .actions {
   display: flex;
   flex: 1 1 auto;
+  align-self: stretch;
   align-items: center;
   justify-content: flex-end;
+  margin-left: auto;
   gap: var(--space-2);
   min-width: 0;
   padding-left: var(--space-3);
@@ -238,18 +285,4 @@
 
 .toggle[aria-pressed="true"] {
   color: var(--color-accent-text);
-}
-
-/* Janela estreita: some primeiro o uso da máquina, depois o nome do notebook; o
-   seletor de kernel encolhe com reticências e os toggles e o ⋮ ficam visíveis. */
-@media (max-width: 1100px) {
-  .actions :global([data-testid="system-resources"]) {
-    display: none;
-  }
-}
-
-@media (max-width: 900px) {
-  .actions :global([data-testid="kernel-notebook-name"]) {
-    display: none;
-  }
 }

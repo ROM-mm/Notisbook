@@ -1,28 +1,14 @@
 /**
- * Controles do kernel na barra superior: "● nome.ipynb" (ponto com o estado do
- * kernel), seletor de ambiente, Run all, Interrupt, Restart kernel e menu ⋮
- * (Restart and run all). Usa as mesmas regras de habilitação do menu Run.
+ * Controles do kernel na barra superior: seletor de ambiente (com o estado do
+ * kernel), Run all, Interrupt, Restart kernel e menu ⋮ (Restart and run all).
+ * Os notebooks abertos ficam na lista ao lado, no Banner. Usa as mesmas regras de habilitação do menu Run.
  */
-import { basename } from "../../lib/paths";
-import { useKernel, useKernelStore, useNotebookEntry } from "../../state/notebookContext";
+import { useKernel, useKernelStore } from "../../state/notebookContext";
 import { Menu, type MenuItem } from "../shell/Menu";
 import { MoreVerticalIcon, PlayFilledIcon, RefreshIcon, StopFilledIcon } from "../shell/icons";
 import { KernelSelector } from "./KernelSelector";
-import { kernelAlive, kernelHasWork, kernelReady, useKernelDescription } from "./KernelStatus";
+import { kernelAlive, kernelHasWork, kernelReady } from "./KernelStatus";
 import styles from "./Kernel.module.css";
-
-/** Nome do arquivo da aba ativa com o ponto de estado do kernel. */
-function NotebookName() {
-  const { path } = useNotebookEntry();
-  const { label, tone } = useKernelDescription();
-  const name = basename(path);
-  return (
-    <span className={styles.nbName} title={`${path} · ${label}`} data-testid="kernel-notebook-name">
-      <span className={`${styles.dot} ${styles[tone]}`} aria-hidden="true" />
-      <span className={styles.nbNameText}>{name}</span>
-    </span>
-  );
-}
 
 export function KernelToolbar() {
   const store = useKernelStore();
@@ -39,7 +25,6 @@ export function KernelToolbar() {
   ];
   return (
     <div className={styles.toolbar} role="toolbar" aria-label="Kernel controls" data-testid="kernel-toolbar">
-      <NotebookName />
       <KernelSelector />
       <button
         type="button"

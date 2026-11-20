@@ -1,34 +1,5 @@
 /* Controles do kernel na barra superior, seletor com estado e aviso de sessão encerrada. */
 
-.dot {
-  flex: none;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-text-subtle);
-}
-
-.ok {
-  background: var(--color-success);
-}
-
-.busy {
-  background: var(--color-warning);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.warn {
-  background: var(--color-warning);
-}
-
-.danger {
-  background: var(--color-danger);
-}
-
-.muted {
-  background: var(--color-text-subtle);
-}
-
 .banner {
   display: flex;
   flex-wrap: wrap;
@@ -63,18 +34,6 @@
 
 .banner :global(.btn) {
   margin-left: auto;
-}
-
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .busy {
-    animation: none;
-  }
 }
 
 /* Seletor de ambiente com estado (combobox da barra superior): caixa fina de 1px. */
@@ -162,7 +121,7 @@
   min-width: 0;
 }
 
-/* Nome e seletor encolhem (reticências); os botões, não. */
+/* O seletor encolhe (reticências); os botões, não. */
 .toolbar > :has(> .selector) {
   min-width: 0;
 }
@@ -170,23 +129,6 @@
 .toolbar > .toolBtn,
 .toolbar > :has(> .toolBtn) {
   flex: none;
-}
-
-/* "● nome.ipynb": arquivo da aba ativa com o ponto de estado do kernel. */
-.nbName {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  max-width: 220px;
-  margin-right: var(--space-1);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.nbNameText {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .toolBtn {

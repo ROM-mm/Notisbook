@@ -8,7 +8,7 @@ function pct(used: number, total: number): string {
   return total > 0 ? `${Math.round((used / total) * 100)}%` : "n/a";
 }
 
-/** Uso da máquina no header; escondido até a primeira leitura, e métricas `null` são omitidas. */
+/** Uso da máquina na barra de atalhos do rodapé; escondido até a primeira leitura, e métricas `null` são omitidas. */
 export function SystemResources() {
   const data = useSystemResources((s) => s.data);
   if (!data) return null;

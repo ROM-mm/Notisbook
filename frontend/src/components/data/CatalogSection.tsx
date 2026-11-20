@@ -53,6 +53,21 @@ const SPARK_CATALOG = "spark_catalog";
 /** Nó só de exibição das tabelas Hudi: os schemas são do `spark_catalog` (criar/excluir age sobre o namespace inteiro). */
 const HUDI_CATALOG = "hudi";
 const DEFAULT_SCHEMA = "default";
+/** Camadas exibidas primeiro, nesta ordem (sem caixa); os demais schemas seguem na ordem recebida. */
+const LAYER_ORDER = ["bronze", "silver", "gold"];
+
+function layerRank(name: string): number {
+  const i = LAYER_ORDER.indexOf(name.toLowerCase());
+  return i === -1 ? LAYER_ORDER.length : i;
+}
+
+/** Ordenação estável: camadas primeiro, sem alterar a ordem relativa dos demais schemas. */
+function orderSchemas<T extends { name: string }>(databases: T[]): T[] {
+  return databases
+    .map((d, i) => ({ d, i, rank: layerRank(d.name) }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.d);
+}
 
 const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg", hudi: "Hudi" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
@@ -207,11 +222,12 @@ function buildItems(
     if (c.error) {
       out.push({ status: true, key: `error:${ckey}`, level: 2, text: CATALOG_ERRORS[c.error] ?? "Catalog could not be read.", error: true });
     }
-    c.databases.forEach((d, di) => {
+    const databases = orderSchemas(c.databases);
+    databases.forEach((d, di) => {
       const tables = d.tables;
       const dkey = schemaKey(c.name, d.name);
       const dOpen = Boolean(s.expanded[dkey]);
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
         tableRows(c.name, tables, dkey, 3, d.name, s, out);
@@ -554,7 +570,7 @@ function IdleRefresh({ entry }: { entry: NotebookEntry }) {
 }
 
 function CatalogTitle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
-  return <CardTitle id="data-catalog-title" icon={<TableIcon size={14} />} label="Catalog" collapsed={collapsed} onToggle={onToggle} />;
+  return <CardTitle id="data-catalog-title" label="Catalog" collapsed={collapsed} onToggle={onToggle} />;
 }
 
 /** Corpo do cartão: só monta expandido, então recolher também para a leitura no foco da janela e o refresh por idle. */

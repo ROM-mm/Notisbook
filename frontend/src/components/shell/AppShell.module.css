@@ -59,19 +59,9 @@
   overflow: auto;
 }
 
+/* Uso da máquina na barra de atalhos, logo após os atalhos; herda a tipografia discreta da barra. */
 .sysResources {
-  flex-shrink: 0;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* Some antes de o seletor de ambiente começar a encolher. */
-@media (max-width: 1280px) {
-  .sysResources {
-    display: none;
-  }
 }
 
 /* Barra de atalhos no rodapé: só exibe os atalhos já existentes (ver AppShell.tsx). */

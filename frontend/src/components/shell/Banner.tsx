@@ -1,21 +1,23 @@
 /**
- * Barra superior única do shell: marca N + "notisbook",
- * menus File/Edit/View/Run/Help revelados no hover da barra inteira (ou com foco/menu
- * aberto), nomes dos notebooks abertos lado a lado (ativo = rota; dirty, ×, clique do
- * meio e "+") e, à direita, uso da máquina, estado de salvamento, controles do kernel
- * da aba ativa ("● nome.ipynb", seletor, ▶, ■, ↻, ⋮) e os toggles das laterais
- * esquerda (⌘B) e direita (⌥⌘B) e do modo foco (⌘.).
+ * Barra superior única do shell: marca N + "notisbook" (botão que alterna os menus),
+ * menus File/Edit/View/Run/Help/About revelados no hover/foco da marca ou do próprio
+ * menu, por clique/Enter/Espaço na marca ou com um menu aberto; Esc ou clique fora
+ * fecham. À direita: notebooks abertos lado a lado (quadradinho verde no ativo =
+ * rota, cinza nos demais; não salvo em itálico; × no hover, clique do meio fecha;
+ * "+" no fim), estado de salvamento, controles do kernel do notebook ativo
+ * (seletor com estado, ▶, ■, ↻, ⋮) e os toggles das laterais esquerda (⌘B) e
+ * direita (⌥⌘B) e do modo foco (⌘.).
  */
+import { type FocusEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
-import { notebookTitle } from "../../lib/paths";
+import { basename } from "../../lib/paths";
 import { NotebookProvider, useNotebook } from "../../state/notebookContext";
 import { activeNotebookPath, openNotebook, useRouter } from "../../state/router";
 import { getEntry, type NotebookEntry, useWorkspace } from "../../state/workspace";
 import { KernelToolbar } from "../kernel/KernelToolbar";
 import styles from "./Banner.module.css";
-import { BrandMark, CloseIcon, FocusIcon, PanelLeftIcon, PanelRightIcon, PlusIcon } from "./icons";
+import { CloseIcon, FocusIcon, HomeBrandMark, PanelLeftIcon, PanelRightIcon, PlusIcon } from "./icons";
 import { MenuBar, newNotebook } from "./MenuBar";
-import { SystemResources } from "./SystemResources";
 
 function SaveState() {
   const saving = useNotebook((s) => s.saving);
@@ -69,32 +71,41 @@ function FocusToggle() {
   );
 }
 
-function Tab({ path, active }: { path: string; active: boolean }) {
+function OpenNotebook({ path, active }: { path: string; active: boolean }) {
   const entry = getEntry(path);
   if (!entry) return null;
-  return <TabInner path={path} active={active} entry={entry} />;
+  return <OpenNotebookInner path={path} active={active} entry={entry} />;
 }
 
-function TabInner({ path, active, entry }: { path: string; active: boolean; entry: NotebookEntry }) {
+function OpenNotebookInner({ path, active, entry }: { path: string; active: boolean; entry: NotebookEntry }) {
   const dirty = useStore(entry.notebook, (s) => s.dirty);
   const closeTab = useWorkspace((s) => s.closeTab);
+  const name = basename(path);
   return (
-    <div className={styles.tab} data-active={active || undefined} data-testid="notebook-tab" data-path={path} title={path}>
+    <div
+      className={styles.nb}
+      data-active={active || undefined}
+      data-dirty={dirty || undefined}
+      data-testid="notebook-tab"
+      data-path={path}
+      title={dirty ? `${path} · Unsaved changes` : path}
+    >
       <button
         type="button"
         role="tab"
         aria-selected={active}
-        className={styles.tabMain}
+        className={styles.nbMain}
         onClick={() => openNotebook(path)}
         onAuxClick={(e) => e.button === 1 && closeTab(path)}
       >
-        <span className={styles.tabLabel}>{notebookTitle(path)}</span>
-        {dirty ? <span className={styles.tabDirty} aria-label="Unsaved changes" title="Unsaved changes" data-testid="tab-dirty" /> : null}
+        <span className={styles.nbMark} aria-hidden="true" />
+        <span className={styles.nbLabel}>{name}</span>
+        {dirty ? <span className={styles.srOnly}> (unsaved changes)</span> : null}
       </button>
       <button
         type="button"
-        className={styles.tabClose}
-        aria-label={`Close ${notebookTitle(path)}`}
+        className={styles.nbClose}
+        aria-label={`Close ${name}`}
         title="Close"
         data-testid="notebook-tab-close"
         onClick={() => closeTab(path)}
@@ -105,21 +116,21 @@ function TabInner({ path, active, entry }: { path: string; active: boolean; entr
   );
 }
 
-/** Nomes dos notebooks abertos na barra superior; o "+" cria um notebook. */
-function NotebookTabs({ entry }: { entry: NotebookEntry | null }) {
+/** Notebooks abertos à direita da barra, antes dos controles do kernel; o "+" cria um notebook. */
+function OpenNotebooks({ entry }: { entry: NotebookEntry | null }) {
   const tabs = useWorkspace((s) => s.tabs);
   const active = useRouter((s) => activeNotebookPath(s.route));
   if (tabs.length === 0) return null;
   return (
-    <div className={styles.tabBar}>
-      <div className={styles.tabs} role="tablist" aria-label="Open notebooks">
+    <div className={styles.nbBar}>
+      <div className={styles.nbList} role="tablist" aria-label="Open notebooks">
         {tabs.map((p) => (
-          <Tab key={p} path={p} active={p === active} />
+          <OpenNotebook key={p} path={p} active={p === active} />
         ))}
       </div>
       <button
         type="button"
-        className={styles.tabAdd}
+        className={styles.nbAdd}
         aria-label="New notebook"
         title="New notebook"
         data-testid="tab-new"
@@ -131,19 +142,78 @@ function NotebookTabs({ entry }: { entry: NotebookEntry | null }) {
   );
 }
 
+/**
+ * Estado da área da marca: "auto" = menus aparecem só por hover/foco de teclado (CSS);
+ * "open" = fixados por clique/teclado na marca; "closed" = dispensados (clique na
+ * marca, Esc ou clique fora) mesmo com ponteiro/foco ainda na área — volta a "auto"
+ * quando o ponteiro ou o foco entram de novo.
+ */
+type BrandMenuState = "auto" | "open" | "closed";
+
+function BrandMenu({ entry }: { entry: NotebookEntry | null }) {
+  const [state, setState] = useState<BrandMenuState>("auto");
+  const areaRef = useRef<HTMLDivElement>(null);
+  const brandRef = useRef<HTMLButtonElement>(null);
+  const menubarId = useId();
+
+  useEffect(() => {
+    if (state !== "open") return;
+    const onDown = (e: MouseEvent) => {
+      if (areaRef.current && !areaRef.current.contains(e.target as Node)) setState("closed");
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [state]);
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    // Um dropdown aberto consome o próprio Esc (stopPropagation) e só se fecha; o Esc
+    // com o dropdown fechado (foco na marca ou num gatilho File/Edit/…) chega aqui.
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    setState("closed");
+    if (e.target !== brandRef.current) brandRef.current?.focus();
+  };
+
+  const onFocus = (e: FocusEvent<HTMLDivElement>) => {
+    const fromOutside = !areaRef.current?.contains(e.relatedTarget as Node | null);
+    if (state === "closed" && (fromOutside || (e.target as Node) !== brandRef.current)) setState("auto");
+  };
+
+  return (
+    <div
+      ref={areaRef}
+      className={styles.brandArea}
+      data-state={state}
+      onKeyDown={onKeyDown}
+      onFocus={onFocus}
+      onMouseEnter={() => setState((s) => (s === "closed" ? "auto" : s))}
+    >
+      <button
+        ref={brandRef}
+        type="button"
+        className={styles.brand}
+        aria-label="Notisbook menus"
+        aria-expanded={state === "open"}
+        aria-controls={menubarId}
+        data-testid="brand-menu-toggle"
+        onClick={() => setState((s) => (s === "open" ? "closed" : "open"))}
+      >
+        <HomeBrandMark size={18} />
+        <span className={styles.wordmark}>notisbook</span>
+      </button>
+      <MenuBar entry={entry} id={menubarId} />
+    </div>
+  );
+}
+
 export function Banner({ entry }: { entry: NotebookEntry | null }) {
   return (
     <header className={styles.banner} aria-label="Notisbook">
-      <div className={styles.brand}>
-        <BrandMark size={18} />
-        <span className={styles.wordmark}>notisbook</span>
-      </div>
-      <MenuBar entry={entry} />
-      <NotebookTabs entry={entry} />
+      <BrandMenu entry={entry} />
       <div className={styles.actions}>
+        <OpenNotebooks entry={entry} />
         {entry ? (
           <NotebookProvider entry={entry}>
-            <SystemResources />
             <SaveState />
             <KernelToolbar />
           </NotebookProvider>

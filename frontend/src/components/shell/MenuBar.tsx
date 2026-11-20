@@ -160,9 +160,9 @@ function helpItems(): MenuItem[] {
   return [{ label: "Keyboard shortcuts", onSelect: () => useWorkspace.getState().setShortcutsOpen(true), testId: "menu-help-shortcuts" }];
 }
 
-export function MenuBar({ entry }: { entry: NotebookEntry | null }) {
+export function MenuBar({ entry, id }: { entry: NotebookEntry | null; id?: string }) {
   return (
-    <nav className={styles.menubar} aria-label="Menus">
+    <nav id={id} className={styles.menubar} aria-label="Menus">
       <Menu trigger="File" testId="menu-file" items={() => fileItems(entry)} />
       <Menu trigger="Edit" testId="menu-edit" items={() => editItems(entry)} />
       <Menu trigger="View" testId="menu-view" items={viewItems} />

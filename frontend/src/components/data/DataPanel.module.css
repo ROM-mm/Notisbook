@@ -21,11 +21,6 @@
   padding-bottom: 0;
 }
 
-/* Cartão sem cabeçalho (Connections): respiro no topo para alinhar com os cartões que têm título. */
-.sectionHeaderless {
-  padding-top: var(--space-2);
-}
-
 .section > :not(.tree, .sectionHeader) {
   flex: none;
 }
@@ -54,7 +49,6 @@
 .titleToggle {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
   padding: 0;
   border: none;
   background: transparent;
@@ -68,16 +62,6 @@
 .titleToggle:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
-}
-
-.titleChevron {
-  display: inline-flex;
-  flex: none;
-  transition: transform var(--transition-fast);
-}
-
-.titleChevronOpen {
-  transform: rotate(90deg);
 }
 
 .empty {
@@ -447,31 +431,24 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   margin-right: auto;
 }
 
-/* Raiz fixa do Notislake no painel Files. */
-.notislakeRoot {
+/* Corpo do cartão Notislake (escondido por `hidden` quando recolhido). */
+.notislakeContent:not([hidden]) {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   min-width: 0;
 }
 
-/* Título "Notislake" no mesmo padrão dos títulos das laterais (caixa alta, pequeno, espaçado);
-   continua sendo o botão do menu (clique esquerdo). */
-.notislakeRoot > .connection {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.notislakeRoot > .connection:hover {
-  color: var(--color-text);
+/* Raiz fixa do Notislake: `s3a://<bucket>` e, abaixo, a árvore ou o diagnóstico. */
+.notislakeRoot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 /* Sem rolagem própria: a árvore cresce inteira e só a seção rola. */
 .notislakeBody {
-  margin-inline: var(--space-2);
   padding: 0;
 }
 
@@ -479,21 +456,36 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   min-width: 0;
 }
 
+/* Pastas do bucket sob a raiz, com a linha-guia vertical do mock (`.tree ul`). */
+.notislakeChildren {
+  margin-left: 7px;
+  padding-left: 0;
+  border-left: 1px solid var(--color-border);
+}
+
+/* Linha da raiz: ícone S3 + `s3a://<bucket>`; clique esquerdo abre o menu (MinIO UI / credenciais / Settings). */
 .notislakeTrigger {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
-  padding: 0;
+  padding: 2px 0;
   border: 0;
   background: none;
-  color: inherit;
+  color: var(--color-text);
   font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
   cursor: pointer;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .notislakeTrigger:hover:not(:disabled) {
-  text-decoration: underline;
+  background: var(--color-bg-hover);
+}
+
+.notislakeTrigger:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
 }
 
 .notislakeStatus {

@@ -1,4 +1,8 @@
-/** Cartão Connections do Explorer: raiz Notislake e, se habilitada, a pasta local salva como conexão. Sem cabeçalho: não recolhe. */
+/**
+ * Cartão Notislake do Explorer (mock da landing): título recolhível "Notislake", raiz
+ * `s3a://<bucket>` com o ícone S3 (clique esquerdo abre o menu) e as pastas do bucket abaixo;
+ * se habilitada, a pasta local salva como conexão.
+ */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { basename } from "../../lib/paths";
@@ -9,7 +13,9 @@ import { activeNotebookPath, useRouter } from "../../state/router";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
-import { BucketIcon, FolderIcon } from "../shell/icons";
+import { FolderIcon } from "../shell/icons";
+import s3IconUrl from "../../../icons/s3.png";
+import { CardTitle } from "./CardTitle";
 import { FileTree } from "./FileTree";
 import { NotislakeConnectionDialog } from "./NotislakeConnectionDialog";
 import { NotislakeTree } from "./NotislakeTree";
@@ -17,6 +23,9 @@ import styles from "./DataPanel.module.css";
 
 const COPY_FEEDBACK_MS = 2000;
 const REFRESH_DEBOUNCE_MS = 1500;
+
+/** Bucket exibido na raiz enquanto a primeira listagem não informa o nome real. */
+const DEFAULT_BUCKET = "notislake";
 
 /** Interruptor único: false esconde a raiz de pasta local; a pasta salva em useFiles fica preservada. */
 const LOCAL_FOLDERS_ENABLED = false;
@@ -41,6 +50,7 @@ function IdleRefresh({ entry }: { entry: NotebookEntry }) {
 function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   const status = useNotislake((s) => s.status);
   const statusError = useNotislake((s) => s.statusError);
+  const bucket = useNotislake((s) => s.bucket);
   const retrying = useNotislake((s) => s.retrying);
   const retryError = useNotislake((s) => s.retryError);
   const start = useNotislake((s) => s.start);
@@ -117,7 +127,9 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
     body = (
       <>
         {entry ? <IdleRefresh key={entry.path} entry={entry} /> : null}
-        <NotislakeTree />
+        <div className={styles.notislakeChildren}>
+          <NotislakeTree />
+        </div>
       </>
     );
   } else if (!manual && local?.state === "restarting") {
@@ -146,19 +158,18 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
 
   return (
     <div className={styles.notislakeRoot} data-testid="notislake-root">
-      <div className={styles.connection} title="Notislake (MinIO / S3)">
-        <BucketIcon size={14} />
-        <button
-          ref={triggerRef}
-          type="button"
-          className={`${styles.connectionName} ${styles.notislakeTrigger}`}
-          aria-haspopup="menu"
-          aria-expanded={menu !== null}
-          onClick={openMenu}
-        >
-          Notislake
-        </button>
-      </div>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={styles.notislakeTrigger}
+        title="Notislake (MinIO / S3)"
+        aria-haspopup="menu"
+        aria-expanded={menu !== null}
+        onClick={openMenu}
+      >
+        <img className={styles.brandIcon} src={s3IconUrl} alt="" />
+        <span className={styles.connectionName}>s3a://{bucket ?? DEFAULT_BUCKET}</span>
+      </button>
       <div className={styles.notislakeBody}>{body}</div>
       {menu ? (
         <ContextMenu
@@ -177,24 +188,34 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   );
 }
 
-export function FilesSection() {
+/** Recolher só esconde o corpo: a raiz continua montada (polling do status e IdleRefresh). */
+export function FilesSection({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const root = useFiles((s) => s.root);
   const [configuring, setConfiguring] = useState(false);
 
   return (
-    <section className={`${styles.section} ${styles.sectionHeaderless}`} data-testid="data-files" aria-label="Connections">
-      {LOCAL_FOLDERS_ENABLED && root ? (
-        <>
-          <div className={styles.connection} title={root}>
-            <FolderIcon size={14} />
-            <span className={styles.connectionName}>{basename(root) || root}</span>
-          </div>
-          <div className={styles.tree}>
-            <FileTree root={root} />
-          </div>
-        </>
-      ) : null}
-      <NotislakeRoot onConfigure={() => setConfiguring(true)} />
+    <section
+      className={`${styles.section} ${collapsed ? styles.sectionCollapsed : ""}`}
+      data-testid="data-files"
+      aria-labelledby="notislake-title"
+    >
+      <div className={styles.sectionHeader}>
+        <CardTitle id="notislake-title" label="Notislake" collapsed={collapsed} onToggle={onToggle} />
+      </div>
+      <div className={styles.notislakeContent} hidden={collapsed}>
+        {LOCAL_FOLDERS_ENABLED && root ? (
+          <>
+            <div className={styles.connection} title={root}>
+              <FolderIcon size={14} />
+              <span className={styles.connectionName}>{basename(root) || root}</span>
+            </div>
+            <div className={styles.tree}>
+              <FileTree root={root} />
+            </div>
+          </>
+        ) : null}
+        <NotislakeRoot onConfigure={() => setConfiguring(true)} />
+      </div>
       <NotislakeConnectionDialog open={configuring} onClose={() => setConfiguring(false)} />
     </section>
   );

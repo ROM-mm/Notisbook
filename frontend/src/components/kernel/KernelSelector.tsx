@@ -1,7 +1,6 @@
 /**
  * Seletor de ambiente na barra superior, unido ao estado do kernel (nome +
- * palavra de estado; o ponto colorido fica no "● nome.ipynb" da KernelToolbar),
- * no lugar do "Python ▾" do Databricks.
+ * palavra de estado), no lugar do "Python ▾" do Databricks.
  *
  * Combobox da aba ativa: lista os kernelspecs (`display_name`), marca o atual
  * e, ao escolher outro, chama `changeKernel(name)` da sessão desta aba (grava

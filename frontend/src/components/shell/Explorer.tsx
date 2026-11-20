@@ -56,7 +56,7 @@ export function Explorer({ side }: { side: PanelSide }) {
 
   const sections: Record<PanelCard, ReactNode> = {
     notebooks: <FileBrowser collapsed={collapsed.notebooks} onToggle={() => toggle("notebooks")} onExpand={() => expand("notebooks")} />,
-    files: <FilesSection />,
+    files: <FilesSection collapsed={collapsed.files} onToggle={() => toggle("files")} />,
     catalog: <CatalogSection testId="data-catalog" collapsed={collapsed.catalog} onToggle={() => toggle("catalog")} />,
   };
 

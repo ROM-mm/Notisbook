@@ -14,7 +14,7 @@ import { dirname, joinPath, NOTEBOOK_EXT } from "../../lib/paths";
 import { selectTargetDir, useNotebookTree } from "../../state/notebookTree";
 import { useRecent } from "../../state/recent";
 import { closeAllTabs, isOpenUnder, useWorkspace } from "../../state/workspace";
-import { FolderIcon, NotebookIcon, PlusIcon, RefreshIcon } from "../shell/icons";
+import { FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
 import { CardTitle } from "../data/CardTitle";
 import { DirectoryPicker } from "../data/DirectoryPicker";
 import cardStyles from "../data/DataPanel.module.css";
@@ -192,7 +192,6 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
       <div className={cardStyles.sectionHeader}>
         <CardTitle
           id="notebooks-title"
-          icon={<NotebookIcon size={14} />}
           label="Notebooks"
           collapsed={collapsed}
           onToggle={onToggle}

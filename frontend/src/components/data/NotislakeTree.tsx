@@ -56,7 +56,11 @@ const ERROR_FEEDBACK_MS = 6000;
 const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 /** Pastas da raiz exibidas atenuadas (área de pouso, fora das camadas). */
 const MUTED_ROOT_DIRS = new Set(["landing"]);
-
+/**
+ * Pastas da raiz sempre exibidas, nesta ordem, mesmo sem o prefixo no bucket (o bootstrap só cria
+ * as camadas). São só de exibição: expandir uma pasta inexistente lista vazio.
+ */
+const FIXED_ROOT_DIRS = ["landing", "bronze", "silver", "gold"];
 
 function baseName(key: string, dir: string): string {
   const rest = key.startsWith(dir) ? key.slice(dir.length) : key;
@@ -73,13 +77,21 @@ function formatSize(bytes: number): string {
   return `${unit === 0 ? value : value.toFixed(1)} ${SIZE_UNITS[unit]}`;
 }
 
-/** Pastas primeiro, depois objetos; marcadores de pasta (chave igual ao prefixo ou terminada em "/") ficam de fora. */
+/**
+ * Pastas primeiro, depois objetos; marcadores de pasta (chave igual ao prefixo ou terminada em "/") ficam de fora.
+ * Na raiz (sem erro de listagem), `FIXED_ROOT_DIRS` vêm antes, e as demais pastas seguem na ordem da listagem.
+ */
 function childrenOf(dir: string, state: NotislakeDirState): TreeNode[] {
-  const folders = state.prefixes.map((key) => ({ key, name: baseName(key, dir), isDir: true }));
+  const fixed: TreeNode[] =
+    dir === "" && !state.error ? FIXED_ROOT_DIRS.map((name) => ({ key: `${name}/`, name, isDir: true })) : [];
+  const fixedKeys = new Set(fixed.map((n) => n.key));
+  const folders = state.prefixes
+    .filter((key) => !fixedKeys.has(key))
+    .map((key) => ({ key, name: baseName(key, dir), isDir: true }));
   const files = state.objects
     .filter((o) => o.key !== dir && !o.key.endsWith("/"))
     .map((o) => ({ key: o.key, name: baseName(o.key, dir), isDir: false, bytes: o.size }));
-  return [...folders, ...files];
+  return [...fixed, ...folders, ...files];
 }
 
 function buildRows(

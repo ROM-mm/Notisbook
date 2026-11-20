@@ -2,7 +2,8 @@
  * Layout raiz em coluna: barra superior única (marca, menus no hover, nomes dos
  * notebooks abertos e controles do kernel) em largura total, abaixo dela uma
  * linha com a lateral esquerda (⌘B), o conteúdo e a lateral direita (⌥⌘B) e,
- * no rodapé, a barra de atalhos (só exibição; os atalhos vivem nos listeners).
+ * no rodapé, a barra de atalhos (só exibição; os atalhos vivem nos listeners)
+ * seguida do uso da máquina (RAM/CPU/Disk).
  *
  * Pontos de extensão:
  * - `entry`: aba ativa (ou null), repassada à barra superior
@@ -23,6 +24,7 @@ import { isMac } from "./platform";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SHORTCUTS } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
+import { SystemResources } from "./SystemResources";
 
 const IS_MAC = isMac();
 
@@ -116,6 +118,7 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
             {what}
           </span>
         ))}
+        <SystemResources />
       </footer>
       <ShortcutsDialog />
       <AboutDialog />

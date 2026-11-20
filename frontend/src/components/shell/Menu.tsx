@@ -56,7 +56,8 @@ export function Menu({ trigger, ariaLabel, items, testId, variant = "bar", align
   };
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
+    // Só consome o Esc com o menu aberto; fechado, ele segue para os ancestrais.
+    if (e.key === "Escape" && open) {
       e.preventDefault();
       e.stopPropagation();
       close(true);

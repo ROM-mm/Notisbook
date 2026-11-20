@@ -29,13 +29,6 @@ export const FolderIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const BucketIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M4 7a8 3 0 1 0 16 0a8 3 0 1 0 -16 0" />
-    <path d="M4 7l2 12a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2 -1.5l2 -12" />
-  </Svg>
-);
-
 export const NotebookIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-11a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1m3 0v18" />
