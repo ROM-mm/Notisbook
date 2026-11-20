@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Notisbook — Process anything. Locally.</title>
-<meta name="description" content="Local lakehouse notebooks for macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, a persistent catalog and an AWS Glue 5.0 runtime, all on 127.0.0.1.">
+<title>Notisbook — Data Workstation · Process anything. Locally.</title>
+<meta name="description" content="A Data Workstation from an alternate 1970s, for macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, a persistent catalog and an AWS Glue 5.0 runtime, all on 127.0.0.1.">
 <link rel="icon" href="assets/favicon-light.svg" media="(prefers-color-scheme: light)">
 <link rel="icon" href="assets/favicon-dark.svg" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="styles.css">
@@ -165,28 +165,28 @@
 <section id="how">
   <div class="wrap section">
     <div class="section-head">
-      <p class="eyebrow" data-i18n="how.eyebrow">From notebook to lakehouse</p>
-      <h2 data-i18n="how.title">Three steps from install to a governed table.</h2>
-      <p class="lead" data-i18n="how.lead">No cluster to provision and no cloud account to configure. Notisbook installs the engine, picks the JDK, starts the storage and registers what your cells create.</p>
+      <p class="eyebrow" data-i18n="how.eyebrow">SECTION 1 · OPERATING PROCEDURE</p>
+      <h2 data-i18n="how.title">Three steps from power-on to a cataloged table.</h2>
+      <p class="lead" data-i18n="how.lead">No cluster to provision and no cloud account to configure. No machine room either. Notisbook installs the engine, picks the JDK, starts the storage and registers what your cells create.</p>
     </div>
     <ol class="steps" style="list-style:none;margin:0;padding:0">
       <li class="step">
-        <span class="step-num"><b>01</b><span data-i18n="how.s1k">install</span></span>
-        <h3 data-i18n="how.s1t">Install with one line</h3>
-        <p data-i18n="how.s1p">The installer checks the sha256 of the wheel, the constraints file and the MinIO tarball before installing anything, then places the notislake on your machine.</p>
+        <span class="step-num"><b>01</b><span data-i18n="how.s1k">load</span></span>
+        <h3 data-i18n="how.s1t">Load the system with one line</h3>
+        <p data-i18n="how.s1p">The installer checks the sha256 of the wheel, the constraints file and the MinIO tarball before installing anything, like an operator verifying the tape. Then it places the notislake on your machine.</p>
         <div class="term"><pre><span class="prompt">$ </span>curl -LsSf …/install.sh | sh</pre></div>
       </li>
       <li class="step">
-        <span class="step-num"><b>02</b><span data-i18n="how.s2k">environment</span></span>
-        <h3 data-i18n="how.s2t">Create a Spark environment</h3>
-        <p data-i18n="how.s2p">Each Spark version gets its own isolated environment and kernel. Delta, Iceberg, Hudi and S3A jars are pinned per Spark line and verified by sha256; the JDK is selected for you.</p>
+        <span class="step-num"><b>02</b><span data-i18n="how.s2k">configure</span></span>
+        <h3 data-i18n="how.s2t">Mount a Spark environment</h3>
+        <p data-i18n="how.s2p">Each Spark version gets its own isolated environment and kernel, like a partition of its own. Delta, Iceberg, Hudi and S3A jars are pinned per Spark line and verified by sha256; the JDK is selected for you.</p>
         <div class="term"><pre><span class="c">prereqs › python › venv › install</span>
 <span class="c">› bundle › validate › kernelspec</span> <span class="ok">✓</span></pre></div>
       </li>
       <li class="step">
-        <span class="step-num"><b>03</b><span data-i18n="how.s3k">run</span></span>
-        <h3 data-i18n="how.s3t">Run cells, get cataloged tables</h3>
-        <p data-i18n="how.s3p">After each cell the catalog is reconciled: tables appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
+        <span class="step-num"><b>03</b><span data-i18n="how.s3k">run job</span></span>
+        <h3 data-i18n="how.s3t">Submit cells, get cataloged tables</h3>
+        <p data-i18n="how.s3p">After each cell the catalog is reconciled, like a batch job closing its log: tables appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
         <div class="term"><pre>.<span class="f">saveAsTable</span>(<span class="s">"bronze.orders"</span>)
 <span class="c">→ Catalog › spark_catalog › bronze</span></pre></div>
       </li>
@@ -197,9 +197,9 @@
 <section id="examples">
   <div class="wrap section">
     <div class="section-head">
-      <p class="eyebrow" data-i18n="ex.eyebrow">Examples</p>
-      <h2 data-i18n="ex.title">One notebook UI, every table format.</h2>
-      <p class="lead" data-i18n="ex.lead">The snippets below follow the sample notebooks seeded on the first run (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). Outputs are illustrative.</p>
+      <p class="eyebrow" data-i18n="ex.eyebrow">SECTION 2 · PROGRAM LIBRARY</p>
+      <h2 data-i18n="ex.title">One terminal, every table format.</h2>
+      <p class="lead" data-i18n="ex.lead">Programs from the library, taken from the sample notebooks seeded on the first run (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). Outputs are illustrative, like a printout.</p>
     </div>
 
     <div class="tablist" role="tablist" aria-label="Examples" data-i18n-aria="aria.examples">
@@ -429,8 +429,8 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
 <section id="features">
   <div class="wrap section">
     <div class="section-head">
-      <p class="eyebrow" data-i18n="ft.eyebrow">What's in the box</p>
-      <h2 data-i18n="ft.title">Everything a local lakehouse needs, already wired.</h2>
+      <p class="eyebrow" data-i18n="ft.eyebrow">SECTION 3 · SYSTEM INVENTORY</p>
+      <h2 data-i18n="ft.title">Everything the system needs, already wired. No cables.</h2>
     </div>
     <div class="features">
       <article class="feature hl">
@@ -471,7 +471,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">recent</span></div>
         <h3 data-i18n="ft.home.t">Recent notebooks</h3>
-        <p data-i18n="ft.home.p">The home screen lists your 5 most recently opened notebooks, so you pick up where you left off.</p>
+        <p data-i18n="ft.home.p">The home screen lists your 5 most recently opened notebooks, like the last jobs in the queue, so you pick up where you left off.</p>
       </article>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">3.5</span><span class="glyph">4.1</span><span class="glyph">JDK</span></div>
@@ -481,7 +481,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">uv pip</span></div>
         <h3 data-i18n="ft.lib.t">Library management</h3>
-        <p data-i18n="ft.lib.p">Install, upgrade and remove Python libraries in a Spark environment from the UI.</p>
+        <p data-i18n="ft.lib.p">Install, upgrade and remove Python libraries in a Spark environment from the UI, without leaving the terminal session.</p>
       </article>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">.py</span><span class="glyph">.ipynb</span><span class="glyph">.html</span></div>
@@ -496,7 +496,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     </div>
 
     <div class="matrix-wrap">
-      <p class="eyebrow" data-i18n="mx.eyebrow">Lakehouse bundle matrix</p>
+      <p class="eyebrow" data-i18n="mx.eyebrow">TABLE 3.1 · BUNDLE MATRIX</p>
       <div class="tbl-wrap">
         <table class="tbl">
           <thead><tr><th scope="col" data-i18n="mx.line">Spark line</th><th scope="col">Delta Lake</th><th scope="col">Iceberg runtime</th><th scope="col">Hudi bundle</th><th scope="col">Hadoop / S3A</th></tr></thead>
@@ -507,7 +507,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
           </tbody>
         </table>
       </div>
-      <p class="caption" data-i18n="mx.caption">Every jar is pinned with its sha256.</p>
+      <p class="caption" data-i18n="mx.caption">Every jar is pinned with its sha256 and checked before loading.</p>
     </div>
   </div>
 </section>
@@ -515,9 +515,9 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
 <section id="compare">
   <div class="wrap section">
     <div class="section-head">
-      <p class="eyebrow" data-i18n="cmp.eyebrow">Compare</p>
-      <h2 data-i18n="cmp.title">Why not just pip install pyspark?</h2>
-      <p class="lead" data-i18n="cmp.lead">You can assemble a local lakehouse by hand. Notisbook does the assembly for you and keeps it consistent.</p>
+      <p class="eyebrow" data-i18n="cmp.eyebrow">SECTION 4 · COMPATIBILITY TABLE</p>
+      <h2 data-i18n="cmp.title">Why not wire it up yourself with pip install pyspark?</h2>
+      <p class="lead" data-i18n="cmp.lead">You can assemble a local lakehouse stack by hand, as operators once did with cables and patience. Notisbook does the assembly for you and keeps it consistent.</p>
     </div>
     <div class="tbl-wrap">
       <table class="tbl">
@@ -539,8 +539,8 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
 <section id="install">
   <div class="wrap section">
     <div class="section-head">
-      <p class="eyebrow" data-i18n="in.eyebrow">Install</p>
-      <h2 data-i18n="in.title">Up and running in one command.</h2>
+      <p class="eyebrow" data-i18n="in.eyebrow">SECTION 5 · LOADING THE SYSTEM</p>
+      <h2 data-i18n="in.title">Boot sequence: one command.</h2>
     </div>
     <div class="install-grid">
       <div>
@@ -551,7 +551,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
           <p data-i18n="in.b1p">Run the same command again to update. Pin a release with <code>sh -s -- --version X.Y.Z</code> or <code>NOTISBOOK_VERSION=X.Y.Z</code>.</p>
         </div>
         <div class="install-block">
-          <h3 data-i18n="in.b2">2 · Start</h3>
+          <h3 data-i18n="in.b2">2 · Boot</h3>
           <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="notisbook" data-i18n="copy">Copy</button></div>
 <pre><span class="prompt">$ </span>notisbook</pre></div>
           <p data-i18n="in.b2p">Starts the backend on <code>http://127.0.0.1:8765</code>, prints the address with a per-startup token and opens your browser. The first run seeds the Delta, Hudi, Iceberg and Glue samples. To check the bundled notislake without starting a server, run <code>notisbook --check-notislake</code>.</p>
@@ -602,13 +602,13 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
 <section id="links">
   <div class="wrap section">
     <div class="section-head">
-      <p class="eyebrow" data-i18n="lk.eyebrow">Go further</p>
-      <h2 data-i18n="lk.title">Read the code. Ship your pipelines.</h2>
+      <p class="eyebrow" data-i18n="lk.eyebrow">SECTION 6 · FURTHER READING</p>
+      <h2 data-i18n="lk.title">Read the listing. Ship your pipelines.</h2>
     </div>
     <div class="links">
-      <a class="link-card" href="https://github.com/ROM-mm/Notisbook"><span class="lc-k">github</span><h3><span data-i18n="lk.1t">Source code</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.1p">Browse the repository, open issues and follow development.</p></a>
+      <a class="link-card" href="https://github.com/ROM-mm/Notisbook"><span class="lc-k">github</span><h3><span data-i18n="lk.1t">Source listing</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.1p">The full listing: browse the repository, open issues and follow development.</p></a>
       <a class="link-card" href="https://github.com/ROM-mm/Notisbook/releases"><span class="lc-k">releases</span><h3><span data-i18n="lk.2t">Releases</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.2p">Wheel, constraints, MinIO tarballs, SHA256SUMS and install.sh.</p></a>
-      <a class="link-card" href="https://github.com/ROM-mm/Notisbook/blob/main/CHANGELOG.md"><span class="lc-k">changelog</span><h3><span data-i18n="lk.4t">What's new</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.4p">Release notes for every version, starting at 0.1.0.</p></a>
+      <a class="link-card" href="https://github.com/ROM-mm/Notisbook/blob/main/CHANGELOG.md"><span class="lc-k">changelog</span><h3><span data-i18n="lk.4t">Revision history</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.4p">Release notes for every version, starting at 0.1.0.</p></a>
     </div>
   </div>
 </section>
@@ -622,7 +622,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
       <img class="brand-mark mark-dark" src="assets/favicon-dark.svg" alt="" width="24" height="24" style="width:24px;height:24px">
       <span class="wordmark">Notisbook</span>
     </a>
-    <span data-i18n="ft.foot">Apache 2.0 · macOS · Process anything. Locally.</span>
+    <span data-i18n="ft.foot">END OF MANUAL · Apache 2.0 · macOS · Process anything. Locally.</span>
   </div>
 </footer>
 
@@ -631,8 +631,8 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
   "use strict";
 
   var PT = {
-    "meta.title": "Notisbook — Lakehouse local para macOS · Process anything. Locally.",
-    "meta.desc": "Notebooks de lakehouse locais para macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, um catálogo persistente e um runtime AWS Glue 5.0, tudo em 127.0.0.1.",
+    "meta.title": "Notisbook — Data Workstation local para macOS · Process anything. Locally.",
+    "meta.desc": "Uma Data Workstation de uma linha do tempo alternativa dos anos 1970, para macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, um catálogo persistente e um runtime AWS Glue 5.0, tudo em 127.0.0.1.",
     "skip": "Pular para o conteúdo",
     "nav.how": "Como funciona", "nav.examples": "Exemplos", "nav.features": "Recursos", "nav.compare": "Comparativo", "nav.install": "Instalação",
     "theme": "Alternar tema de cores",
@@ -645,18 +645,18 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "hero.lead": "Como seria executar Apache Spark em um computador de 1970? O Notisbook é uma Data Workstation de uma linha do tempo alternativa, onde Spark, Glue, Delta Lake, Iceberg e Hudi já existem. Execute células Python, Spark SQL e DuckDB SQL sobre Spark com Delta Lake, Apache Iceberg e Apache Hudi, mantenha cada tabela em um catálogo persistente organizado em <code>bronze</code>, <code>silver</code> e <code>gold</code> e mude para um runtime AWS Glue 5.0 em Docker quando precisar. Tudo escuta em <code>127.0.0.1</code>.",
     "hero.cta1": "Começar agora", "hero.cta2": "Explorar o código",
     "hero.termcomment": "# abre http://127.0.0.1:8765/?token=&lt;token&gt; no navegador",
-    "how.eyebrow": "Do notebook ao lakehouse",
-    "how.title": "Três passos da instalação a uma tabela catalogada.",
-    "how.lead": "Sem cluster para provisionar e sem conta de nuvem para configurar. O Notisbook instala o motor, escolhe o JDK, inicia o armazenamento e registra o que suas células criam.",
-    "how.s1k": "instalar", "how.s1t": "Instale com uma linha",
-    "how.s1p": "O instalador confere o sha256 do wheel, do arquivo de constraints e do pacote do MinIO antes de instalar qualquer coisa e, em seguida, coloca o notislake na sua máquina.",
-    "how.s2k": "ambiente", "how.s2t": "Crie um ambiente Spark",
-    "how.s2p": "Cada versão do Spark tem seu próprio ambiente isolado e kernel. Os jars de Delta, Iceberg, Hudi e S3A são fixados por linha do Spark e verificados por sha256; o JDK é escolhido para você.",
-    "how.s3k": "executar", "how.s3t": "Execute células e obtenha tabelas catalogadas",
-    "how.s3p": "Após cada célula o catálogo é reconciliado: as tabelas aparecem no painel Catalog, com os arquivos em <code>s3a://notislake/&lt;camada&gt;/</code>. O schema define a camada.",
-    "ex.eyebrow": "Exemplos",
-    "ex.title": "Uma interface de notebook, todos os formatos de tabela.",
-    "ex.lead": "Os trechos abaixo seguem os notebooks de exemplo criados na primeira execução (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). As saídas são ilustrativas.",
+    "how.eyebrow": "SEÇÃO 1 · PROCEDIMENTO DE OPERAÇÃO",
+    "how.title": "Três passos do liga-desliga a uma tabela catalogada.",
+    "how.lead": "Sem cluster para provisionar e sem conta de nuvem para configurar. Nem sala de máquinas. O Notisbook instala o motor, escolhe o JDK, inicia o armazenamento e registra o que suas células criam.",
+    "how.s1k": "carregar", "how.s1t": "Carregue o sistema com uma linha",
+    "how.s1p": "O instalador confere o sha256 do wheel, do arquivo de constraints e do pacote do MinIO antes de instalar qualquer coisa, como um operador conferindo a fita. Em seguida, coloca o notislake na sua máquina.",
+    "how.s2k": "configurar", "how.s2t": "Monte um ambiente Spark",
+    "how.s2p": "Cada versão do Spark tem seu próprio ambiente isolado e kernel, como uma partição só dela. Os jars de Delta, Iceberg, Hudi e S3A são fixados por linha do Spark e verificados por sha256; o JDK é escolhido para você.",
+    "how.s3k": "rodar job", "how.s3t": "Submeta células e obtenha tabelas catalogadas",
+    "how.s3p": "Após cada célula o catálogo é reconciliado, como um job em lote fechando seu log: as tabelas aparecem no painel Catalog, com os arquivos em <code>s3a://notislake/&lt;camada&gt;/</code>. O schema define a camada.",
+    "ex.eyebrow": "SEÇÃO 2 · BIBLIOTECA DE PROGRAMAS",
+    "ex.title": "Um terminal, todos os formatos de tabela.",
+    "ex.lead": "Programas da biblioteca, extraídos dos notebooks de exemplo criados na primeira execução (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). As saídas são ilustrativas, como uma listagem impressa.",
     "ex.code": "Notebook", "ex.out": "Saída esperada",
     "ex.delta.intro": "Uma SparkSession com Delta Lake, uma tabela externa gravada na camada <code>bronze</code> e uma célula Spark SQL para consultá-la. O log de resolução do Ivy é substituído por um resumo curto dos pacotes.",
     "ex.delta.note": "Linhas <code>WARN</code> e <code>INFO</code> do Spark ficam fora da célula; linhas <code>ERROR</code> continuam aparecendo. A tabela aparece em <code>spark_catalog › bronze</code>.",
@@ -673,8 +673,8 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "ex.cat.f2": "<strong>Camadas garantidas.</strong> Tabelas gerenciadas ficam em <code>s3a://notislake/&lt;camada&gt;/&lt;tabela&gt;</code>. O schema define a camada, e uma gravação na camada errada falha antes de qualquer dado ser escrito.",
     "ex.cat.f3": "<strong>Schemas sem Spark.</strong> Navegue por catálogos e colunas e crie ou exclua schemas pela interface sem iniciar uma SparkSession.",
     "ex.cat.f4": "<strong>O mesmo catálogo no Docker.</strong> O container AWS Glue acessa o catálogo via <code>/api/runtime-catalog</code> e um catálogo Iceberg REST, autenticado por um token por sessão.",
-    "ft.eyebrow": "O que vem incluído",
-    "ft.title": "Tudo o que um lakehouse local precisa, já conectado.",
+    "ft.eyebrow": "SEÇÃO 3 · INVENTÁRIO DO SISTEMA",
+    "ft.title": "Tudo o que o sistema precisa, já conectado. Sem cabos.",
     "ft.cat.t": "Catálogo persistente",
     "ft.cat.p": "Tabelas Delta, Parquet e Hudi criadas pelos notebooks ficam em <code>catalog.db</code> (SQLite) e são listadas sem uma sessão Spark aberta. O Iceberg tem seu próprio catálogo <code>iceberg</code>, também servido via REST ao container do Glue.",
     "ft.fmt.t": "Delta, Iceberg e Hudi",
@@ -690,20 +690,20 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "ft.md.t": "Markdown, títulos e foco",
     "ft.md.p": "Combine células markdown com código, dê um título opcional a qualquer célula e pressione <kbd>⌘.</kbd> para entrar no modo foco, com os painéis laterais ocultos.",
     "ft.home.t": "Notebooks recentes",
-    "ft.home.p": "A tela inicial lista os 5 notebooks abertos mais recentemente, para você continuar de onde parou.",
+    "ft.home.p": "A tela inicial lista os 5 notebooks abertos mais recentemente, como os últimos jobs da fila, para você continuar de onde parou.",
     "ft.env.t": "Ambientes Spark versionados",
     "ft.env.p": "Cada versão do Spark é instalada em seu próprio ambiente (Python 3.12 via <code>uv</code>). O JDK é escolhido por linha: 17 para Spark 3.x, 21 ou 17 para Spark 4.x. Uma reinstalação com falha preserva a anterior.",
     "ft.lib.t": "Gestão de bibliotecas",
-    "ft.lib.p": "Instale, atualize e remova bibliotecas Python em um ambiente Spark pela interface.",
+    "ft.lib.p": "Instale, atualize e remova bibliotecas Python em um ambiente Spark pela interface, sem sair da sessão do terminal.",
     "ft.exp.t": "Exportação",
     "ft.exp.p": "Exporte notebooks para <code>.py</code> (Databricks notebook source), <code>.ipynb</code> e um relatório HTML sem JavaScript.",
     "ft.sec.t": "Somente local, por padrão",
     "ft.sec.p": "Bind fixo em loopback, token aleatório a cada inicialização, verificações de <code>Host</code>/<code>Origin</code> e CSP restritiva com saídas HTML sanitizadas.",
-    "mx.eyebrow": "Matriz de bundles do lakehouse", "mx.line": "Linha do Spark",
-    "mx.caption": "Cada jar é fixado com seu sha256.",
-    "cmp.eyebrow": "Comparativo",
-    "cmp.title": "Por que não apenas pip install pyspark?",
-    "cmp.lead": "Você pode montar um lakehouse local manualmente. O Notisbook faz essa montagem por você e a mantém consistente.",
+    "mx.eyebrow": "TABELA 3.1 · MATRIZ DE BUNDLES", "mx.line": "Linha do Spark",
+    "mx.caption": "Cada jar é fixado com seu sha256 e conferido antes de carregar.",
+    "cmp.eyebrow": "SEÇÃO 4 · TABELA DE COMPATIBILIDADE",
+    "cmp.title": "Por que não montar tudo à mão com pip install pyspark?",
+    "cmp.lead": "Você pode montar um lakehouse local manualmente, como os operadores faziam com cabos e paciência. O Notisbook faz essa montagem por você e a mantém consistente.",
     "cmp.c0": "Recurso", "cmp.c2": "Jupyter + pyspark manual", "cmp.c3": "Notebooks gerenciados na nuvem",
     "cmp.r1": "Jars de Delta, Iceberg e Hudi", "cmp.r1a": "Fixados por linha do Spark, verificados por sha256", "cmp.r1b": "Você resolve versões e downloads", "cmp.r1c": "Depende do provedor",
     "cmp.r2": "Catálogo de tabelas persistente", "cmp.r2a": "SQLite, visível sem sessão Spark", "cmp.r2b": "Você configura um metastore", "cmp.r2c": "Fornecido pela plataforma",
@@ -712,10 +712,10 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "cmp.r5": "JDK por versão do Spark", "cmp.r5a": "Selecionado e gravado no kernelspec", "cmp.r5b": "Gerenciado por você", "cmp.r5c": "Gerenciado pela plataforma",
     "cmp.r6": "Onde seus dados ficam", "cmp.r6a": "No seu Mac, em 127.0.0.1", "cmp.r6b": "Na sua máquina", "cmp.r6c": "Na nuvem do provedor",
     "cmp.caption": "Comparação qualitativa de configurações típicas; não descreve nenhum fornecedor específico.",
-    "in.eyebrow": "Instalação", "in.title": "Pronto para usar com um comando.",
+    "in.eyebrow": "SEÇÃO 5 · CARGA DO SISTEMA", "in.title": "Sequência de boot: um comando.",
     "in.b1": "1 · Instalar ou atualizar",
     "in.b1p": "Execute o mesmo comando novamente para atualizar. Fixe uma versão com <code>sh -s -- --version X.Y.Z</code> ou <code>NOTISBOOK_VERSION=X.Y.Z</code>.",
-    "in.b2": "2 · Iniciar",
+    "in.b2": "2 · Iniciar o boot",
     "in.b2p": "Inicia o backend em <code>http://127.0.0.1:8765</code>, exibe o endereço com um token por inicialização e abre o navegador. A primeira execução cria os exemplos Delta, Hudi, Iceberg e Glue. Para verificar o notislake incluído sem iniciar um servidor, execute <code>notisbook --check-notislake</code>.",
     "in.b3": "3 · Opcional: imagem base do AWS Glue",
     "in.b4": "Desinstalar", "in.b4p": "Remove o Notisbook e mantém seus dados em <code>~/.notisbook</code>.",
@@ -732,11 +732,11 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "in.o4": "Exibe a versão instalada",
     "in.o5": "Encerra a instância registrada na pasta de dados, seja qual for a versão, e sai",
     "in.o6": "Instala o MinIO incluído em uma pasta temporária, verifica e sai",
-    "lk.eyebrow": "Vá além", "lk.title": "Leia o código. Entregue seus pipelines.",
-    "lk.1t": "Código-fonte", "lk.1p": "Navegue pelo repositório, abra issues e acompanhe o desenvolvimento.",
+    "lk.eyebrow": "SEÇÃO 6 · LEITURA COMPLEMENTAR", "lk.title": "Leia a listagem. Entregue seus pipelines.",
+    "lk.1t": "Listagem do código-fonte", "lk.1p": "A listagem completa: navegue pelo repositório, abra issues e acompanhe o desenvolvimento.",
     "lk.2t": "Releases", "lk.2p": "Wheel, constraints, pacotes do MinIO, SHA256SUMS e install.sh.",
-    "lk.4t": "Novidades", "lk.4p": "Notas de versão de cada release, a partir da 0.1.0.",
-    "ft.foot": "Apache 2.0 · macOS · Process anything. Locally."
+    "lk.4t": "Histórico de revisões", "lk.4p": "Notas de versão de cada release, a partir da 0.1.0.",
+    "ft.foot": "FIM DO MANUAL · Apache 2.0 · macOS · Process anything. Locally."
   };
   var EN = {};
   var current = "en";
