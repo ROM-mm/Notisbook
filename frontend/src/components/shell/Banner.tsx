@@ -2,11 +2,12 @@
  * Barra superior única do shell: marca N + "notisbook" (botão que alterna os menus),
  * menus File/Edit/View/Run/Help/About revelados no hover/foco da marca ou do próprio
  * menu, por clique/Enter/Espaço na marca ou com um menu aberto; Esc ou clique fora
- * fecham. À direita: notebooks abertos lado a lado (quadradinho verde no ativo =
- * rota, cinza nos demais; não salvo em itálico; × no hover, clique do meio fecha;
- * "+" no fim), estado de salvamento, controles do kernel do notebook ativo
- * (seletor com estado, ▶, ■, ↻, ⋮) e os toggles das laterais esquerda (⌘B) e
- * direita (⌥⌘B) e do modo foco (⌘.).
+ * fecham. Logo depois da marca, à esquerda: notebooks abertos lado a lado
+ * (quadradinho verde no ativo = rota, cinza nos demais; não salvo em itálico; × no
+ * hover, clique do meio fecha; "+" no fim) — a menubar revelada pela marca se
+ * sobrepõe a essa lista enquanto visível. No canto direito: estado de salvamento,
+ * controles do kernel do notebook ativo (seletor com estado, ▶, ■, ↻, ⋮) e os
+ * toggles das laterais esquerda (⌘B) e direita (⌥⌘B) e do modo foco (⌘.).
  */
 import { type FocusEvent, type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { useStore } from "zustand";
@@ -116,7 +117,7 @@ function OpenNotebookInner({ path, active, entry }: { path: string; active: bool
   );
 }
 
-/** Notebooks abertos à direita da barra, antes dos controles do kernel; o "+" cria um notebook. */
+/** Notebooks abertos à esquerda da barra, logo após a marca; o "+" cria um notebook. */
 function OpenNotebooks({ entry }: { entry: NotebookEntry | null }) {
   const tabs = useWorkspace((s) => s.tabs);
   const active = useRouter((s) => activeNotebookPath(s.route));
@@ -210,8 +211,8 @@ export function Banner({ entry }: { entry: NotebookEntry | null }) {
   return (
     <header className={styles.banner} aria-label="Notisbook">
       <BrandMenu entry={entry} />
+      <OpenNotebooks entry={entry} />
       <div className={styles.actions}>
-        <OpenNotebooks entry={entry} />
         {entry ? (
           <NotebookProvider entry={entry}>
             <SaveState />

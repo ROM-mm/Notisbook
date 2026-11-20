@@ -1,7 +1,8 @@
 /**
  * Barra superior única (padrão do mock da landing): fina, fundo das laterais, linha
- * de 1px embaixo; marca em Comic Sans; menus revelados no hover/foco/clique da marca; à direita,
- * notebooks abertos, kernel e toggles. Só variáveis de tema.
+ * de 1px embaixo; marca em Comic Sans; menus revelados no hover/foco/clique da marca,
+ * sobrepostos à lista de notebooks abertos que vem logo depois dela; à direita,
+ * salvamento, kernel e toggles. Só variáveis de tema.
  */
 
 .banner {
@@ -20,9 +21,11 @@
 }
 
 /* Área da marca: envolve marca + menubar para o ponteiro ir de uma ao outro sem
-   o menu sumir. A menubar fica absoluta ao lado da marca e não reserva largura. */
+   o menu sumir. A menubar fica absoluta ao lado da marca e não reserva largura; o
+   z-index da área a empilha acima da lista de notebooks que vem depois. */
 .brandArea {
   position: relative;
+  z-index: 2;
   display: flex;
   flex: none;
   align-items: center;
@@ -57,14 +60,15 @@
 
 /* Menubar: revelada só pela área da marca — hover ou foco de teclado (:focus-visible,
    não o foco de clique) nela, salvo se dispensada; fixada por clique/teclado na
-   marca, ou com um menu aberto. Escondida, não recebe ponteiro. O overflow fica
-   visível para não cortar os dropdowns absolutos. */
+   marca, ou com um menu aberto. Visível, cobre provisoriamente a lista de notebooks
+   (fundo da barra, sem empurrá-la); escondida, não recebe ponteiro e os cliques
+   chegam à lista. O overflow fica visível para não cortar os dropdowns absolutos. */
 .menubar {
   position: absolute;
   top: 0;
   bottom: 0;
   left: 100%;
-  z-index: 1;
+  z-index: 3;
   display: flex;
   align-items: center;
   gap: 0;
@@ -106,11 +110,12 @@
   background: var(--color-bg-hover);
 }
 
-/* Notebooks abertos (à direita, antes do kernel): lado a lado, sem caixa, borda ou
-   sombra; a lista encolhe e rola na horizontal; o "+" fica fora do tablist. */
+/* Notebooks abertos (à esquerda, logo após a marca): lado a lado, sem caixa, borda
+   ou sombra; ocupam o espaço até o grupo da direita e encolhem antes dele (fator de
+   encolhimento alto), rolando na horizontal; o "+" fica fora do tablist. */
 .nbBar {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 1000 auto;
   align-items: center;
   gap: 2px;
   min-width: 0;
@@ -234,10 +239,11 @@
   white-space: nowrap;
 }
 
-/* Grupo da direita: ocupa o resto da barra, alinhado à direita e centralizado na vertical. */
+/* Grupo da direita (salvamento, kernel, toggles): empurrado ao canto direito,
+   centralizado na vertical; a lista de notebooks encolhe primeiro. */
 .actions {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   align-self: stretch;
   align-items: center;
   justify-content: flex-end;
