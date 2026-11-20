@@ -1,7 +1,7 @@
-/* Saídas de célula no padrão terminal: texto solto em fonte sans (erros em mono); erro só em cor de erro do tema. O .cellOut da célula dá o tracejado e o padding. */
+/* Saídas de célula no padrão terminal: stdout, tabelas e erros em VT323 (sem negrito sintetizado); erro só em cor de erro do tema. O .cellOut da célula dá o tracejado e o padding. */
 
 .area {
-  --font-sans: var(--font-content);
+  font-synthesis: none;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

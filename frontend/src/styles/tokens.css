@@ -18,8 +18,8 @@
   --font-head: var(--font-sans);
   --font-display: var(--font-sans);
   --font-script: var(--font-sans);
-  --font-mono: "Monocode", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-code: "Monocode", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: "VT323", "Monocode", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-code: "VT323", "Monocode", ui-monospace, SFMono-Regular, Menlo, monospace;
   --font-size-xs: 11px;
   --font-size-sm: 12.5px;
   --font-size-md: 14px;

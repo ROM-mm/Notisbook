@@ -204,7 +204,8 @@ kbd {
   white-space: nowrap;
 }
 
-/* O editor (CodeMirror + editorTheme.ts) mantém a fonte de conteúdo; saídas e markdown fazem o mesmo nos próprios módulos. */
+/* No editor, código usa VT323 (--font-code) sem negrito/itálico sintetizados; o override de --font-sans mantém o markdown-fonte em fonte de conteúdo. */
 .cm-editor {
   --font-sans: var(--font-content);
+  font-synthesis: none;
 }
