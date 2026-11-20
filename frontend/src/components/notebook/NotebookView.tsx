@@ -11,10 +11,12 @@
  *   Cmd/Ctrl+Enter executa/renderiza sem avançar; Esc → modo comando.
  * - Modo comando: Enter edita; ↑/K e ↓/J navegam; A/B inserem code acima/abaixo;
  *   M/Y convertem em markdown/código; D D exclui; Shift+Enter executa e avança.
+ * - Avançar (Shift+Enter) entra em edição na próxima célula de código abaixo,
+ *   pulando markdown; sem nenhuma, cria uma célula de código no fim.
  *
  * Pontos de extensão
  * - Execução: `onRunCell(cellId)` é chamado para células code em
- *   Shift+Enter / Cmd+Enter / botão ▶; `renderOutputs` e `renderFooter`
+ *   Shift+Enter / Cmd+Enter; `renderOutputs` e `renderFooter`
  *   preenchem os slots `outputs`/`footer` de cada célula.
  */
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef } from "react";
@@ -49,6 +51,11 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function blurActiveElement(): void {
   const el = document.activeElement;
   if (el instanceof HTMLElement) el.blur();
+}
+
+/** Próxima célula de código abaixo de `index`, pulando markdown; `undefined` se não houver. */
+function nextCodeCell(cells: EditorCell[], index: number): EditorCell | undefined {
+  return cells.slice(index + 1).find((c) => c.cell_type === "code");
 }
 
 /** Aviso quando não há renderizador de saídas: nada vindo do disco é perdido. */
@@ -96,9 +103,9 @@ export function NotebookView({ onRunCell, renderOutputs, renderFooter, banner }:
         nb.selectCell(id, "command");
         return;
       }
-      const next = nb.cells[index + 1];
-      if (next) nb.selectCell(next.id, "command");
-      else insertAndEdit(store, "below", id, "code");
+      const next = nextCodeCell(nb.cells, index);
+      if (next) nb.selectCell(next.id, "edit");
+      else insertAndEdit(store, "below", nb.cells[nb.cells.length - 1]?.id ?? id, "code");
     },
     [store],
   );

@@ -1,10 +1,11 @@
 /**
- * Uma célula do notebook (estilo terminal): cabeçalho (`CellHeader`:
- * ▶/■, linguagem e ações), faixa de fundo sem borda com o editor (markdown
- * fora de edição é renderizado como texto) e slots.
+ * Uma célula do notebook no padrão do mock (`site/styles.css`, `.cell`): moldura de
+ * 1px (mais forte na ativa), cabeçalho (`CellHeader`: nome da linguagem, status e
+ * ações), o editor (markdown fora de edição é renderizado como texto) e, abaixo de
+ * um tracejado, os slots.
  *
  * Slots (preenchidos pela NotebookView):
- * - `footer`: status do run, logo abaixo da faixa (`data-testid="cell-duration"`).
+ * - `footer`: status do run (`data-testid="cell-duration"`).
  * - `outputs`: saídas abaixo do status (renderizadores em components/outputs).
  */
 import { memo, type MouseEvent, type ReactNode, useEffect, useRef, useState } from "react";
@@ -17,7 +18,7 @@ import styles from "./Notebook.module.css";
 
 export interface CellProps {
   cell: EditorCell;
-  /** Posição 0-based (o cabeçalho mostra `index + 1`). */
+  /** Posição 0-based (usada para habilitar "Move up"). */
   index: number;
   isLast: boolean;
   active: boolean;
@@ -112,8 +113,6 @@ export const Cell = memo(function Cell({
         index={index}
         isLast={isLast}
         canRun={canRun}
-        markdownEditing={markdownEditing}
-        onRun={() => onRun(id, false)}
         titleEditing={titleEditing}
         setTitleEditing={setTitleEditing}
       />
@@ -153,8 +152,13 @@ export const Cell = memo(function Cell({
           </div>
         )}
 
-        {footer}
-        {hasOutputs && <div className={styles.outputBox}>{outputs}</div>}
+        {/* Rodapé e saídas abaixo do tracejado; `:empty` some quando o rodapé não renderiza nada. */}
+        {footer || hasOutputs ? (
+          <div className={styles.cellOut}>
+            {footer}
+            {hasOutputs && <div className={styles.outputBox}>{outputs}</div>}
+          </div>
+        ) : null}
       </div>
     </div>
   );

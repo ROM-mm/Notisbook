@@ -1,15 +1,17 @@
 /**
- * Cabeçalho da célula (estilo terminal): ▶, ■ (só enquanto a célula roda) e seletor de
- * linguagem à esquerda, título opcional (`metadata.title`) centralizado e menu ⋮ à direita
- * (título, tipo, mover, inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
+ * Cabeçalho da célula (padrão do mock em `site/styles.css`, `.cell-head`): à esquerda
+ * só o nome da linguagem (abre o seletor) ou `markdown`; título opcional
+ * (`metadata.title`) ao centro; à direita o status da última execução (✓/✗) e as ações
+ * ■ (só enquanto a célula roda) e ⋮ (título, tipo, mover, inserir, excluir), visíveis
+ * no hover ou na célula ativa. Executar é só pelo teclado (Shift+Enter / Cmd+Enter).
+ * O ■ chama o interrupt do kernel, que é global à sessão.
  */
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
 import { useKernel, useKernelStore, useNotebookStore } from "../../state/notebookContext";
 import { Menu, type MenuItem } from "../shell/Menu";
-import { MoreVerticalIcon, PlayFilledIcon, StopFilledIcon } from "../shell/icons";
+import { MoreVerticalIcon, StopFilledIcon } from "../shell/icons";
 import { insertAndEdit } from "./AddCellBar";
-import { CheckIcon } from "./icons";
 import styles from "./Notebook.module.css";
 
 export interface CellHeaderProps {
@@ -18,13 +20,11 @@ export interface CellHeaderProps {
   index: number;
   isLast: boolean;
   canRun: boolean;
-  markdownEditing: boolean;
-  onRun: () => void;
   titleEditing: boolean;
   setTitleEditing: (editing: boolean) => void;
 }
 
-const LANGUAGE_LABEL: Record<CellLanguage, string> = { python: "Python", sql: "Spark SQL", duckdb: "DuckDB SQL" };
+const LANGUAGE_LABEL: Record<CellLanguage, string> = { python: "python", sql: "spark sql", duckdb: "duckdb sql" };
 const LANGUAGES: CellLanguage[] = ["python", "sql", "duckdb"];
 
 function TitleInput({ initial, onDone }: { initial: string; onDone: (value: string | null) => void }) {
@@ -69,8 +69,6 @@ export function CellHeader({
   index,
   isLast,
   canRun,
-  markdownEditing,
-  onRun,
   titleEditing,
   setTitleEditing,
 }: CellHeaderProps) {
@@ -118,79 +116,56 @@ export function CellHeader({
       onSelect: () => nb().setCellLanguage(id, l),
     }));
 
-  let left = null;
-  if (isCode && canRun) {
-    left = (
-      <>
+  // Status da última execução: só aparece enquanto a célula guarda marca de execução
+  // (contagem ou saída `error`) — trocar a linguagem limpa essa marca e some com o status.
+  // Havendo run desta sessão, ele decide ok/erro; sem run, vale o que veio salvo.
+  const runStatus = useKernel((s) => s.runs[id]?.status);
+  let outcome: "ok" | "error" | null = null;
+  if (cell.cell_type === "code") {
+    const hasError = cell.outputs.some((o) => o.output_type === "error");
+    const executed = hasError || cell.execution_count !== null;
+    if (executed && (runStatus === "ok" || runStatus === "error")) outcome = runStatus;
+    else if (executed && runStatus === undefined) outcome = hasError ? "error" : "ok";
+  }
+
+  let label: ReactNode;
+  if (!isCode) {
+    label = <span className={styles.cellLabel}>markdown</span>;
+  } else {
+    let languageControl: ReactNode;
+    if (!canRun) {
+      languageControl = <span className={styles.cellLabel}>{LANGUAGE_LABEL[language]}</span>;
+    } else if (languageLocked) {
+      languageControl = (
         <button
           type="button"
-          className={styles.runBtn}
-          onClick={onRun}
-          onMouseDown={(e) => e.preventDefault()}
-          title="Run cell (Shift+Enter)"
-          aria-label="Run cell"
-          data-testid="cell-run"
+          className={styles.languageLocked}
+          disabled
+          title="Language locked while the cell is queued or running"
+          aria-label="Cell language"
+          data-testid="cell-language"
         >
-          <PlayFilledIcon size={12} />
+          {LANGUAGE_LABEL[language]}
         </button>
-        {running ? (
-          <button
-            type="button"
-            className={`${styles.runBtn} ${styles.stopBtn}`}
-            onClick={() => kernelStore.getState().interrupt()}
-            onMouseDown={(e) => e.preventDefault()}
-            title="Interrupt kernel"
-            aria-label="Interrupt kernel"
-            data-testid="cell-stop"
-          >
-            <StopFilledIcon size={12} />
-          </button>
-        ) : null}
-        <span className={styles.languageMenu}>
-          {languageLocked ? (
-            <button
-              type="button"
-              className={styles.languageLocked}
-              disabled
-              title="Language locked while the cell is queued or running"
-              aria-label="Cell language"
-              data-testid="cell-language"
-            >
-              {LANGUAGE_LABEL[language]}
-            </button>
-          ) : (
-            <Menu
-              trigger={LANGUAGE_LABEL[language]}
-              ariaLabel="Cell language"
-              title="Cell language"
-              variant="icon"
-              testId="cell-language"
-              items={languageItems}
-            />
-          )}
-        </span>
-      </>
-    );
-  } else if (cell.cell_type === "markdown" && markdownEditing) {
-    left = (
-      <button
-        type="button"
-        className={styles.runBtn}
-        onClick={onRun}
-        onMouseDown={(e) => e.preventDefault()}
-        title="Render (Shift+Enter)"
-        aria-label="Render markdown"
-      >
-        <CheckIcon />
-      </button>
-    );
+      );
+    } else {
+      languageControl = (
+        <Menu
+          trigger={LANGUAGE_LABEL[language]}
+          ariaLabel="Cell language"
+          title="Cell language"
+          variant="icon"
+          testId="cell-language"
+          items={languageItems}
+        />
+      );
+    }
+    label = <span className={styles.languageMenu}>{languageControl}</span>;
   }
 
   return (
     <div className={styles.cellHeader} data-cell-type={isCode ? language : "markdown"}>
-      <div className={styles.headerLeft}>
-        {left}
-      </div>
+      <div className={styles.headerLeft}>{label}</div>
       <div className={styles.headerCenter}>
         {titleEditing ? (
           <span className={styles.titleEditRow}>
@@ -220,15 +195,39 @@ export function CellHeader({
         )}
       </div>
       <div className={styles.headerRight}>
-        <Menu
-          trigger={<MoreVerticalIcon size={14} />}
-          ariaLabel="Cell actions"
-          title="Cell actions"
-          variant="icon"
-          align="right"
-          testId="cell-menu"
-          items={items}
-        />
+        {outcome === "ok" ? (
+          <span className={styles.statusOk} role="img" aria-label="Last run succeeded" data-testid="cell-status">
+            ✓
+          </span>
+        ) : outcome === "error" ? (
+          <span className={styles.statusError} role="img" aria-label="Last run failed" data-testid="cell-status">
+            ✗
+          </span>
+        ) : null}
+        <span className={styles.headerActions}>
+          {isCode && running ? (
+            <button
+              type="button"
+              className={`${styles.runBtn} ${styles.stopBtn}`}
+              onClick={() => kernelStore.getState().interrupt()}
+              onMouseDown={(e) => e.preventDefault()}
+              title="Interrupt kernel"
+              aria-label="Interrupt kernel"
+              data-testid="cell-stop"
+            >
+              <StopFilledIcon size={11} />
+            </button>
+          ) : null}
+          <Menu
+            trigger={<MoreVerticalIcon size={13} />}
+            ariaLabel="Cell actions"
+            title="Cell actions"
+            variant="icon"
+            align="right"
+            testId="cell-menu"
+            items={items}
+          />
+        </span>
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 /**
- * Status de execução por célula, solto sob a caixa de código: `✓ 1.02 s`,
- * `✗ Error`, etc. A duração (medida no frontend, envio do `execute` →
- * `execute_reply`) fica em `[data-testid="cell-duration"]`.
+ * Status de execução por célula, solto sob a caixa de código: com sucesso,
+ * só a duração (`1.02 s`; o sinal de ok fica no cabeçalho), `✗ Error`, etc.
+ * A duração (medida no frontend, envio do `execute` → `execute_reply`) fica
+ * em `[data-testid="cell-duration"]`.
  */
 import { memo, useEffect, useState } from "react";
 import { type CellRun, formatDuration } from "../../state/kernel";
@@ -29,10 +30,10 @@ const LABEL: Record<CellRun["status"], string> = {
   aborted: "Cancelled",
 };
 
-const GLYPH: Record<CellRun["status"], string> = {
+// Sem sinal para `ok`: o cabeçalho da célula já mostra o status de sucesso.
+const GLYPH: Partial<Record<CellRun["status"], string>> = {
   queued: "…",
   running: "…",
-  ok: "✓",
   error: "✗",
   aborted: "✗",
 };
@@ -49,15 +50,18 @@ export const CellRunFooter = memo(function CellRunFooter({ cellId }: { cellId: s
   const run = useKernel((s) => s.runs[cellId]);
   if (!run) return null;
   const { status } = run;
-  // Com sucesso e duração conhecida, o tempo substitui o rótulo ("✓ 1.02 s").
+  // Com sucesso e duração conhecida, o tempo substitui o rótulo ("1.02 s").
   const durationAsMain = status === "ok" && run.durationMs !== null;
+  const glyph = GLYPH[status];
 
   return (
     <div className={`${styles.runStatus} ${STATUS_CLASS[status]}`} data-testid="cell-footer" data-status={status}>
       <span className={styles.runMain}>
-        <span className={styles.runGlyph} aria-hidden="true">
-          {GLYPH[status]}
-        </span>
+        {glyph ? (
+          <span className={styles.runGlyph} aria-hidden="true">
+            {glyph}
+          </span>
+        ) : null}
         {durationAsMain ? <span data-testid="cell-duration">{formatDuration(run.durationMs ?? 0)}</span> : LABEL[status]}
       </span>
       {status === "running" && run.startedAt !== null ? (

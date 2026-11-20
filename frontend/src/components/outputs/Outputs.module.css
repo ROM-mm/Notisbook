@@ -1,4 +1,4 @@
-/* Saídas de célula no padrão terminal: texto solto em fonte sans (erros em mono); erro só em cor de erro do tema. O .outputBox da célula só dá o margin-top. */
+/* Saídas de célula no padrão terminal: texto solto em fonte sans (erros em mono); erro só em cor de erro do tema. O .cellOut da célula dá o tracejado e o padding. */
 
 .area {
   display: flex;

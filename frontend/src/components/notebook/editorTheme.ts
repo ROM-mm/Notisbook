@@ -33,16 +33,8 @@ const theme = EditorView.theme({
     caretColor: "transparent",
     color: "var(--sx-text, var(--color-text))",
   },
-  ".cm-gutters": {
-    fontFamily: "var(--font-code)",
-    backgroundColor: "transparent",
-    color: "var(--color-text-muted)",
-    border: "none",
-  },
-  // Gutter e linha ativa sem fundo próprio: o fundo da faixa da célula já destaca a linha.
-  ".cm-activeLine, .cm-activeLineGutter": { backgroundColor: "transparent" },
-  ".cm-activeLineGutter": { color: "var(--color-text)" },
-  ".cm-lineNumbers .cm-gutterElement": { padding: "0 var(--space-3) 0 var(--space-2)", fontSize: "12px" },
+  // Sem gutter (o editor não usa números de linha) e linha ativa sem fundo próprio.
+  ".cm-activeLine": { backgroundColor: "transparent" },
   ".cm-line": { padding: "0" },
   ".cm-dropCursor": { borderLeftColor: "var(--color-text)" },
   // Cursor de bloco (1ch) desenhado pelo `drawSelection`; translúcido porque a
