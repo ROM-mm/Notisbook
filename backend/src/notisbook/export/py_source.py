@@ -13,7 +13,7 @@ _MAGIC_LINE = re.compile(r"%%?[A-Za-z]")
 _CELL_MAGIC = re.compile(r"%%[A-Za-z]")
 _BLOCK_COMMENT =re.compile(r"/\*.*?\*/", re.DOTALL)
 _ECHO_CALL = re.compile(r"(?<![\w.])echo[ \t]*\(")
-_DEF_BEFORE = re.compile(r"\bdef\s+$")
+_DEF_BEFORE = re.compile(r"\bdef[ \t]+$")
 _N_KWARG = re.compile(r"n\s*=(?!=)")
 _CLOSERS = {"(": ")", "[": "]", "{": "}"}
 
@@ -93,6 +93,22 @@ def _call_args(text: str, start: int) -> tuple[list[str], int] | None:
     return None
 
 
+def _ends_in_comment(text: str) -> bool:
+    """True se o fim de `text` está dentro de um comentário `#` real (não um `#` dentro de string)."""
+    i = 0
+    while i < len(text):
+        if text[i] in "'\"":
+            i = _skip_string(text, i)
+        elif text[i] == "#":
+            end = text.find("\n", i)
+            if end == -1:
+                return True
+            i = end
+        else:
+            i += 1
+    return False
+
+
 def _drop_comment_lines(arg: str) -> str:
     return "\n".join(ln for ln in arg.split("\n") if not ln.lstrip().startswith("#"))
 
@@ -118,7 +134,7 @@ def _echo_to_display(source: str) -> str:
             args, end = parsed
             kept = [a for a in args if not _N_KWARG.match(_drop_comment_lines(a).strip())]
             body = ",".join(kept).rstrip()
-            if "#" in body.rsplit("\n", 1)[-1]:
+            if _ends_in_comment(body):
                 body += "\n"  # evita que o `)` fique dentro de um comentário final
             out.append(source[last:i] + "display(" + body + ")")
             i = last = end

@@ -175,19 +175,19 @@ def _duckdb_connection(ext_dir):
     return con
 
 def run_duckdb(payload, ext_dir):
-    display = original_display()
+    show = original_display()
     con = _duckdb_connection(json.loads(ext_dir))
     sql = json.loads(payload)
     stmts = con.extract_statements(sql)
     if not stmts:  # comment-only or blank cell
-        display({"text/plain": "OK"}, raw=True)
+        show({"text/plain": "OK"}, raw=True)
         return
     kind = stmts[-1].type.name
     rel = con.sql(sql)
     if rel is None or kind in DUCKDB_STATUS_STATEMENTS:
-        display({"text/plain": "OK"}, raw=True)
+        show({"text/plain": "OK"}, raw=True)
     else:
-        display(_build_duckdb(rel), raw=True)
+        show(_build_duckdb(rel), raw=True)
 
 def unwrap(func):
     while hasattr(func, "_notisbook_original"):
