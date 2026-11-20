@@ -14,3 +14,13 @@
   font-style: normal;
   font-display: swap;
 }
+
+/* VT323 (SIL OFL 1.1), fonte da UI. Só existe o peso 400 (negrito é sintetizado). O size-adjust aplica o ×1,4 só aos glifos da VT323: os tokens --font-size-* são compartilhados com código e saídas (Monocode) e ficam como estão. */
+@font-face {
+  font-family: "VT323";
+  src: url("./fonts/VT323-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  size-adjust: 140%;
+}

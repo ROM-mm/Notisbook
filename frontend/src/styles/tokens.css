@@ -2,7 +2,7 @@
  * Design tokens do Notisbook: tema terminal claro (linhas finas de 1px, sem
  * cartão nem raio; paleta neutra com acento azul; sombra só nos dropdowns). Os nomes
  * --color-* são a API principal; --yellow, --blue etc. são aliases legados
- * remapeados para tons neutros. Fontes empacotadas via @fontsource (main.tsx)
+ * remapeados para tons neutros. Fontes empacotadas (fonts.css e @fontsource em main.tsx)
  * — nada de CDN (CSP: default-src 'self').
  *
  * Tema: claro por padrão; escuro via `prefers-color-scheme: dark` (quando o
@@ -13,7 +13,7 @@
   color-scheme: light;
 
   /* Tipografia */
-  --font-sans: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "VT323", "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-head: var(--font-sans);
   --font-display: var(--font-sans);
   --font-script: var(--font-sans);
