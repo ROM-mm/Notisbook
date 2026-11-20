@@ -481,7 +481,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">uv pip</span></div>
         <h3 data-i18n="ft.lib.t">Library management</h3>
-        <p data-i18n="ft.lib.p">Install, upgrade and remove Python libraries in a Spark environment from the UI, without leaving the terminal session.</p>
+        <p data-i18n="ft.lib.p">Install, upgrade and remove Python libraries in a Spark environment from the UI, without leaving the notebook.</p>
       </article>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">.py</span><span class="glyph">.ipynb</span><span class="glyph">.html</span></div>
@@ -507,7 +507,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
           </tbody>
         </table>
       </div>
-      <p class="caption" data-i18n="mx.caption">Every jar is pinned with its sha256 and checked before loading.</p>
+      <p class="caption" data-i18n="mx.caption">Every jar is pinned with its sha256 and verified when downloaded.</p>
     </div>
   </div>
 </section>
@@ -641,8 +641,8 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "aria.figure": "Ilustração da interface do Notisbook com o painel Catalog",
     "copy": "Copiar", "copied": "Copiado",
     "hero.badge": "v0.4.0 · macOS · Apache 2.0",
-    "hero.title": "Uma Data Workstation de 1970. Rodando Spark.",
-    "hero.lead": "Como seria executar Apache Spark em um computador de 1970? O Notisbook é uma Data Workstation de uma linha do tempo alternativa, onde Spark, Glue, Delta Lake, Iceberg e Hudi já existem. Execute células Python, Spark SQL e DuckDB SQL sobre Spark com Delta Lake, Apache Iceberg e Apache Hudi, mantenha cada tabela em um catálogo persistente organizado em <code>bronze</code>, <code>silver</code> e <code>gold</code> e mude para um runtime AWS Glue 5.0 em Docker quando precisar. Tudo escuta em <code>127.0.0.1</code>.",
+    "hero.title": "Uma Data Workstation dos anos 1970. Rodando Spark.",
+    "hero.lead": "Como seria executar Apache Spark em um computador dos anos 1970? O Notisbook é uma Data Workstation de uma linha do tempo alternativa, onde Spark, Glue, Delta Lake, Iceberg e Hudi já existem. Execute células Python, Spark SQL e DuckDB SQL sobre Spark com Delta Lake, Apache Iceberg e Apache Hudi, mantenha cada tabela em um catálogo persistente organizado em <code>bronze</code>, <code>silver</code> e <code>gold</code> e mude para um runtime AWS Glue 5.0 em Docker quando precisar. Tudo escuta em <code>127.0.0.1</code>.",
     "hero.cta1": "Começar agora", "hero.cta2": "Explorar o código",
     "hero.termcomment": "# abre http://127.0.0.1:8765/?token=&lt;token&gt; no navegador",
     "how.eyebrow": "SEÇÃO 1 · PROCEDIMENTO DE OPERAÇÃO",
@@ -694,13 +694,13 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "ft.env.t": "Ambientes Spark versionados",
     "ft.env.p": "Cada versão do Spark é instalada em seu próprio ambiente (Python 3.12 via <code>uv</code>). O JDK é escolhido por linha: 17 para Spark 3.x, 21 ou 17 para Spark 4.x. Uma reinstalação com falha preserva a anterior.",
     "ft.lib.t": "Gestão de bibliotecas",
-    "ft.lib.p": "Instale, atualize e remova bibliotecas Python em um ambiente Spark pela interface, sem sair da sessão do terminal.",
+    "ft.lib.p": "Instale, atualize e remova bibliotecas Python em um ambiente Spark pela interface, sem sair do notebook.",
     "ft.exp.t": "Exportação",
     "ft.exp.p": "Exporte notebooks para <code>.py</code> (Databricks notebook source), <code>.ipynb</code> e um relatório HTML sem JavaScript.",
     "ft.sec.t": "Somente local, por padrão",
     "ft.sec.p": "Bind fixo em loopback, token aleatório a cada inicialização, verificações de <code>Host</code>/<code>Origin</code> e CSP restritiva com saídas HTML sanitizadas.",
     "mx.eyebrow": "TABELA 3.1 · MATRIZ DE BUNDLES", "mx.line": "Linha do Spark",
-    "mx.caption": "Cada jar é fixado com seu sha256 e conferido antes de carregar.",
+    "mx.caption": "Cada jar é fixado com seu sha256 e conferido no download.",
     "cmp.eyebrow": "SEÇÃO 4 · TABELA DE COMPATIBILIDADE",
     "cmp.title": "Por que não montar tudo à mão com pip install pyspark?",
     "cmp.lead": "Você pode montar um lakehouse local manualmente, como os operadores faziam com cabos e paciência. O Notisbook faz essa montagem por você e a mantém consistente.",
