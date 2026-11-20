@@ -96,9 +96,7 @@ export const Cell = memo(function Cell({
     nb.selectCell(id, "edit");
   };
 
-  const className = [styles.cell, active ? styles.cellActive : "", editMode ? styles.cellEditing : ""]
-    .filter(Boolean)
-    .join(" ");
+  const className = active ? `${styles.cell} ${styles.cellActive}` : styles.cell;
 
   return (
     <div

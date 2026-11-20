@@ -27,6 +27,13 @@
   overflow: auto;
   padding: 0 var(--space-6) var(--space-16);
   background-color: var(--color-bg);
+  /* Rola por roda/trackpad/teclado, sem barra visível. Só este contêiner:
+   * saídas e editores mantêm a própria barra. */
+  scrollbar-width: none;
+}
+
+.notebook::-webkit-scrollbar {
+  display: none;
 }
 
 /* Lista */
@@ -61,7 +68,7 @@
   color: var(--color-text-muted);
 }
 
-/* Barra de inserção "+ Code / + Markdown": linha fina, sempre visível. */
+/* Barra de inserção "Code / Markdown": linha fina, sempre visível. */
 .addBar {
   display: flex;
   align-items: center;
@@ -108,8 +115,12 @@
   color: var(--color-text);
 }
 
-.addBtn svg {
-  color: var(--color-accent-text);
+/* Mesmo quadradinho verde da lista de notebooks da barra superior. */
+.addMark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  background: var(--color-success);
 }
 
 .addBtn:focus-visible {
@@ -131,12 +142,6 @@
 .cellActive .codeBox,
 .cellActive .textBox {
   background: var(--color-cell-bg-active);
-}
-
-/* Em edição: fio de 2px no acento à esquerda da faixa. */
-.cellEditing .codeBox,
-.cellEditing .textBox {
-  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .cellHeader {

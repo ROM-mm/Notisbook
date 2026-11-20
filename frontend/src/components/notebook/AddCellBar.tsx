@@ -1,7 +1,6 @@
 /** Barra fina entre células para inserir code/markdown (sempre visível). */
 import { type EditableCellType, type InsertWhere, type NotebookStore } from "../../state/notebook";
 import { useNotebookStore } from "../../state/notebookContext";
-import { PlusIcon } from "../shell/icons";
 import styles from "./Notebook.module.css";
 
 export interface AddCellBarProps {
@@ -28,11 +27,21 @@ export function AddCellBar({ where, refId, persistent = false }: AddCellBarProps
   return (
     <div className={persistent ? `${styles.addBar} ${styles.addBarPersistent}` : styles.addBar}>
       <span className={styles.addLine} aria-hidden="true" />
-      <button type="button" className={styles.addBtn} onClick={() => insertAndEdit(store, where, refId, "code")}>
-        <PlusIcon size={12} /> Code
+      <button
+        type="button"
+        className={styles.addBtn}
+        aria-label="Add code cell"
+        onClick={() => insertAndEdit(store, where, refId, "code")}
+      >
+        <span className={styles.addMark} aria-hidden="true" /> Code
       </button>
-      <button type="button" className={styles.addBtn} onClick={() => insertAndEdit(store, where, refId, "markdown")}>
-        <PlusIcon size={12} /> Markdown
+      <button
+        type="button"
+        className={styles.addBtn}
+        aria-label="Add markdown cell"
+        onClick={() => insertAndEdit(store, where, refId, "markdown")}
+      >
+        <span className={styles.addMark} aria-hidden="true" /> Markdown
       </button>
       <span className={styles.addLine} aria-hidden="true" />
     </div>
