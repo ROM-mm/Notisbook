@@ -56,7 +56,14 @@ export async function refreshKernelspecs(): Promise<void> {
 async function start(entry: NotebookEntry): Promise<void> {
   await entry.notebook.getState().load();
   if (entries.get(entry.path) !== entry) return;
-  if (entry.notebook.getState().status !== "ready") return;
+  const { status, loadErrorStatus } = entry.notebook.getState();
+  if (status === "error" && loadErrorStatus === 404) {
+    // Notebook inexistente (ex.: recente apagado fora do app): sai dos recentes e a aba some.
+    useRecent.getState().remove(entry.path);
+    useWorkspace.getState().closeTab(entry.path);
+    return;
+  }
+  if (status !== "ready") return;
   // Só notebooks que carregaram entram nos recentes (caminho inexistente não polui a lista).
   useRecent.getState().touch(entry.path);
   void entry.kernel.getState().open();

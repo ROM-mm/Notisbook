@@ -11,14 +11,12 @@
  */
 import { lazy, Suspense, useEffect, useState } from "react";
 import { bootstrapAuth, errorMessage } from "./api";
-import { listDir } from "./api/contents";
-import { ApiError } from "./api/http";
 import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
 import { HomeBrandMark } from "./components/shell/icons";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
 import { SettingsPage } from "./components/settings/SettingsPage";
-import { dirname, joinPath, notebookTitle } from "./lib/paths";
+import { joinPath, notebookTitle } from "./lib/paths";
 import { useRecent } from "./state/recent";
 import { useFiles } from "./state/files";
 import { useNotebookTree } from "./state/notebookTree";
@@ -74,24 +72,6 @@ export function App() {
   }
 }
 
-/** Abre um recente após checar que o arquivo existe; se não existe mais, retira da lista. */
-async function openRecent(path: string): Promise<void> {
-  try {
-    const siblings = await listDir(dirname(path));
-    if (!siblings.some((e) => e.path === path && e.type === "notebook")) {
-      useRecent.getState().remove(path);
-      return;
-    }
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
-      useRecent.getState().remove(path);
-      return;
-    }
-    throw err;
-  }
-  openNotebook(path);
-}
-
 /** `embedded`: dentro do `<main>` do AppShell (evita `<main>` aninhado). */
 function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
   const Root = embedded ? "div" : "main";
@@ -130,7 +110,7 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
                 title={fullPath}
                 onClick={() => {
                   setError(null);
-                  void openRecent(path).catch((err: unknown) => setError(errorMessage(err)));
+                  openNotebook(path);
                 }}
               >
                 <span className={shellStyles.homeRecentName}>{notebookTitle(path)}</span>

@@ -150,6 +150,8 @@ export interface NotebookState extends NotebookDocument {
   path: string;
   status: LoadStatus;
   loadError: string | null;
+  /** Status HTTP da falha de carregamento (null se não houve resposta HTTP ou sem erro). */
+  loadErrorStatus: number | null;
 
   /** Célula selecionada e modo de teclado (estilo Jupyter). */
   activeId: string | null;
@@ -267,6 +269,7 @@ const INITIAL = {
   ...EMPTY_DOC,
   status: "idle" as LoadStatus,
   loadError: null,
+  loadErrorStatus: null as number | null,
   activeId: null,
   mode: "command" as EditorMode,
   editingMarkdown: {},
@@ -320,7 +323,11 @@ export function createNotebookStore(path: string): NotebookStore {
           set({ ...doc, status: "ready", activeId: doc.cells[0]?.id ?? null });
         } catch (err) {
           if (token !== loadToken) return;
-          set({ status: "error", loadError: errorMessage(err) });
+          set({
+            status: "error",
+            loadError: errorMessage(err),
+            loadErrorStatus: err instanceof ApiError ? err.status : null,
+          });
         }
       },
 
