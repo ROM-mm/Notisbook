@@ -2,7 +2,7 @@
  * Roteamento mínimo por History API (sem biblioteca). A rota define o
  * conteúdo da área principal:
  *   /                      → início (nenhum notebook ativo)
- *   /tree/<dir>            → início com o painel Notebooks expandido até <dir>
+ *   /tree/<dir>            → início; a árvore de Notebooks é expandida até <dir> (abertura direta e Browse)
  *   /notebooks/<path>      → aba do notebook <path> ativa (abre a aba se preciso)
  *   /settings              → Settings (gestão do Spark); `/spark` é alias legado
  * Em produção o FastAPI devolve index.html para essas rotas (fallback SPA).

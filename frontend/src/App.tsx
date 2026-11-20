@@ -21,6 +21,7 @@ import { SettingsPage } from "./components/settings/SettingsPage";
 import { dirname, joinPath, notebookTitle } from "./lib/paths";
 import { useRecent } from "./state/recent";
 import { useFiles } from "./state/files";
+import { useNotebookTree } from "./state/notebookTree";
 import { openNotebook, type Route, useRouter } from "./state/router";
 import { useSystemResources } from "./state/systemResources";
 import { createUntitledNotebook, getEntry, useWorkspace } from "./state/workspace";
@@ -142,7 +143,7 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
           })}
         </ul>
       ) : null}
-      <button type="button" className={shellStyles.homeBrowse} onClick={() => useWorkspace.getState().startBrowsing()}>
+      <button type="button" className={shellStyles.homeBrowse} onClick={() => useWorkspace.getState().startBrowsing(dir)}>
         Browse notebooks…
       </button>
       {error ? <p role="alert">{error}</p> : null}
@@ -159,6 +160,12 @@ function Workspace({ route }: { route: Route }) {
   useEffect(() => {
     if (route.view === "notebook") ensureTab(route.path);
   }, [route, ensureTab]);
+
+  // Abertura direta em `/tree/<dir>`: deixa a árvore expandida até `<dir>` (só no carregamento).
+  useEffect(() => {
+    const initial = useRouter.getState().route;
+    if (initial.view === "files" && initial.dir) useNotebookTree.getState().expandTo(initial.dir);
+  }, []);
 
   // `browsing` só vale na rota `files`; ao sair dela, não pode ficar preso.
   useEffect(() => {

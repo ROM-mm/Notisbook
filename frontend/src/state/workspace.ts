@@ -89,8 +89,8 @@ interface WorkspaceState {
   setLeftOpen: (open: boolean) => void;
   toggleRight: () => void;
   setRightOpen: (open: boolean) => void;
-  /** Abre o AppShell com o painel Notebooks, sem notebook aberto. */
-  startBrowsing: () => void;
+  /** Abre o AppShell com o painel Notebooks, sem notebook aberto; com `dir`, expande a árvore até ele. */
+  startBrowsing: (dir?: string) => void;
   toggleFocusMode: () => void;
   /** Busca a raiz uma vez; semeia a geração só se ainda desconhecida (não mascara troca feita noutra janela). */
   loadRoot: () => Promise<void>;
@@ -163,7 +163,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     ),
   setRightOpen: (open) =>
     set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false, browsing: false }),
-  startBrowsing: () => set({ browsing: true, rightOpen: true, focusMode: false }),
+  startBrowsing: (dir) => {
+    if (dir) useNotebookTree.getState().expandTo(dir);
+    set({ browsing: true, rightOpen: true, focusMode: false });
+  },
   // Ligar o foco encerra o Browse: sem abas, o centro ficaria vazio com as laterais ocultas.
   toggleFocusMode: () => set((s) => (s.focusMode ? { focusMode: false } : { focusMode: true, browsing: false })),
   loadRoot: async () => {
