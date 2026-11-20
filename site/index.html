@@ -1,0 +1,802 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Notisbook — Process anything. Locally.</title>
+<meta name="description" content="Local lakehouse notebooks for macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, a persistent catalog and an AWS Glue 5.0 runtime, all on 127.0.0.1.">
+<link rel="icon" href="assets/favicon-light.svg" media="(prefers-color-scheme: light)">
+<link rel="icon" href="assets/favicon-dark.svg" media="(prefers-color-scheme: dark)">
+<link rel="stylesheet" href="styles.css">
+<script>
+  /* aplica o tema salvo antes da pintura, para evitar flash */
+  try { var t = localStorage.getItem("nb-theme"); if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t); } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="skip">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Notisbook">
+      <img class="brand-mark mark-light" src="assets/favicon-light.svg" alt="" width="30" height="30">
+      <img class="brand-mark mark-dark" src="assets/favicon-dark.svg" alt="" width="30" height="30">
+      <span class="wordmark">Notisbook</span>
+    </a>
+    <nav class="nav" aria-label="Main" data-i18n-aria="aria.main">
+      <a href="#how" data-i18n="nav.how">How it works</a>
+      <a href="#examples" data-i18n="nav.examples">Examples</a>
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#compare" data-i18n="nav.compare">Compare</a>
+      <a href="#install" data-i18n="nav.install">Install</a>
+    </nav>
+    <div class="header-tools">
+      <div class="lang-switch" role="group" aria-label="Language" data-i18n-aria="aria.lang">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="pt" aria-pressed="false">PT</button>
+      </div>
+      <button type="button" class="icon-btn" id="theme-toggle" aria-label="Toggle color theme" data-i18n-aria="theme">
+        <svg class="theme-icon-light" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3"/></svg>
+        <svg class="theme-icon-dark" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z"/></svg>
+      </button>
+      <a class="icon-btn" href="https://github.com/ROM-mm/Notisbook" aria-label="Notisbook on GitHub" data-i18n-aria="aria.github">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span class="gh-label">GitHub</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="hero-badge"><span class="dot" aria-hidden="true"></span><span data-i18n="hero.badge">v0.3.0 · macOS · Apache 2.0</span></span>
+      <h1>
+        <span data-i18n="hero.title">A full lakehouse in your notebook.</span>
+        <span class="slogan"><mark>Process anything. Locally.</mark></span>
+      </h1>
+      <p class="lead" data-i18n="hero.lead">Run Python, Spark SQL and DuckDB SQL cells on Spark with Delta Lake, Apache Iceberg and Apache Hudi, keep every table in a persistent catalog organized in <code>bronze</code>, <code>silver</code> and <code>gold</code>, and switch to an AWS Glue 5.0 runtime in Docker when you need it. Everything listens on <code>127.0.0.1</code>.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#install" data-i18n="hero.cta1">Get started</a>
+        <a class="btn btn-ghost" href="https://github.com/ROM-mm/Notisbook" data-i18n="hero.cta2">Explore the code</a>
+      </div>
+      <div class="term">
+        <div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh&#10;notisbook" data-i18n="copy">Copy</button></div>
+<pre><span class="prompt">$ </span>curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh
+<span class="prompt">$ </span>notisbook
+<span class="c" data-i18n="hero.termcomment"># opens http://127.0.0.1:8765/?token=&lt;token&gt; in your browser</span></pre>
+      </div>
+      <div class="stack-strip" aria-label="Supported technologies" data-i18n-aria="aria.stack">
+        <span class="chip"><img src="assets/icons/spark.png" alt="">Apache Spark</span>
+        <span class="chip"><img src="assets/icons/delta.png" alt="">Delta Lake</span>
+        <span class="chip"><img src="assets/icons/iceberg.png" alt="">Apache Iceberg</span>
+        <span class="chip"><img src="assets/icons/hudi.png" alt="">Apache Hudi</span>
+        <span class="chip"><img src="assets/icons/s3.png" alt="">S3A · MinIO</span>
+      </div>
+    </div>
+
+    <figure class="app" style="margin:0" aria-label="Illustration of the Notisbook interface with the Catalog panel" data-i18n-aria="aria.figure">
+      <div class="app-top">
+        <img src="assets/favicon-light.svg" alt="" width="18" height="18" class="mark-light">
+        <img src="assets/favicon-dark.svg" alt="" width="18" height="18" class="mark-dark">
+        <span class="wordmark">notisbook</span>
+        <span class="kernel"><span class="dot" aria-hidden="true"></span>delta.ipynb</span>
+      </div>
+      <div class="app-body">
+        <aside class="app-side">
+          <div class="side-title"><span>Catalog</span></div>
+          <ul class="tree">
+            <li><span><span class="caret">▾</span><img src="assets/icons/spark.png" alt="Spark">spark_catalog</span>
+              <ul>
+                <li><span><span class="caret">▾</span><span class="fold" aria-hidden="true"></span>bronze <span class="layer">layer</span></span>
+                  <ul>
+                    <li class="sel"><span><img src="assets/icons/delta.png" alt="Delta">delta_employees</span></li>
+                    <li><span><img src="assets/icons/hudi.png" alt="Hudi">hudi_employees</span></li>
+                    <li><span><img src="assets/icons/delta.png" alt="Delta">glue_employees</span></li>
+                  </ul>
+                </li>
+                <li><span><span class="caret">▸</span><span class="fold" aria-hidden="true"></span>silver <span class="layer">layer</span></span></li>
+                <li><span><span class="caret">▸</span><span class="fold" aria-hidden="true"></span>gold <span class="layer">layer</span></span></li>
+              </ul>
+            </li>
+            <li><span><span class="caret">▾</span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg</span>
+              <ul>
+                <li><span><span class="caret">▾</span><span class="fold" aria-hidden="true"></span>bronze</span>
+                  <ul><li><span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg_employees</span></li></ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <div class="side-sep"></div>
+          <div class="side-title"><span>notislake</span><span class="ok">● 127.0.0.1</span></div>
+          <ul class="tree">
+            <li><span><span class="caret">▾</span><img src="assets/icons/s3.png" alt="S3">s3a://notislake</span>
+              <ul>
+                <li><span><span class="fold" aria-hidden="true"></span>bronze/</span></li>
+                <li><span><span class="fold" aria-hidden="true"></span>silver/</span></li>
+                <li><span><span class="fold" aria-hidden="true"></span>gold/</span></li>
+                <li><span class="muted"><span class="fold" aria-hidden="true"></span>landing/</span></li>
+              </ul>
+            </li>
+          </ul>
+        </aside>
+        <div class="app-main">
+          <div class="cell">
+            <div class="cell-head"><span>[3] python</span><span class="ok">✓</span></div>
+<pre>(
+    df.write
+    .<span class="f">format</span>(<span class="s">"delta"</span>)
+    .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/delta_employees_files"</span>)
+    .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
+    .<span class="f">saveAsTable</span>(<span class="s">"bronze.delta_employees"</span>)
+)</pre>
+          </div>
+          <div class="cell active">
+            <div class="cell-head"><span>[4] spark sql</span><span class="ok">✓</span></div>
+<pre><span class="k">select</span> * <span class="k">from</span> bronze.delta_employees</pre>
+            <div class="out-table-wrap cell-out" style="padding:0">
+              <table style="border-collapse:collapse;width:100%;font-size:11.5px">
+                <tr><th style="text-align:left;padding:4px 12px;border-bottom:1px solid var(--color-border);font-weight:500">id</th><th style="text-align:left;padding:4px 12px;border-bottom:1px solid var(--color-border);font-weight:500">nome</th><th style="text-align:left;padding:4px 12px;border-bottom:1px solid var(--color-border);font-weight:500">area</th></tr>
+                <tr><td style="padding:3px 12px">1</td><td style="padding:3px 12px">Ana</td><td style="padding:3px 12px">Dados</td></tr>
+                <tr><td style="padding:3px 12px">2</td><td style="padding:3px 12px">Bruno</td><td style="padding:3px 12px">Plataforma</td></tr>
+                <tr><td style="padding:3px 12px">3</td><td style="padding:3px 12px">Carla</td><td style="padding:3px 12px">Segurança</td></tr>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </figure>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="how.eyebrow">From notebook to lakehouse</p>
+      <h2 data-i18n="how.title">Three steps from install to a governed table.</h2>
+      <p class="lead" data-i18n="how.lead">No cluster to provision and no cloud account to configure. Notisbook installs the engine, picks the JDK, starts the storage and registers what your cells create.</p>
+    </div>
+    <ol class="steps" style="list-style:none;margin:0;padding:0">
+      <li class="step">
+        <span class="step-num"><b>01</b><span data-i18n="how.s1k">install</span></span>
+        <h3 data-i18n="how.s1t">Install with one line</h3>
+        <p data-i18n="how.s1p">The installer checks the sha256 of the wheel, the constraints file and the MinIO tarball before installing anything, then places the notislake on your machine.</p>
+        <div class="term"><pre><span class="prompt">$ </span>curl -LsSf …/install.sh | sh</pre></div>
+      </li>
+      <li class="step">
+        <span class="step-num"><b>02</b><span data-i18n="how.s2k">environment</span></span>
+        <h3 data-i18n="how.s2t">Create a Spark environment</h3>
+        <p data-i18n="how.s2p">Each Spark version gets its own isolated environment and kernel. Delta, Iceberg, Hudi and S3A jars are pinned per Spark line and verified by sha256; the JDK is selected for you.</p>
+        <div class="term"><pre><span class="c">prereqs › python › venv › install</span>
+<span class="c">› bundle › validate › kernelspec</span> <span class="ok">✓</span></pre></div>
+      </li>
+      <li class="step">
+        <span class="step-num"><b>03</b><span data-i18n="how.s3k">run</span></span>
+        <h3 data-i18n="how.s3t">Run cells, get cataloged tables</h3>
+        <p data-i18n="how.s3p">After each cell the catalog is reconciled: tables appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
+        <div class="term"><pre>.<span class="f">saveAsTable</span>(<span class="s">"bronze.orders"</span>)
+<span class="c">→ Catalog › spark_catalog › bronze</span></pre></div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section id="examples">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="ex.eyebrow">Examples</p>
+      <h2 data-i18n="ex.title">One notebook UI, every table format.</h2>
+      <p class="lead" data-i18n="ex.lead">The snippets below follow the sample notebooks seeded on the first run (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). Outputs are illustrative.</p>
+    </div>
+
+    <div class="tablist" role="tablist" aria-label="Examples" data-i18n-aria="aria.examples">
+      <button class="tab" role="tab" id="tab-delta" aria-controls="panel-delta" aria-selected="true"><img src="assets/icons/delta.png" alt="">Spark + Delta</button>
+      <button class="tab" role="tab" id="tab-iceberg" aria-controls="panel-iceberg" aria-selected="false" tabindex="-1"><img src="assets/icons/iceberg.png" alt="">Iceberg</button>
+      <button class="tab" role="tab" id="tab-hudi" aria-controls="panel-hudi" aria-selected="false" tabindex="-1"><img src="assets/icons/hudi.png" alt="">Hudi</button>
+      <button class="tab" role="tab" id="tab-glue" aria-controls="panel-glue" aria-selected="false" tabindex="-1"><span class="glyph" aria-hidden="true" style="font-size:10.5px;padding:0 4px">AWS</span>Glue 5.0</button>
+      <button class="tab" role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false" tabindex="-1"><img src="assets/icons/spark.png" alt="">Catalog</button>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-delta" aria-labelledby="tab-delta" tabindex="0">
+      <p class="panel-intro" data-i18n="ex.delta.intro">A SparkSession with Delta Lake, an external table written to the <code>bronze</code> layer and a Spark SQL cell to query it. The Ivy resolution log is replaced by a short package summary.</p>
+      <div class="panel-grid">
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <div class="cell"><div class="cell-head"><span>[1] python</span><span>Spark 3.5</span></div>
+<pre><span class="k">from</span> delta <span class="k">import</span> configure_spark_with_delta_pip
+<span class="k">from</span> pyspark.sql <span class="k">import</span> SparkSession
+
+builder = (
+    SparkSession.builder
+    .<span class="f">appName</span>(<span class="s">"SparkDelta"</span>)
+    .<span class="f">master</span>(<span class="s">"local[4]"</span>)
+    .<span class="f">config</span>(<span class="s">"spark.sql.extensions"</span>, <span class="s">"io.delta.sql.DeltaSparkSessionExtension"</span>)
+    .<span class="f">config</span>(<span class="s">"spark.sql.catalog.spark_catalog"</span>, <span class="s">"org.apache.spark.sql.delta.catalog.DeltaCatalog"</span>)
+)
+spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span class="f">getOrCreate</span>()</pre></div>
+          <div class="cell"><div class="cell-head"><span>[2] python</span></div>
+<pre>(
+    df.write
+    .<span class="f">format</span>(<span class="s">"delta"</span>)
+    .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/delta_employees_files"</span>)
+    .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
+    .<span class="f">saveAsTable</span>(<span class="s">"bronze.delta_employees"</span>)
+)</pre></div>
+          <div class="cell"><div class="cell-head"><span>[3] spark sql</span></div>
+<pre><span class="k">select</span> * <span class="k">from</span> bronze.delta_employees</pre></div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <div class="out"><div class="out-head"><span>[1]</span></div>
+            <div class="pkg">
+              <div class="pkg-title"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2 5l6-3 6 3v6l-6 3-6-3V5Zm0 0 6 3 6-3M8 8v6"/></svg>Pacotes Spark</div>
+              <div class="pkg-line">io.delta:delta-spark_2.12:3.3.3 <span class="src">central</span></div>
+            </div>
+          </div>
+          <div class="out"><div class="out-head"><span>[3]</span><span>3 rows</span></div>
+            <div class="out-table-wrap"><table>
+              <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
+              <tbody><tr><td>1</td><td>Ana</td><td>Dados</td></tr><tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr><tr><td>3</td><td>Carla</td><td>Segurança</td></tr></tbody>
+            </table></div>
+          </div>
+          <p class="note" data-i18n="ex.delta.note">Spark <code>WARN</code> and <code>INFO</code> lines stay out of the cell; <code>ERROR</code> lines still show. The table appears under <code>spark_catalog › bronze</code>.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-iceberg" aria-labelledby="tab-iceberg" tabindex="0" hidden>
+      <p class="panel-intro" data-i18n="ex.iceberg.intro">Iceberg tables live in a separate <code>iceberg</code> catalog, backed by a JDBC catalog on the same local SQLite file, with data in the notislake.</p>
+      <div class="panel-grid">
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <div class="cell"><div class="cell-head"><span>[1] python</span><span>Spark 3.5</span></div>
+<pre>spark = (
+    SparkSession.builder
+    .<span class="f">appName</span>(<span class="s">"SparkIceberg"</span>)
+    .<span class="f">config</span>(<span class="s">"spark.sql.extensions"</span>,
+            <span class="s">"org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"</span>)
+    .<span class="f">config</span>(<span class="s">"spark.sql.catalog.iceberg"</span>, <span class="s">"org.apache.iceberg.spark.SparkCatalog"</span>)
+    .<span class="f">getOrCreate</span>()
+)</pre></div>
+          <div class="cell"><div class="cell-head"><span>[2] spark sql</span></div>
+<pre><span class="k">CREATE NAMESPACE IF NOT EXISTS</span> iceberg.bronze</pre></div>
+          <div class="cell"><div class="cell-head"><span>[3] python</span></div>
+<pre>(
+    df.<span class="f">writeTo</span>(<span class="s">"iceberg.bronze.iceberg_employees"</span>)
+    .<span class="f">tableProperty</span>(<span class="s">"location"</span>, <span class="s">"s3a://notislake/bronze/iceberg_employees_files"</span>)
+    .<span class="f">createOrReplace</span>()
+)</pre></div>
+          <div class="cell"><div class="cell-head"><span>[4] spark sql</span></div>
+<pre><span class="k">SELECT</span> * <span class="k">FROM</span> iceberg.bronze.iceberg_employees</pre></div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <div class="out"><div class="out-head"><span>[4]</span><span>3 rows</span></div>
+            <div class="out-table-wrap"><table>
+              <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
+              <tbody><tr><td>1</td><td>Ana</td><td>Dados</td></tr><tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr><tr><td>3</td><td>Carla</td><td>Segurança</td></tr></tbody>
+            </table></div>
+          </div>
+          <div class="out"><div class="out-head"><span>Catalog</span></div>
+<pre><img src="assets/icons/iceberg.png" alt="" width="14" height="14" style="display:inline;vertical-align:-2px"> iceberg
+ └─ bronze
+     └─ iceberg_employees</pre></div>
+          <p class="note" data-i18n="ex.iceberg.note"><code>createOrReplace</code> lets the cell run again without errors.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-hudi" aria-labelledby="tab-hudi" tabindex="0" hidden>
+      <p class="panel-intro" data-i18n="ex.hudi.intro">The Hudi bundle ships with every Spark line. Write a keyed external table to <code>bronze</code> and query it from Spark SQL.</p>
+      <div class="panel-grid">
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <div class="cell"><div class="cell-head"><span>[1] python</span><span>Spark 3.5</span></div>
+<pre>spark = (
+    SparkSession.builder
+    .<span class="f">config</span>(<span class="s">"spark.sql.shuffle.partitions"</span>, <span class="s">"4"</span>)
+    .<span class="f">config</span>(<span class="s">"spark.sql.session.timeZone"</span>, <span class="s">"UTC"</span>)
+    .<span class="f">getOrCreate</span>()
+)</pre></div>
+          <div class="cell"><div class="cell-head"><span>[2] python</span></div>
+<pre>(
+    df.write.<span class="f">format</span>(<span class="s">"hudi"</span>)
+    .<span class="f">option</span>(<span class="s">"hoodie.datasource.write.recordkey.field"</span>, <span class="s">"id"</span>)
+    .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/hudi_employees_files"</span>)
+    .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
+    .<span class="f">saveAsTable</span>(<span class="s">"bronze.hudi_employees"</span>)
+)</pre></div>
+          <div class="cell"><div class="cell-head"><span>[3] spark sql</span></div>
+<pre><span class="k">select</span> * <span class="k">from</span> bronze.hudi_employees</pre></div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <div class="out"><div class="out-head"><span>[3]</span><span>3 rows</span></div>
+            <div class="out-table-wrap"><table>
+              <thead><tr><th>_hoodie_* …</th><th>id</th><th>nome</th><th>area</th></tr></thead>
+              <tbody><tr><td>…</td><td>1</td><td>Ana</td><td>Dados</td></tr><tr><td>…</td><td>2</td><td>Bruno</td><td>Plataforma</td></tr><tr><td>…</td><td>3</td><td>Carla</td><td>Segurança</td></tr></tbody>
+            </table></div>
+          </div>
+          <p class="note" data-i18n="ex.hudi.note">Hudi bundle 1.2.1 is pinned for Spark 3.5 and 4.1 and verified by sha256.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-glue" aria-labelledby="tab-glue" tabindex="0" hidden>
+      <p class="panel-intro" data-i18n="ex.glue.intro">Pick the <strong>AWS Glue 5.0</strong> kernel and the same notebook runs inside a local Docker container (Spark 3.5, Python 3.11, Java 17), with Delta and Iceberg. The container reaches the catalog only through the backend API.</p>
+      <div class="panel-grid">
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <div class="cell"><div class="cell-head"><span>[1] python</span><span>AWS Glue 5.0 · Docker</span></div>
+<pre><span class="k">from</span> awsglue.context <span class="k">import</span> GlueContext
+<span class="k">from</span> pyspark.context <span class="k">import</span> SparkContext
+
+glueContext = <span class="f">GlueContext</span>(SparkContext.<span class="f">getOrCreate</span>())
+spark = glueContext.spark_session</pre></div>
+          <div class="cell"><div class="cell-head"><span>[2] python</span></div>
+<pre>data = [
+    (<span class="n">1</span>, <span class="s">"Ana"</span>, <span class="s">"Dados"</span>),
+    (<span class="n">2</span>, <span class="s">"Bruno"</span>, <span class="s">"Plataforma"</span>),
+    (<span class="n">3</span>, <span class="s">"Carla"</span>, <span class="s">"Segurança"</span>),
+]
+df = spark.<span class="f">createDataFrame</span>(data, [<span class="s">"id"</span>, <span class="s">"nome"</span>, <span class="s">"area"</span>])
+df.<span class="f">show</span>()</pre></div>
+          <div class="cell"><div class="cell-head"><span>[3] python</span></div>
+<pre>(
+    df.write
+    .<span class="f">format</span>(<span class="s">"delta"</span>)
+    .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/glue_employees_files"</span>)
+    .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
+    .<span class="f">saveAsTable</span>(<span class="s">"bronze.glue_employees"</span>)
+)</pre></div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <div class="out"><div class="out-head"><span>[2]</span><span>stdout</span></div>
+<pre>+---+-----+----------+
+| id| nome|      area|
++---+-----+----------+
+|  1|  Ana|     Dados|
+|  2|Bruno|Plataforma|
+|  3|Carla| Segurança|
++---+-----+----------+</pre></div>
+          <div class="out"><div class="out-head"><span data-i18n="ex.glue.rt">Runtime install</span><span>Settings</span></div>
+<pre><span class="c">docker › image › container › validate › kernelspec</span> <span class="ok">✓</span></pre></div>
+          <p class="note" data-i18n="ex.glue.note">The image is built once from Settings on top of <code>public.ecr.aws/glue/aws-glue-libs:5</code> (pinned by digest) and needs about 15 GiB of free disk space.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-catalog" aria-labelledby="tab-catalog" tabindex="0" hidden>
+      <p class="panel-intro" data-i18n="ex.cat.intro">The catalog outlives your Spark sessions. Tables are registered in a local SQLite file and shown in the Catalog panel even when no kernel is running.</p>
+      <div class="panel-grid">
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.cat.tree">Catalog panel</p>
+          <div class="out" style="padding:10px 0">
+            <ul class="tree">
+              <li><span><span class="caret">▾</span><img src="assets/icons/spark.png" alt="Spark">spark_catalog</span>
+                <ul>
+                  <li><span><span class="caret">▾</span><span class="fold" aria-hidden="true"></span>bronze</span>
+                    <ul>
+                      <li><span><img src="assets/icons/delta.png" alt="Delta">delta_employees</span></li>
+                      <li><span><img src="assets/icons/hudi.png" alt="Hudi">hudi_employees</span></li>
+                      <li><span><img src="assets/icons/delta.png" alt="Delta">glue_employees</span></li>
+                    </ul>
+                  </li>
+                  <li><span><span class="caret">▸</span><span class="fold" aria-hidden="true"></span>silver</span></li>
+                  <li><span><span class="caret">▸</span><span class="fold" aria-hidden="true"></span>gold</span></li>
+                </ul>
+              </li>
+              <li><span><span class="caret">▾</span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg</span>
+                <ul><li><span><span class="caret">▾</span><span class="fold" aria-hidden="true"></span>bronze</span>
+                  <ul><li><span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg_employees</span></li></ul></li></ul>
+              </li>
+            </ul>
+          </div>
+          <div class="out"><div class="out-head"><span>~/.notisbook</span></div>
+<pre>catalog.db        <span class="c"># nb_* registry + iceberg_* (JDBC catalog)</span>
+notebooks/        <span class="c"># default notebooks folder</span>
+envs/             <span class="c"># spark-&lt;version&gt;-&lt;id&gt;/</span>
+minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.cat.how">How it works</p>
+          <ul class="facts">
+            <li data-i18n="ex.cat.f1"><strong>Reconciled after every cell.</strong> A catalog hook records table creations, changes, renames and deletions, and picks up writes made by other kernels before the next cell.</li>
+            <li data-i18n="ex.cat.f2"><strong>Layers enforced.</strong> Managed tables live at <code>s3a://notislake/&lt;layer&gt;/&lt;table&gt;</code>. The schema decides the layer, and a write to the wrong layer fails before any data is written.</li>
+            <li data-i18n="ex.cat.f3"><strong>Schemas without Spark.</strong> Browse catalogs and columns, and create or delete schemas from the UI without starting a SparkSession.</li>
+            <li data-i18n="ex.cat.f4"><strong>Same catalog in Docker.</strong> The AWS Glue container reaches the catalog through <code>/api/runtime-catalog</code> and an Iceberg REST catalog, authenticated by a per-session token.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="ft.eyebrow">What's in the box</p>
+      <h2 data-i18n="ft.title">Everything a local lakehouse needs, already wired.</h2>
+    </div>
+    <div class="features">
+      <article class="feature hl">
+        <div class="feature-icons"><img src="assets/icons/spark.png" alt="Spark"><img src="assets/icons/parquet.png" alt="Parquet"></div>
+        <h3 data-i18n="ft.cat.t">Persistent catalog</h3>
+        <p data-i18n="ft.cat.p">Tables created by notebooks are kept in <code>catalog.db</code> (SQLite) and listed without an open Spark session. Iceberg has its own <code>iceberg</code> catalog.</p>
+      </article>
+      <article class="feature hl">
+        <div class="feature-icons"><img src="assets/icons/delta.png" alt="Delta Lake"><img src="assets/icons/iceberg.png" alt="Apache Iceberg"><img src="assets/icons/hudi.png" alt="Apache Hudi"></div>
+        <h3 data-i18n="ft.fmt.t">Delta, Iceberg and Hudi</h3>
+        <p data-i18n="ft.fmt.p">A bundle matrix per Spark line (3.5 and 4.1) pins the Delta Lake, Iceberg, Hudi and Hadoop/S3A jars, each verified by sha256.</p>
+      </article>
+      <article class="feature hl">
+        <div class="feature-icons"><span class="glyph">AWS Glue 5.0</span></div>
+        <h3 data-i18n="ft.glue.t">AWS Glue runtime in Docker</h3>
+        <p data-i18n="ft.glue.p">Optional kernel on the AWS Glue 5.0 image: Spark 3.5, Python 3.11, Java 17, with Delta and Iceberg, running in a persistent local container.</p>
+      </article>
+      <article class="feature">
+        <div class="feature-icons"><img src="assets/icons/s3.png" alt="S3"></div>
+        <h3 data-i18n="ft.lake.t">notislake</h3>
+        <p data-i18n="ft.lake.p">A local MinIO, started and supervised by Notisbook, serves the <code>notislake</code> bucket with <code>bronze</code>, <code>silver</code> and <code>gold</code> layers over <code>s3a://</code>. A manual S3 endpoint can be used instead.</p>
+      </article>
+      <article class="feature">
+        <div class="feature-icons"><span class="glyph">py</span><span class="glyph">sql</span><span class="glyph">duckdb</span></div>
+        <h3 data-i18n="ft.cells.t">Python, Spark SQL and DuckDB</h3>
+        <p data-i18n="ft.cells.p">Edit <code>.ipynb</code> notebooks in the browser and run Python, Spark SQL and DuckDB SQL cells in Jupyter kernels.</p>
+      </article>
+      <article class="feature">
+        <div class="feature-icons"><span class="glyph">3.5</span><span class="glyph">4.1</span><span class="glyph">JDK</span></div>
+        <h3 data-i18n="ft.env.t">Versioned Spark environments</h3>
+        <p data-i18n="ft.env.p">Each Spark version is installed in its own environment (Python 3.12 via <code>uv</code>). The JDK is picked per line: 17 for Spark 3.x, 21 or 17 for Spark 4.x. A failed reinstall keeps the previous one.</p>
+      </article>
+      <article class="feature">
+        <div class="feature-icons"><span class="glyph">uv pip</span></div>
+        <h3 data-i18n="ft.lib.t">Library management</h3>
+        <p data-i18n="ft.lib.p">Install, upgrade and remove Python libraries in a Spark environment from the UI.</p>
+      </article>
+      <article class="feature">
+        <div class="feature-icons"><span class="glyph">.py</span><span class="glyph">.ipynb</span><span class="glyph">.html</span></div>
+        <h3 data-i18n="ft.exp.t">Export</h3>
+        <p data-i18n="ft.exp.p">Export notebooks to <code>.py</code> (Databricks notebook source), <code>.ipynb</code> and an HTML report without JavaScript.</p>
+      </article>
+      <article class="feature">
+        <div class="feature-icons"><span class="glyph">127.0.0.1</span></div>
+        <h3 data-i18n="ft.sec.t">Local-only by design</h3>
+        <p data-i18n="ft.sec.p">Fixed loopback bind, a random token per startup, <code>Host</code>/<code>Origin</code> checks and a strict CSP with sanitized HTML outputs.</p>
+      </article>
+    </div>
+
+    <div class="matrix-wrap">
+      <p class="eyebrow" data-i18n="mx.eyebrow">Lakehouse bundle matrix</p>
+      <div class="tbl-wrap">
+        <table class="tbl">
+          <thead><tr><th scope="col" data-i18n="mx.line">Spark line</th><th scope="col">Delta Lake</th><th scope="col">Iceberg runtime</th><th scope="col">Hudi bundle</th><th scope="col">Hadoop / S3A</th></tr></thead>
+          <tbody>
+            <tr><th scope="row" class="mono">3.5.0 – 3.5.2</th><td class="mono">3.2.0 (Scala 2.12)</td><td class="mono">1.10.1</td><td class="mono">1.2.1</td><td class="mono">3.3.4</td></tr>
+            <tr><th scope="row" class="mono">3.5</th><td class="mono">3.3.3 (Scala 2.12)</td><td class="mono">1.10.1</td><td class="mono">1.2.1</td><td class="mono">3.3.4</td></tr>
+            <tr><th scope="row" class="mono">4.1</th><td class="mono">4.1.0 (Scala 2.13)</td><td class="mono">1.12.0</td><td class="mono">1.2.1</td><td class="mono">3.4.2</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption" data-i18n="mx.caption">Every jar is pinned with its sha256.</p>
+    </div>
+  </div>
+</section>
+
+<section id="compare">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="cmp.eyebrow">Compare</p>
+      <h2 data-i18n="cmp.title">Why not just pip install pyspark?</h2>
+      <p class="lead" data-i18n="cmp.lead">You can assemble a local lakehouse by hand. Notisbook does the assembly for you and keeps it consistent.</p>
+    </div>
+    <div class="tbl-wrap">
+      <table class="tbl">
+        <thead><tr><th scope="col" data-i18n="cmp.c0">Capability</th><th scope="col" class="us">Notisbook</th><th scope="col" data-i18n="cmp.c2">Jupyter + pyspark by hand</th><th scope="col" data-i18n="cmp.c3">Managed cloud notebooks</th></tr></thead>
+        <tbody>
+          <tr><th scope="row" data-i18n="cmp.r1">Delta, Iceberg and Hudi jars</th><td class="us"><span class="yes" data-i18n="cmp.r1a">Pinned per Spark line, sha256-verified</span></td><td class="part" data-i18n="cmp.r1b">You resolve versions and downloads</td><td class="part" data-i18n="cmp.r1c">Depends on the provider</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r2">Persistent table catalog</th><td class="us"><span class="yes" data-i18n="cmp.r2a">SQLite, visible without a Spark session</span></td><td class="part" data-i18n="cmp.r2b">You configure a metastore</td><td class="part" data-i18n="cmp.r2c">Provided by the platform</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r3">S3-compatible storage</th><td class="us"><span class="yes" data-i18n="cmp.r3a">Local MinIO with bronze / silver / gold</span></td><td class="part" data-i18n="cmp.r3b">You install and configure it</td><td class="part" data-i18n="cmp.r3c">Cloud storage, billed</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r4">AWS Glue 5.0 runtime</th><td class="us"><span class="yes" data-i18n="cmp.r4a">Local Docker kernel, same catalog</span></td><td class="part" data-i18n="cmp.r4b">Manual container setup</td><td class="part" data-i18n="cmp.r4c">Remote jobs</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r5">JDK per Spark version</th><td class="us"><span class="yes" data-i18n="cmp.r5a">Selected and written to the kernelspec</span></td><td class="part" data-i18n="cmp.r5b">Managed by you</td><td class="part" data-i18n="cmp.r5c">Managed by the platform</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r6">Where your data lives</th><td class="us"><span class="yes" data-i18n="cmp.r6a">Your Mac, on 127.0.0.1</span></td><td class="part" data-i18n="cmp.r6b">Your machine</td><td class="part" data-i18n="cmp.r6c">The provider's cloud</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="caption" data-i18n="cmp.caption">Qualitative comparison of typical setups; it does not describe any specific vendor.</p>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="in.eyebrow">Install</p>
+      <h2 data-i18n="in.title">Up and running in one command.</h2>
+    </div>
+    <div class="install-grid">
+      <div>
+        <div class="install-block">
+          <h3 data-i18n="in.b1">1 · Install or update</h3>
+          <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh" data-i18n="copy">Copy</button></div>
+<pre><span class="prompt">$ </span>curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh</pre></div>
+          <p data-i18n="in.b1p">Run the same command again to update. Pin a release with <code>sh -s -- --version X.Y.Z</code>.</p>
+        </div>
+        <div class="install-block">
+          <h3 data-i18n="in.b2">2 · Start</h3>
+          <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="notisbook" data-i18n="copy">Copy</button></div>
+<pre><span class="prompt">$ </span>notisbook</pre></div>
+          <p data-i18n="in.b2p">Starts the backend on <code>http://127.0.0.1:8765</code>, prints the address with a per-startup token and opens your browser. The first run seeds the Delta, Hudi, Iceberg and Glue samples.</p>
+        </div>
+        <div class="install-block">
+          <h3 data-i18n="in.b3">3 · Optional: AWS Glue base image</h3>
+          <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="docker pull public.ecr.aws/glue/aws-glue-libs:5@sha256:a54bd25fb72c55a2f28d07656a3cda943a042f345cc25f4c2c170667be864f01" data-i18n="copy">Copy</button></div>
+<pre><span class="prompt">$ </span>docker pull public.ecr.aws/glue/aws-glue-libs:5@sha256:a54bd25fb72c55a2f28d07656a3cda943a042f345cc25f4c2c170667be864f01</pre></div>
+        </div>
+        <div class="install-block">
+          <h3 data-i18n="in.b4">Uninstall</h3>
+          <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh -s -- --uninstall" data-i18n="copy">Copy</button></div>
+<pre><span class="prompt">$ </span>curl -LsSf …/install.sh | sh -s -- --uninstall</pre></div>
+          <p data-i18n="in.b4p">Removes Notisbook and keeps your data in <code>~/.notisbook</code>.</p>
+        </div>
+      </div>
+      <div>
+        <div class="req">
+          <h3 data-i18n="in.req">Requirements</h3>
+          <ul>
+            <li data-i18n="in.r1">macOS on Apple silicon or Intel.</li>
+            <li data-i18n="in.r2"><code>curl</code> (or <code>wget</code>), <code>awk</code> and <code>shasum</code>.</li>
+            <li data-i18n="in.r3"><code>uv</code> 0.8.4 or newer (installed automatically if missing).</li>
+            <li data-i18n="in.r4">JDK 17 for Spark 3.x; JDK 21 (or 17) for Spark 4.x.</li>
+            <li data-i18n="in.r5">For the Glue runtime: Docker (for example via Colima) and about 15 GiB of free disk.</li>
+          </ul>
+        </div>
+        <div class="opts">
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th scope="col" data-i18n="in.opt">Option</th><th scope="col" data-i18n="in.eff">Effect</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">--port N</td><td data-i18n="in.o1">HTTP port on 127.0.0.1 (default 8765)</td></tr>
+                <tr><td class="mono">--root DIR</td><td data-i18n="in.o2">Pins the notebooks folder for this run</td></tr>
+                <tr><td class="mono">--no-browser</td><td data-i18n="in.o3">Does not open the browser</td></tr>
+                <tr><td class="mono">--version</td><td data-i18n="in.o4">Prints the installed version</td></tr>
+                <tr><td class="mono">--stop-running</td><td data-i18n="in.o5">Stops the running instance and exits</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="links">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="lk.eyebrow">Go further</p>
+      <h2 data-i18n="lk.title">Read the code. Ship your pipelines.</h2>
+    </div>
+    <div class="links">
+      <a class="link-card" href="https://github.com/ROM-mm/Notisbook"><span class="lc-k">github</span><h3><span data-i18n="lk.1t">Source code</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.1p">Browse the repository, open issues and follow development.</p></a>
+      <a class="link-card" href="https://github.com/ROM-mm/Notisbook/releases"><span class="lc-k">releases</span><h3><span data-i18n="lk.2t">Releases</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.2p">Wheel, constraints, MinIO tarballs, SHA256SUMS and install.sh.</p></a>
+      <a class="link-card" href="https://github.com/ROM-mm/Notisbook/blob/main/CHANGELOG.md"><span class="lc-k">changelog</span><h3><span data-i18n="lk.4t">What's new</span><span aria-hidden="true">↗</span></h3><p data-i18n="lk.4p">Release notes for every version, starting at 0.1.0.</p></a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Notisbook">
+      <img class="brand-mark mark-light" src="assets/favicon-light.svg" alt="" width="24" height="24" style="width:24px;height:24px">
+      <img class="brand-mark mark-dark" src="assets/favicon-dark.svg" alt="" width="24" height="24" style="width:24px;height:24px">
+      <span class="wordmark">Notisbook</span>
+    </a>
+    <span data-i18n="ft.foot">Apache 2.0 · macOS · Process anything. Locally.</span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var PT = {
+    "skip": "Pular para o conteúdo",
+    "nav.how": "Como funciona", "nav.examples": "Exemplos", "nav.features": "Recursos", "nav.compare": "Comparativo", "nav.install": "Instalação",
+    "theme": "Alternar tema de cores",
+    "aria.main": "Principal", "aria.lang": "Idioma", "aria.github": "Notisbook no GitHub",
+    "aria.stack": "Tecnologias suportadas", "aria.examples": "Exemplos",
+    "aria.figure": "Ilustração da interface do Notisbook com o painel Catalog",
+    "copy": "Copiar", "copied": "Copiado",
+    "hero.badge": "v0.3.0 · macOS · Apache 2.0",
+    "hero.title": "Um lakehouse completo no seu notebook.",
+    "hero.lead": "Execute células Python, Spark SQL e DuckDB SQL sobre Spark com Delta Lake, Apache Iceberg e Apache Hudi, mantenha cada tabela em um catálogo persistente organizado em <code>bronze</code>, <code>silver</code> e <code>gold</code> e mude para um runtime AWS Glue 5.0 em Docker quando precisar. Tudo escuta em <code>127.0.0.1</code>.",
+    "hero.cta1": "Começar agora", "hero.cta2": "Explorar o código",
+    "hero.termcomment": "# abre http://127.0.0.1:8765/?token=&lt;token&gt; no navegador",
+    "how.eyebrow": "Do notebook ao lakehouse",
+    "how.title": "Três passos da instalação a uma tabela catalogada.",
+    "how.lead": "Sem cluster para provisionar e sem conta de nuvem para configurar. O Notisbook instala o motor, escolhe o JDK, inicia o armazenamento e registra o que suas células criam.",
+    "how.s1k": "instalar", "how.s1t": "Instale com uma linha",
+    "how.s1p": "O instalador confere o sha256 do wheel, do arquivo de constraints e do pacote do MinIO antes de instalar qualquer coisa e, em seguida, coloca o notislake na sua máquina.",
+    "how.s2k": "ambiente", "how.s2t": "Crie um ambiente Spark",
+    "how.s2p": "Cada versão do Spark tem seu próprio ambiente isolado e kernel. Os jars de Delta, Iceberg, Hudi e S3A são fixados por linha do Spark e verificados por sha256; o JDK é escolhido para você.",
+    "how.s3k": "executar", "how.s3t": "Execute células e obtenha tabelas catalogadas",
+    "how.s3p": "Após cada célula o catálogo é reconciliado: as tabelas aparecem no painel Catalog, com os arquivos em <code>s3a://notislake/&lt;camada&gt;/</code>. O schema define a camada.",
+    "ex.eyebrow": "Exemplos",
+    "ex.title": "Uma interface de notebook, todos os formatos de tabela.",
+    "ex.lead": "Os trechos abaixo seguem os notebooks de exemplo criados na primeira execução (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). As saídas são ilustrativas.",
+    "ex.code": "Notebook", "ex.out": "Saída esperada",
+    "ex.delta.intro": "Uma SparkSession com Delta Lake, uma tabela externa gravada na camada <code>bronze</code> e uma célula Spark SQL para consultá-la. O log de resolução do Ivy é substituído por um resumo curto dos pacotes.",
+    "ex.delta.note": "Linhas <code>WARN</code> e <code>INFO</code> do Spark ficam fora da célula; linhas <code>ERROR</code> continuam aparecendo. A tabela aparece em <code>spark_catalog › bronze</code>.",
+    "ex.iceberg.intro": "Tabelas Iceberg ficam em um catálogo <code>iceberg</code> separado, apoiado em um catálogo JDBC no mesmo arquivo SQLite local, com os dados no notislake.",
+    "ex.iceberg.note": "<code>createOrReplace</code> permite reexecutar a célula sem erros.",
+    "ex.hudi.intro": "O bundle do Hudi acompanha todas as linhas do Spark. Grave uma tabela externa com chave na camada <code>bronze</code> e consulte-a pelo Spark SQL.",
+    "ex.hudi.note": "O bundle Hudi 1.2.1 é fixado para Spark 3.5 e 4.1 e verificado por sha256.",
+    "ex.glue.intro": "Escolha o kernel <strong>AWS Glue 5.0</strong> e o mesmo notebook roda dentro de um container Docker local (Spark 3.5, Python 3.11, Java 17), com Delta e Iceberg. O container acessa o catálogo somente pela API do backend.",
+    "ex.glue.rt": "Instalação do runtime",
+    "ex.glue.note": "A imagem é construída uma única vez em Settings, sobre <code>public.ecr.aws/glue/aws-glue-libs:5</code> (fixada por digest), e precisa de cerca de 15 GiB livres em disco.",
+    "ex.cat.intro": "O catálogo sobrevive às sessões Spark. As tabelas são registradas em um arquivo SQLite local e aparecem no painel Catalog mesmo sem nenhum kernel em execução.",
+    "ex.cat.tree": "Painel Catalog", "ex.cat.how": "Como funciona",
+    "ex.cat.f1": "<strong>Reconciliado após cada célula.</strong> Um hook de catálogo registra criações, alterações, renomeações e exclusões de tabelas e incorpora gravações feitas por outros kernels antes da próxima célula.",
+    "ex.cat.f2": "<strong>Camadas garantidas.</strong> Tabelas gerenciadas ficam em <code>s3a://notislake/&lt;camada&gt;/&lt;tabela&gt;</code>. O schema define a camada, e uma gravação na camada errada falha antes de qualquer dado ser escrito.",
+    "ex.cat.f3": "<strong>Schemas sem Spark.</strong> Navegue por catálogos e colunas e crie ou exclua schemas pela interface sem iniciar uma SparkSession.",
+    "ex.cat.f4": "<strong>O mesmo catálogo no Docker.</strong> O container AWS Glue acessa o catálogo via <code>/api/runtime-catalog</code> e um catálogo Iceberg REST, autenticado por um token por sessão.",
+    "ft.eyebrow": "O que vem incluído",
+    "ft.title": "Tudo o que um lakehouse local precisa, já conectado.",
+    "ft.cat.t": "Catálogo persistente",
+    "ft.cat.p": "As tabelas criadas pelos notebooks ficam em <code>catalog.db</code> (SQLite) e são listadas sem uma sessão Spark aberta. O Iceberg tem seu próprio catálogo <code>iceberg</code>.",
+    "ft.fmt.t": "Delta, Iceberg e Hudi",
+    "ft.fmt.p": "Uma matriz de bundles por linha do Spark (3.5 e 4.1) fixa os jars de Delta Lake, Iceberg, Hudi e Hadoop/S3A, cada um verificado por sha256.",
+    "ft.glue.t": "Runtime AWS Glue em Docker",
+    "ft.glue.p": "Kernel opcional sobre a imagem AWS Glue 5.0: Spark 3.5, Python 3.11, Java 17, com Delta e Iceberg, rodando em um container local persistente.",
+    "ft.lake.t": "notislake",
+    "ft.lake.p": "Um MinIO local, iniciado e supervisionado pelo Notisbook, serve o bucket <code>notislake</code> com as camadas <code>bronze</code>, <code>silver</code> e <code>gold</code> via <code>s3a://</code>. Um endpoint S3 manual pode ser usado no lugar.",
+    "ft.cells.t": "Python, Spark SQL e DuckDB",
+    "ft.cells.p": "Edite notebooks <code>.ipynb</code> no navegador e execute células Python, Spark SQL e DuckDB SQL em kernels Jupyter.",
+    "ft.env.t": "Ambientes Spark versionados",
+    "ft.env.p": "Cada versão do Spark é instalada em seu próprio ambiente (Python 3.12 via <code>uv</code>). O JDK é escolhido por linha: 17 para Spark 3.x, 21 ou 17 para Spark 4.x. Uma reinstalação com falha preserva a anterior.",
+    "ft.lib.t": "Gestão de bibliotecas",
+    "ft.lib.p": "Instale, atualize e remova bibliotecas Python em um ambiente Spark pela interface.",
+    "ft.exp.t": "Exportação",
+    "ft.exp.p": "Exporte notebooks para <code>.py</code> (Databricks notebook source), <code>.ipynb</code> e um relatório HTML sem JavaScript.",
+    "ft.sec.t": "Somente local, por padrão",
+    "ft.sec.p": "Bind fixo em loopback, token aleatório a cada inicialização, verificações de <code>Host</code>/<code>Origin</code> e CSP restritiva com saídas HTML sanitizadas.",
+    "mx.eyebrow": "Matriz de bundles do lakehouse", "mx.line": "Linha do Spark",
+    "mx.caption": "Cada jar é fixado com seu sha256.",
+    "cmp.eyebrow": "Comparativo",
+    "cmp.title": "Por que não apenas pip install pyspark?",
+    "cmp.lead": "Você pode montar um lakehouse local manualmente. O Notisbook faz essa montagem por você e a mantém consistente.",
+    "cmp.c0": "Recurso", "cmp.c2": "Jupyter + pyspark manual", "cmp.c3": "Notebooks gerenciados na nuvem",
+    "cmp.r1": "Jars de Delta, Iceberg e Hudi", "cmp.r1a": "Fixados por linha do Spark, verificados por sha256", "cmp.r1b": "Você resolve versões e downloads", "cmp.r1c": "Depende do provedor",
+    "cmp.r2": "Catálogo de tabelas persistente", "cmp.r2a": "SQLite, visível sem sessão Spark", "cmp.r2b": "Você configura um metastore", "cmp.r2c": "Fornecido pela plataforma",
+    "cmp.r3": "Armazenamento compatível com S3", "cmp.r3a": "MinIO local com bronze / silver / gold", "cmp.r3b": "Você instala e configura", "cmp.r3c": "Armazenamento em nuvem, cobrado",
+    "cmp.r4": "Runtime AWS Glue 5.0", "cmp.r4a": "Kernel Docker local, mesmo catálogo", "cmp.r4b": "Configuração manual de container", "cmp.r4c": "Jobs remotos",
+    "cmp.r5": "JDK por versão do Spark", "cmp.r5a": "Selecionado e gravado no kernelspec", "cmp.r5b": "Gerenciado por você", "cmp.r5c": "Gerenciado pela plataforma",
+    "cmp.r6": "Onde seus dados ficam", "cmp.r6a": "No seu Mac, em 127.0.0.1", "cmp.r6b": "Na sua máquina", "cmp.r6c": "Na nuvem do provedor",
+    "cmp.caption": "Comparação qualitativa de configurações típicas; não descreve nenhum fornecedor específico.",
+    "in.eyebrow": "Instalação", "in.title": "Pronto para usar com um comando.",
+    "in.b1": "1 · Instalar ou atualizar",
+    "in.b1p": "Execute o mesmo comando novamente para atualizar. Fixe uma versão com <code>sh -s -- --version X.Y.Z</code>.",
+    "in.b2": "2 · Iniciar",
+    "in.b2p": "Inicia o backend em <code>http://127.0.0.1:8765</code>, exibe o endereço com um token por inicialização e abre o navegador. A primeira execução cria os exemplos Delta, Hudi, Iceberg e Glue.",
+    "in.b3": "3 · Opcional: imagem base do AWS Glue",
+    "in.b4": "Desinstalar", "in.b4p": "Remove o Notisbook e mantém seus dados em <code>~/.notisbook</code>.",
+    "in.req": "Requisitos",
+    "in.r1": "macOS em Apple silicon ou Intel.",
+    "in.r2": "<code>curl</code> (ou <code>wget</code>), <code>awk</code> e <code>shasum</code>.",
+    "in.r3": "<code>uv</code> 0.8.4 ou mais recente (instalado automaticamente se ausente).",
+    "in.r4": "JDK 17 para Spark 3.x; JDK 21 (ou 17) para Spark 4.x.",
+    "in.r5": "Para o runtime Glue: Docker (por exemplo via Colima) e cerca de 15 GiB livres em disco.",
+    "in.opt": "Opção", "in.eff": "Efeito",
+    "in.o1": "Porta HTTP em 127.0.0.1 (padrão 8765)",
+    "in.o2": "Fixa a pasta de notebooks nesta execução",
+    "in.o3": "Não abre o navegador",
+    "in.o4": "Exibe a versão instalada",
+    "in.o5": "Encerra a instância em execução e sai",
+    "lk.eyebrow": "Vá além", "lk.title": "Leia o código. Entregue seus pipelines.",
+    "lk.1t": "Código-fonte", "lk.1p": "Navegue pelo repositório, abra issues e acompanhe o desenvolvimento.",
+    "lk.2t": "Releases", "lk.2p": "Wheel, constraints, pacotes do MinIO, SHA256SUMS e install.sh.",
+    "lk.4t": "Novidades", "lk.4p": "Notas de versão de cada release, a partir da 0.1.0.",
+    "ft.foot": "Apache 2.0 · macOS · Process anything. Locally."
+  };
+  var EN = {};
+  var current = "en";
+
+  function nodes() { return document.querySelectorAll("[data-i18n]"); }
+  nodes().forEach(function (el) { EN[el.getAttribute("data-i18n")] = el.innerHTML; });
+  EN["copied"] = "Copied";
+  var ariaNodes = document.querySelectorAll("[data-i18n-aria]");
+  ariaNodes.forEach(function (el) { EN[el.getAttribute("data-i18n-aria")] = el.getAttribute("aria-label"); });
+  var themeBtn = document.getElementById("theme-toggle");
+
+  function t(key) { var d = current === "pt" ? PT : EN; return d[key] != null ? d[key] : EN[key]; }
+
+  function setLang(lang) {
+    current = lang;
+    document.documentElement.lang = lang === "pt" ? "pt-BR" : "en";
+    nodes().forEach(function (el) {
+      var v = t(el.getAttribute("data-i18n"));
+      if (v != null) el.innerHTML = v; /* conteúdo estático controlado por este arquivo */
+    });
+    ariaNodes.forEach(function (el) {
+      el.setAttribute("aria-label", t(el.getAttribute("data-i18n-aria")));
+    });
+    document.querySelectorAll("[data-lang]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.getAttribute("data-lang") === lang));
+    });
+    try { localStorage.setItem("nb-lang", lang); } catch (e) {}
+  }
+  document.querySelectorAll("[data-lang]").forEach(function (b) {
+    b.addEventListener("click", function () { setLang(b.getAttribute("data-lang")); });
+  });
+  try { var saved = localStorage.getItem("nb-lang"); if (saved === "pt") setLang("pt"); } catch (e) {}
+
+  var root = document.documentElement;
+  themeBtn.addEventListener("click", function () {
+    var explicit = root.getAttribute("data-theme");
+    var isDark = explicit ? explicit === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+    var next = isDark ? "light" : "dark";
+    root.setAttribute("data-theme", next);
+    try { localStorage.setItem("nb-theme", next); } catch (e) {}
+  });
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab) {
+    tabs.forEach(function (x) {
+      var on = x === tab;
+      x.setAttribute("aria-selected", String(on));
+      x.tabIndex = on ? 0 : -1;
+      document.getElementById(x.getAttribute("aria-controls")).hidden = !on;
+    });
+  }
+  tabs.forEach(function (tab, i) {
+    tab.addEventListener("click", function () { select(tab); });
+    tab.addEventListener("keydown", function (e) {
+      var j = null;
+      if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
+      else if (e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
+      else if (e.key === "Home") j = 0;
+      else if (e.key === "End") j = tabs.length - 1;
+      if (j !== null) { e.preventDefault(); tabs[j].focus(); select(tabs[j]); }
+    });
+  });
+
+  function fallbackCopy(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    var ok;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    return ok === true;
+  }
+  function selectForManualCopy(btn) {
+    var pre = btn.closest(".term") && btn.closest(".term").querySelector("pre");
+    if (!pre) return;
+    var range = document.createRange();
+    range.selectNodeContents(pre);
+    var sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+  }
+  document.querySelectorAll(".copy").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var text = btn.getAttribute("data-copy");
+      var done = function () {
+        btn.textContent = t("copied"); btn.classList.add("done");
+        setTimeout(function () { btn.textContent = t("copy"); btn.classList.remove("done"); }, 1600);
+      };
+      var fallback = function () {
+        if (fallbackCopy(text)) done(); else selectForManualCopy(btn);
+      };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+      } else { fallback(); }
+    });
+  });
+})();
+</script>
+</body>
+</html>
