@@ -10,15 +10,26 @@ import { create } from "zustand";
 const KEY_PREFIX = "notisbook.recent:";
 export const MAX_RECENT = 5;
 
-function read(root: string): string[] {
+/** Lista gravada da raiz; `null` quando o acesso ao storage falha, `[]` para JSON inválido. */
+function readStored(root: string): string[] | null {
+  let raw: string | null;
   try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(KEY_PREFIX + root) ?? "[]");
+    raw = window.localStorage.getItem(KEY_PREFIX + root);
+  } catch {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw ?? "[]");
     if (!Array.isArray(parsed)) return [];
     const paths = parsed.filter((p): p is string => typeof p === "string" && p !== "");
     return [...new Set(paths)].slice(0, MAX_RECENT);
   } catch {
     return [];
   }
+}
+
+function read(root: string): string[] {
+  return readStored(root) ?? [];
 }
 
 function isUnder(path: string, base: string): boolean {
@@ -50,10 +61,10 @@ interface RecentState {
 }
 
 export const useRecent = create<RecentState>((set, get) => {
-  // Parte do storage (não da memória) para não sobrescrever o que outra aba gravou.
+  // Parte do storage para não sobrescrever o que outra aba gravou; sem acesso a ele, da memória.
   const current = (): string[] => {
     const { root, paths } = get();
-    return root === null ? paths : read(root);
+    return root === null ? paths : (readStored(root) ?? paths);
   };
   const commit = (paths: string[]): void => {
     write(get().root, paths);
