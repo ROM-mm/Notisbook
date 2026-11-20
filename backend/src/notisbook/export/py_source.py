@@ -12,7 +12,8 @@ DUCKDB_WARNING = "# NOTISBOOK: célula DuckDB SQL não convertida (sem equivalen
 _MAGIC_LINE = re.compile(r"%%?[A-Za-z]")
 _CELL_MAGIC = re.compile(r"%%[A-Za-z]")
 _BLOCK_COMMENT =re.compile(r"/\*.*?\*/", re.DOTALL)
-_ECHO_CALL = re.compile(r"(?<![\w.])echo\(")
+_ECHO_CALL = re.compile(r"(?<![\w.])echo[ \t]*\(")
+_DEF_BEFORE = re.compile(r"\bdef\s+$")
 _N_KWARG = re.compile(r"n\s*=(?!=)")
 _CLOSERS = {"(": ")", "[": "]", "{": "}"}
 
@@ -73,6 +74,10 @@ def _call_args(text: str, start: int) -> tuple[list[str], int] | None:
         if ch in "'\"":
             i = _skip_string(text, i)
             continue
+        if ch == "#":
+            end = text.find("\n", i)
+            i = len(text) if end == -1 else end
+            continue
         if ch in _CLOSERS:
             stack.append(_CLOSERS[ch])
         elif ch in ")]}":
@@ -88,6 +93,10 @@ def _call_args(text: str, start: int) -> tuple[list[str], int] | None:
     return None
 
 
+def _drop_comment_lines(arg: str) -> str:
+    return "\n".join(ln for ln in arg.split("\n") if not ln.lstrip().startswith("#"))
+
+
 def _echo_to_display(source: str) -> str:
     """Traduz `echo(df, n=...)` para `display(df)`: o Databricks só tem `display`, sem `n=`."""
     out: list[str] = []
@@ -101,13 +110,17 @@ def _echo_to_display(source: str) -> str:
             i = _skip_string(source, i)
         else:
             match = _ECHO_CALL.match(source, i) if ch == "e" else None
-            parsed = _call_args(source, match.end()) if match else None
+            is_def = match is not None and _DEF_BEFORE.search(source, 0, i) is not None
+            parsed = _call_args(source, match.end()) if match and not is_def else None
             if parsed is None:
                 i += 1
                 continue
             args, end = parsed
-            kept = [a for a in args if not _N_KWARG.match(a.strip())]
-            out.append(source[last:i] + "display(" + ",".join(kept).rstrip() + ")")
+            kept = [a for a in args if not _N_KWARG.match(_drop_comment_lines(a).strip())]
+            body = ",".join(kept).rstrip()
+            if "#" in body.rsplit("\n", 1)[-1]:
+                body += "\n"  # evita que o `)` fique dentro de um comentário final
+            out.append(source[last:i] + "display(" + body + ")")
             i = last = end
     out.append(source[last:])
     return "".join(out)
