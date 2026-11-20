@@ -7,8 +7,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-19
+
+Quieter cell output: Spark keeps its log noise to itself, and package downloads show up as a short list.
+
+### Added
+
+- **Spark package summary.** When a notebook sets `spark.jars.packages` (for example with
+  `configure_spark_with_delta_pip`), the cell no longer shows the whole Ivy resolution log. It shows one block,
+  "📦 Pacotes Spark", with one line per resolved package, such as `io.delta:delta-spark_2.12:3.3.3`, and where it
+  came from (`central` or the local cache). If a package cannot be resolved, the full log is shown together with
+  the error.
+
 ### Changed
 
+- **Only errors, prints and results in cell output.** Spark `WARN` and `INFO` log lines, such as plan truncation
+  warnings, no longer appear under the cells; Spark `ERROR` lines still do. The "Setting default log level"
+  message at session start is gone in the local runtime. To see warnings again in a session, run
+  `spark.sparkContext.setLogLevel("WARN")`; the level you set is kept for the rest of the session.
 - **Requirements before installation.** The README lists the system requirements before Quick start, including
   the AWS Glue 5.0 base image (`public.ecr.aws/glue/aws-glue-libs:5`, pinned by digest) to pull before using the
   Docker runtime.
