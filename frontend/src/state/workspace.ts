@@ -164,7 +164,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   setRightOpen: (open) =>
     set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false, browsing: false }),
   startBrowsing: () => set({ browsing: true, rightOpen: true, focusMode: false }),
-  toggleFocusMode: () => set((s) => ({ focusMode: !s.focusMode })),
+  // Ligar o foco encerra o Browse: sem abas, o centro ficaria vazio com as laterais ocultas.
+  toggleFocusMode: () => set((s) => (s.focusMode ? { focusMode: false } : { focusMode: true, browsing: false })),
   loadRoot: async () => {
     if (get().root) return;
     const root = await getNotebooksRoot();
