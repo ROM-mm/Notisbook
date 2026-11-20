@@ -49,33 +49,33 @@ interface RecentState {
   removeUnder: (path: string) => void;
 }
 
-export const useRecent = create<RecentState>((set, get) => ({
-  root: null,
-  paths: [],
-  setRoot: (root) => {
-    if (get().root === root) return;
-    set({ root, paths: read(root) });
-  },
-  touch: (path) => {
-    const paths = [path, ...get().paths.filter((p) => p !== path)].slice(0, MAX_RECENT);
+export const useRecent = create<RecentState>((set, get) => {
+  // Parte do storage (não da memória) para não sobrescrever o que outra aba gravou.
+  const current = (): string[] => {
+    const { root, paths } = get();
+    return root === null ? paths : read(root);
+  };
+  const commit = (paths: string[]): void => {
     write(get().root, paths);
     set({ paths });
-  },
-  remove: (path) => {
-    const paths = get().paths.filter((p) => p !== path);
-    write(get().root, paths);
-    set({ paths });
-  },
-  rename: (from, to) => {
-    const paths = [
-      ...new Set(get().paths.map((p) => (isUnder(p, from) ? `${to}${p.slice(from.length)}` : p))),
-    ];
-    write(get().root, paths);
-    set({ paths });
-  },
-  removeUnder: (path) => {
-    const paths = get().paths.filter((p) => !isUnder(p, path));
-    write(get().root, paths);
-    set({ paths });
-  },
-}));
+  };
+  return {
+    root: null,
+    paths: [],
+    setRoot: (root) => {
+      if (get().root === root) return;
+      set({ root, paths: read(root) });
+    },
+    touch: (path) => commit([path, ...current().filter((p) => p !== path)].slice(0, MAX_RECENT)),
+    remove: (path) => commit(current().filter((p) => p !== path)),
+    rename: (from, to) =>
+      commit([...new Set(current().map((p) => (isUnder(p, from) ? `${to}${p.slice(from.length)}` : p)))]),
+    removeUnder: (path) => commit(current().filter((p) => !isUnder(p, path))),
+  };
+});
+
+// Outra aba gravou a lista da raiz atual: adota o valor do storage.
+window.addEventListener("storage", (e) => {
+  const { root } = useRecent.getState();
+  if (root !== null && e.key === KEY_PREFIX + root) useRecent.setState({ paths: read(root) });
+});
