@@ -3,15 +3,16 @@
  * kernel), Run all, Interrupt, Restart kernel e menu ⋮ (Restart and run all).
  * Os notebooks abertos ficam na lista ao lado, no Banner. Usa as mesmas regras de habilitação do menu Run.
  */
-import { useKernel, useKernelStore } from "../../state/notebookContext";
+import { useKernel, useKernelStore, useNotebookStore } from "../../state/notebookContext";
 import { Menu, type MenuItem } from "../shell/Menu";
-import { MoreVerticalIcon, PlayFilledIcon, RefreshIcon, StopFilledIcon } from "../shell/icons";
+import { EraserIcon, MoreVerticalIcon, PlayFilledIcon, RefreshIcon, StopFilledIcon } from "../shell/icons";
 import { KernelSelector } from "./KernelSelector";
 import { kernelAlive, kernelHasWork, kernelReady } from "./KernelStatus";
 import styles from "./Kernel.module.css";
 
 export function KernelToolbar() {
   const store = useKernelStore();
+  const notebook = useNotebookStore();
   const alive = useKernel(kernelAlive);
   const ready = useKernel(kernelReady);
   const hasWork = useKernel(kernelHasWork);
@@ -61,6 +62,18 @@ export function KernelToolbar() {
         onClick={() => store.getState().restart()}
       >
         <RefreshIcon size={13} />
+      </button>
+      <button
+        type="button"
+        className={styles.toolBtn}
+        data-testid="clear-all-outputs"
+        title="Clear all outputs"
+        aria-label="Clear all outputs"
+        disabled={hasWork}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => notebook.getState().clearAllOutputs()}
+      >
+        <EraserIcon size={13} />
       </button>
       <Menu
         variant="icon"

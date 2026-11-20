@@ -199,6 +199,8 @@ export interface NotebookState extends NotebookDocument {
   // Execução / saídas
   appendOutput: (id: string, output: Output) => void;
   clearOutputs: (id: string) => void;
+  /** Esvazia as saídas de todas as células code numa única revisão; não altera `execution_count`. */
+  clearAllOutputs: () => void;
   setExecutionCount: (id: string, count: number | null) => void;
 }
 
@@ -446,6 +448,14 @@ export function createNotebookStore(path: string): NotebookStore {
       appendOutput: (id, output) => mapCodeCell(id, (c) => ({ ...c, outputs: mergeOutput(c.outputs, output) })),
 
       clearOutputs: (id) => mapCodeCell(id, (c) => (c.outputs.length === 0 ? c : { ...c, outputs: [] })),
+
+      clearAllOutputs: () =>
+        mutate((s) => {
+          if (!s.cells.some((c) => c.cell_type === "code" && c.outputs.length > 0)) return null;
+          return {
+            cells: s.cells.map((c) => (c.cell_type === "code" && c.outputs.length > 0 ? { ...c, outputs: [] } : c)),
+          };
+        }),
 
       setExecutionCount: (id, count) =>
         mapCodeCell(id, (c) => (c.execution_count === count ? c : { ...c, execution_count: count })),
