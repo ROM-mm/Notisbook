@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 import styles from "./DataPanel.module.css";
 
-/** Logo de marca em P&B (filtro em `.brandIcon`); `size` em px (padrão 14) via `--brand-size`. */
+/** Logo de marca colorido (catálogo ou formato de tabela); `size` em px (padrão 14) via `--brand-size`. */
 export function BrandIcon({ src, size = 14 }: { src: string; size?: number }): ReactNode {
   return (
     <img

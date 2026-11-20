@@ -1,6 +1,6 @@
 /*
- * Design tokens do Notisbook: tema terminal (monoespaçado, linhas finas de 1px,
- * sem cartão, sombra ou raio; paleta neutra com acento discreto). Os nomes
+ * Design tokens do Notisbook: tema terminal claro (linhas finas de 1px, sem
+ * cartão nem raio; paleta neutra com acento azul; sombra só nos dropdowns). Os nomes
  * --color-* são a API principal; --yellow, --blue etc. são aliases legados
  * remapeados para tons neutros. Fontes empacotadas via @fontsource (main.tsx)
  * — nada de CDN (CSP: default-src 'self').
@@ -49,7 +49,7 @@
 
   /* Layout */
   --sidebar-width: 248px;
-  --header-height: 52px;
+  --header-height: 40px;
   --content-max-width: 960px;
 
   /* Movimento */
@@ -69,13 +69,12 @@
   --color-text: #1c1c1a;
   --color-text-muted: #6b6b66;
   --color-text-subtle: #8f8f89;
-  --color-prompt-active: var(--color-text); /* "›" da célula selecionada; anulada (initial) nos blocos escuros, que mantêm o tom atenuado */
   --color-text-inverse: #fbfbfa;
-  --color-accent: #1c1c1a;
-  --color-accent-hover: #000000;
-  --color-accent-subtle: #ebebe8;
-  --color-accent-text: #1c1c1a;
-  --color-focus-ring: #6b6b66;
+  --color-accent: #1277d0;
+  --color-accent-hover: #0f66b3;
+  --color-accent-subtle: rgba(18, 137, 236, 0.13);
+  --color-accent-text: #1069b8;
+  --color-focus-ring: #1277d0;
   --color-success: #2f7d4f;
   --color-success-subtle: #e6efe8;
   --color-warning: #9a6a1a;
@@ -90,9 +89,11 @@
   --color-cell-bg: #fbfbfb;
   --color-cell-bg-active: #f6f6f6;
   --color-editor-selection: #d8d8d8;
+  --color-bg-side: #f6f6f4; /* fundo das laterais e da barra superior (não usar --color-bg-panel, que pinta diálogos e tabelas) */
+  --color-selection: rgba(18, 137, 236, 0.13); /* seleção azul suave das árvores (Catalog, Notislake) */
 
   /* Aliases legados do tema anterior, remapeados para o tema limpo */
-  --shadow-float: none;
+  --shadow-float: 0 6px 18px rgba(28, 28, 26, 0.14); /* dropdowns: Menu, ContextMenu, lista do KernelSelector */
   --on-fill: #1c1c1a;
   --on-accent: #fbfbfa;
   --hover: #f0f0ee;
@@ -140,7 +141,6 @@
     --color-text: #d8dce0;
     --color-text-muted: #949ca3;
     --color-text-subtle: #778089;
-    --color-prompt-active: initial;
     --color-text-inverse: #0f1216;
     --color-accent: #1289ec;
     --color-accent-hover: #4aa8f5;
@@ -161,7 +161,9 @@
     --color-cell-bg: #171b20;
     --color-cell-bg-active: #1d2228;
     --color-editor-selection: rgba(18, 137, 236, 0.38);
-    --shadow-float: none;
+    --color-bg-side: #171b20;
+    --color-selection: rgba(18, 137, 236, 0.16);
+    --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
     --on-fill: #d8dce0;
     --on-accent: #0f1216;
     --hover: #1d2228;
@@ -174,16 +176,16 @@
     --creamy: #171b20;
     --brand-mark-shadow: transparent;
     --home-mark-shadow: #CFC9BC;
-    --sx-kw: #d8dce0;
-    --sx-text: #949ca3;
-    --sx-str: #8a939b;
-    --sx-num: #d8dce0;
-    --sx-com: #848d95;
-    --sx-fn: #b5bbc0;
-    --sx-type: #b5bbc0;
-    --sx-dec: #b5bbc0;
+    --sx-kw: #4aa8f5;
+    --sx-text: #c4cad0;
+    --sx-str: #d4a24c;
+    --sx-num: #9fd3a8;
+    --sx-com: #6b757e;
+    --sx-fn: #e3d58a;
+    --sx-type: #7fc8c0;
+    --sx-dec: #c39bd3;
     --sx-op: #949ca3;
-    --sx-qual: #b5bbc0;
+    --sx-qual: #c39bd3;
     --sx-str-style: italic;
   }
 }
@@ -203,7 +205,6 @@
   --color-text: #d8dce0;
   --color-text-muted: #949ca3;
   --color-text-subtle: #778089;
-  --color-prompt-active: initial;
   --color-text-inverse: #0f1216;
   --color-accent: #1289ec;
   --color-accent-hover: #4aa8f5;
@@ -224,7 +225,9 @@
   --color-cell-bg: #171b20;
   --color-cell-bg-active: #1d2228;
   --color-editor-selection: rgba(18, 137, 236, 0.38);
-  --shadow-float: none;
+  --color-bg-side: #171b20;
+  --color-selection: rgba(18, 137, 236, 0.16);
+  --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
   --on-fill: #d8dce0;
   --on-accent: #0f1216;
   --hover: #1d2228;
@@ -237,16 +240,16 @@
   --creamy: #171b20;
   --brand-mark-shadow: transparent;
   --home-mark-shadow: #CFC9BC;
-  --sx-kw: #d8dce0;
-  --sx-text: #949ca3;
-  --sx-str: #8a939b;
-  --sx-num: #d8dce0;
-  --sx-com: #848d95;
-  --sx-fn: #b5bbc0;
-  --sx-type: #b5bbc0;
-  --sx-dec: #b5bbc0;
+  --sx-kw: #4aa8f5;
+  --sx-text: #c4cad0;
+  --sx-str: #d4a24c;
+  --sx-num: #9fd3a8;
+  --sx-com: #6b757e;
+  --sx-fn: #e3d58a;
+  --sx-type: #7fc8c0;
+  --sx-dec: #c39bd3;
   --sx-op: #949ca3;
-  --sx-qual: #b5bbc0;
+  --sx-qual: #c39bd3;
   --sx-str-style: italic;
 }
 

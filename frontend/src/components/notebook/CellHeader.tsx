@@ -1,7 +1,7 @@
 /**
- * Cabeçalho da célula (estilo terminal): ▶, ■ e seletor de linguagem à esquerda, título
- * opcional (`metadata.title`) centralizado e menu ⋮ à direita (título, tipo, mover,
- * inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
+ * Cabeçalho da célula (estilo terminal): ▶, ■ (só enquanto a célula roda) e seletor de
+ * linguagem à esquerda, título opcional (`metadata.title`) centralizado e menu ⋮ à direita
+ * (título, tipo, mover, inserir, excluir). O ■ chama o interrupt do kernel, que é global à sessão.
  */
 import { useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
@@ -133,18 +133,19 @@ export function CellHeader({
         >
           <PlayFilledIcon size={12} />
         </button>
-        <button
-          type="button"
-          className={`${styles.runBtn} ${styles.stopBtn}`}
-          onClick={() => kernelStore.getState().interrupt()}
-          onMouseDown={(e) => e.preventDefault()}
-          disabled={!running}
-          title="Interrupt kernel"
-          aria-label="Interrupt kernel"
-          data-testid="cell-stop"
-        >
-          <StopFilledIcon size={12} />
-        </button>
+        {running ? (
+          <button
+            type="button"
+            className={`${styles.runBtn} ${styles.stopBtn}`}
+            onClick={() => kernelStore.getState().interrupt()}
+            onMouseDown={(e) => e.preventDefault()}
+            title="Interrupt kernel"
+            aria-label="Interrupt kernel"
+            data-testid="cell-stop"
+          >
+            <StopFilledIcon size={12} />
+          </button>
+        ) : null}
         <span className={styles.languageMenu}>
           {languageLocked ? (
             <button

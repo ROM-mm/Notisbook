@@ -22,7 +22,6 @@ body {
   line-height: var(--line-height-normal);
   letter-spacing: var(--letter-spacing-tight);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 

@@ -1,11 +1,11 @@
 /**
- * Layout raiz em coluna: header (nome, tagline, menus e toggles) e abas de
- * notebooks (com os controles do kernel) em largura total, abaixo delas uma
+ * Layout raiz em coluna: barra superior única (marca, menus no hover, nomes dos
+ * notebooks abertos e controles do kernel) em largura total, abaixo dela uma
  * linha com a lateral esquerda (⌘B), o conteúdo e a lateral direita (⌥⌘B) e,
  * no rodapé, a barra de atalhos (só exibição; os atalhos vivem nos listeners).
  *
  * Pontos de extensão:
- * - `entry`: aba ativa (ou null), repassada ao header e à barra de abas
+ * - `entry`: aba ativa (ou null), repassada à barra superior
  *   (seletor de ambiente em `components/kernel/KernelSelector.tsx`).
  * - Laterais: `Explorer` empilha os cartões de uma lateral; a composição e a
  *   ordem vêm de `state/layout.ts` (LEFT_CARDS/RIGHT_CARDS) e os cartões
@@ -23,7 +23,6 @@ import { isMac } from "./platform";
 import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SHORTCUTS } from "./shortcuts";
 import { SidePanel } from "./SidePanel";
-import { TabBar } from "./TabBar";
 
 const IS_MAC = isMac();
 
@@ -75,7 +74,6 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
   return (
     <div className={styles.shell}>
       <Banner entry={entry} />
-      <TabBar entry={entry} />
       <div className={styles.body}>
         {showLeft ? (
           <>

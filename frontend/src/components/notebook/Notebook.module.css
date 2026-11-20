@@ -1,7 +1,7 @@
 /*
- * Editor de notebook, estilo terminal: cada célula é um bloco de prompt —
- * cabeçalho "linguagem ▶ ■", caixa de 1px com "›" e o código, status solto
- * e recuado embaixo. Sem cartão, raio ou sombra.
+ * Editor de notebook, estilo terminal: cada célula é um bloco — cabeçalho
+ * "▶ ■ linguagem", faixa de fundo com o código, status solto e recuado
+ * embaixo. Sem cartão, raio ou sombra.
  */
 
 /* Cores de sintaxe do CodeMirror. Os --sx-* variam por tema em tokens.css;
@@ -61,21 +61,13 @@
   color: var(--color-text-muted);
 }
 
-/* Barra de inserção: linha fina com texto mono, discreta até o hover. */
+/* Barra de inserção "+ Code / + Markdown": linha fina, sempre visível. */
 .addBar {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   height: 24px;
   padding-left: var(--space-5);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.addBar:hover,
-.addBar:focus-within,
-.addBarPersistent {
-  opacity: 1;
 }
 
 .addBarPersistent {
@@ -99,10 +91,10 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  height: 24px;
+  height: 20px;
   padding: 0 var(--space-2);
-  border: 0;
-  background: transparent;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
   color: var(--color-text-muted);
   font-family: var(--font-sans);
   font-size: var(--font-size-xs);
@@ -112,7 +104,12 @@
 }
 
 .addBtn:hover {
+  border-color: var(--color-border-strong);
   color: var(--color-text);
+}
+
+.addBtn svg {
+  color: var(--color-accent-text);
 }
 
 .addBtn:focus-visible {
@@ -136,15 +133,10 @@
   background: var(--color-cell-bg-active);
 }
 
-/* Célula selecionada: "›" na cor do texto quando --color-prompt-active
- * existe (tema claro); sem ela mantém a cor atenuada de .prompt. */
-.cellActive .prompt {
-  color: var(--color-prompt-active, var(--color-text-muted));
-}
-
-/* Em edição o "›" assume a cor do texto (fora dela fica atenuado). */
-.cellEditing .prompt {
-  color: var(--color-text);
+/* Em edição: fio de 2px no acento à esquerda da faixa. */
+.cellEditing .codeBox,
+.cellEditing .textBox {
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
 .cellHeader {
@@ -198,7 +190,7 @@
 }
 
 .runBtn:hover:not(:disabled) {
-  color: var(--color-text);
+  color: var(--color-success);
 }
 
 .titleButton,
@@ -233,17 +225,12 @@
   opacity: 1;
 }
 
-/* ■ da célula: apagado sem execução; cor de erro quando a célula roda. */
-.stopBtn:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.stopBtn:not(:disabled) {
+/* ■ da célula: só existe enquanto a célula roda, na cor de erro. */
+.stopBtn {
   color: var(--color-danger);
 }
 
-.stopBtn:not(:disabled):hover {
+.stopBtn:hover:not(:disabled) {
   color: var(--color-text);
 }
 
@@ -307,7 +294,7 @@
   padding: 0;
 }
 
-/* Faixa de largura total sem contorno; o "›" fica à esquerda do editor. */
+/* Faixa de largura total sem contorno com o editor. */
 .codeBox,
 .textBox {
   display: flex;
@@ -318,19 +305,10 @@
   background: var(--color-cell-bg);
 }
 
-.codeBox > :not(.prompt),
-.textBox > :not(.prompt) {
+.codeBox > *,
+.textBox > * {
   flex: 1;
   min-width: 0;
-}
-
-.prompt {
-  flex: none;
-  color: var(--color-text-muted);
-  font-family: var(--font-code);
-  font-size: 13.5px;
-  line-height: var(--line-height-code);
-  user-select: none;
 }
 
 .rendered {

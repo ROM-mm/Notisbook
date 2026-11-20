@@ -12,10 +12,11 @@ export const SIDE_PANEL_MAX = 600;
 
 /**
  * Cartões de cada lateral, de cima para baixo (única fonte da composição e da
- * ordem). Esquerda: Catalog. Direita: Notebooks e Connections (chave `files`).
+ * ordem). Esquerda (dados): Catalog e, abaixo, Notislake/Connections (chave
+ * `files`). Direita: Notebooks.
  */
-export const LEFT_CARDS = ["catalog"] as const;
-export const RIGHT_CARDS = ["notebooks", "files"] as const;
+export const LEFT_CARDS = ["catalog", "files"] as const;
+export const RIGHT_CARDS = ["notebooks"] as const;
 export type PanelSide = "left" | "right";
 export type PanelCard = (typeof LEFT_CARDS)[number] | (typeof RIGHT_CARDS)[number];
 

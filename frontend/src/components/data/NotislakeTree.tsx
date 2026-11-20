@@ -19,8 +19,9 @@ import {
 } from "../../state/notislake";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
-import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
+import { ChevronRightIcon, FileIcon } from "../shell/icons";
 import styles from "./DataPanel.module.css";
+import { INDENT_PX, treeIndent } from "./treeIndent";
 
 interface TreeNode {
   /** Chave S3 completa; pastas terminam em "/". */
@@ -50,10 +51,12 @@ interface Feedback {
   error: boolean;
 }
 
-const INDENT_PX = 14;
 const FEEDBACK_MS = 2000;
 const ERROR_FEEDBACK_MS = 6000;
 const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
+/** Pastas da raiz exibidas atenuadas (área de pouso, fora das camadas). */
+const MUTED_ROOT_DIRS = new Set(["landing"]);
+
 
 function baseName(key: string, dir: string): string {
   const rest = key.startsWith(dir) ? key.slice(dir.length) : key;
@@ -113,8 +116,9 @@ function buildRows(
   }
 }
 
+/** Pasta em traço fino e cantos retos (CSS `.fold`); objeto com o ícone de arquivo. */
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
-  return node.isDir ? <FolderIcon size={14} /> : <FileIcon size={14} />;
+  return node.isDir ? <span className={styles.fold} aria-hidden="true" /> : <FileIcon size={14} />;
 }
 
 export function NotislakeTree() {
@@ -244,13 +248,13 @@ export function NotislakeTree() {
     <>
       <div className={styles.treeBody} role="tree" aria-label="Notislake objects">
         {rows.map((row) => {
-          const indent = { paddingLeft: `${row.level * INDENT_PX}px` };
+          const indent = treeIndent(row.level);
           if (row.kind === "status") {
             return (
               <div
                 key={row.rowKey}
                 role="presentation"
-                className={`${styles.treeStatus} ${row.error ? styles.treeError : ""}`}
+                className={`${styles.treeStatus} ${styles.treeGuides} ${row.error ? styles.treeError : ""}`}
                 style={indent}
               >
                 {row.text}
@@ -268,7 +272,7 @@ export function NotislakeTree() {
               if (el) refs.current.set(row.rowKey, el);
               else refs.current.delete(row.rowKey);
             },
-            className: styles.treeRow,
+            className: `${styles.treeRow} ${styles.treeGuides}`,
             style: indent,
             tabIndex: row.rowKey === activeKey ? 0 : -1,
             onFocus: () => setFocusKey(row.rowKey),
@@ -291,6 +295,7 @@ export function NotislakeTree() {
           const { node } = row;
           const isOpen = node.isDir && Boolean(expanded[node.key]);
           const size = node.isDir ? null : node.bytes;
+          const muted = node.isDir && row.dir === "" && MUTED_ROOT_DIRS.has(node.name);
           return (
             <div
               key={row.rowKey}
@@ -302,6 +307,7 @@ export function NotislakeTree() {
               aria-selected={row.rowKey === focusKey}
               title={node.key}
               {...common}
+              className={muted ? `${common.className} ${styles.treeMuted}` : common.className}
               onContextMenu={(e) => onContextMenu(e, node)}
               onClick={() => {
                 setFocusKey(row.rowKey);

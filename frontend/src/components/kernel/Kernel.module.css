@@ -1,9 +1,10 @@
-/* Controles do kernel na barra de abas, seletor com estado e aviso de sessão encerrada. */
+/* Controles do kernel na barra superior, seletor com estado e aviso de sessão encerrada. */
 
 .dot {
   flex: none;
   width: 7px;
   height: 7px;
+  border-radius: 50%;
   background: var(--color-text-subtle);
 }
 
@@ -12,7 +13,7 @@
 }
 
 .busy {
-  background: var(--color-text);
+  background: var(--color-warning);
   animation: pulse 1.2s ease-in-out infinite;
 }
 
@@ -76,16 +77,18 @@
   }
 }
 
-/* Seletor de ambiente com estado (combobox da barra de abas). */
+/* Seletor de ambiente com estado (combobox da barra superior): caixa fina de 1px. */
 .selector {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
   max-width: 280px;
   height: 26px;
+  margin: 0 var(--space-1);
   padding: 0 var(--space-2);
-  border: 1px solid transparent;
-  background: transparent;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
   color: var(--color-text);
   font-size: var(--font-size-sm);
   white-space: nowrap;
@@ -94,7 +97,7 @@
 
 .selector:hover,
 .selector[data-open] {
-  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
 }
 
 .selector:focus-visible,
@@ -150,11 +153,40 @@
   font-size: var(--font-size-sm);
 }
 
-/* Controles do kernel (dentro de .tabActions da barra de abas). */
+/* Controles do kernel (à direita da barra superior). */
 .toolbar {
   display: flex;
+  flex: 0 1 auto;
   align-items: center;
-  gap: var(--space-1);
+  gap: 2px;
+  min-width: 0;
+}
+
+/* Nome e seletor encolhem (reticências); os botões, não. */
+.toolbar > :has(> .selector) {
+  min-width: 0;
+}
+
+.toolbar > .toolBtn,
+.toolbar > :has(> .toolBtn) {
+  flex: none;
+}
+
+/* "● nome.ipynb": arquivo da aba ativa com o ponto de estado do kernel. */
+.nbName {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 220px;
+  margin-right: var(--space-1);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.nbNameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .toolBtn {
@@ -168,8 +200,12 @@
   color: var(--color-text-muted);
 }
 
-.toolBtnPrimary {
-  color: var(--color-text);
+.toolBtnPrimary:not(:disabled) {
+  color: var(--color-success);
+}
+
+.toolBtnStop:not(:disabled) {
+  color: var(--color-danger);
 }
 
 .toolBtn:hover:not(:disabled) {

@@ -39,11 +39,13 @@ import { BrandIcon } from "./BrandIcon";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
+import { INDENT_PX, treeIndent } from "./treeIndent";
+import deltaIconUrl from "../../../icons/delta.png";
 import hudiIconUrl from "../../../icons/hudi.png";
 import icebergIconUrl from "../../../icons/iceberg.png";
+import parquetIconUrl from "../../../icons/parquet.png";
 import sparkIconUrl from "../../../icons/spark.png";
 
-const INDENT_PX = 14;
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
 const REFRESH_DEBOUNCE_MS = 1500;
 const NOTICE_MS = 8000;
@@ -60,6 +62,8 @@ const CATALOG_ICONS: Record<string, ReactNode> = {
   hudi: <BrandIcon src={hudiIconUrl} />,
 };
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
+/** Logo do formato da tabela (delta.png, hudi.png, iceberg.png, parquet.png); formato desconhecido cai no ícone de tabela. */
+const FORMAT_ICONS: Record<string, string> = { delta: deltaIconUrl, hudi: hudiIconUrl, iceberg: icebergIconUrl, parquet: parquetIconUrl };
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
   iceberg_catalog_unreadable: "Iceberg tables unavailable: catalog could not be read.",
@@ -96,7 +100,10 @@ type Item = Row | StatusRow;
 
 const isStatus = (i: Item): i is StatusRow => "status" in i;
 
+
 function tableIcon(t: CatalogTable): ReactNode {
+  const format = t.format.toLowerCase();
+  if (Object.hasOwn(FORMAT_ICONS, format)) return <BrandIcon src={FORMAT_ICONS[format] as string} />;
   return t.table_type.toUpperCase() === "EXTERNAL" ? <ExternalTableIcon size={14} /> : <TableIcon size={14} />;
 }
 
@@ -463,10 +470,10 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     <>
     <div className={styles.treeBody} role="tree" aria-label="Catalog">
       {items.map((item) => {
-        const indent = { paddingLeft: `${item.level * INDENT_PX}px` };
+        const indent = treeIndent(item.level);
         if (isStatus(item)) {
           return (
-            <div key={item.key} role="presentation" className={`${styles.treeStatus} ${item.error ? styles.treeError : ""}`} style={indent}>
+            <div key={item.key} role="presentation" className={`${styles.treeStatus} ${styles.treeGuides} ${item.error ? styles.treeError : ""}`} style={indent}>
               {item.text}
             </div>
           );
@@ -481,7 +488,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
               else refs.current.delete(item.key);
             }}
             role="treeitem"
-            className={`${styles.treeRow} ${item.unavailable ? styles.treeUnavailable : ""}`}
+            className={`${styles.treeRow} ${styles.treeGuides} ${item.unavailable ? styles.treeUnavailable : ""}`}
             style={indent}
             aria-level={item.level}
             aria-posinset={item.pos}

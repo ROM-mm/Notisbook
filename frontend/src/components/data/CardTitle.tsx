@@ -1,4 +1,4 @@
-/** Título recolhível dos cartões do Explorer: botão com chevron que alterna o corpo. */
+/** Título recolhível dos cartões do Explorer (caixa alta, pequeno, espaçado): botão com chevron que alterna o corpo. */
 import type { ReactNode } from "react";
 import { ChevronRightIcon } from "../shell/icons";
 import styles from "./DataPanel.module.css";
@@ -19,7 +19,8 @@ export function CardTitle({ id, icon, label, collapsed, onToggle, title }: CardT
         <span className={`${styles.titleChevron} ${collapsed ? "" : styles.titleChevronOpen}`} aria-hidden="true">
           <ChevronRightIcon size={12} />
         </span>
-        {icon} {label}
+        {icon}
+        <span className={styles.titleLabel}>{label}</span>
       </button>
     </h3>
   );

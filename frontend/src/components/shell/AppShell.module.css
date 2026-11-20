@@ -1,4 +1,4 @@
-/* Layout em coluna: header e abas (largura total), linha com lateral esquerda | conteúdo | lateral direita e barra de atalhos no rodapé. */
+/* Layout em coluna: barra superior (largura total), linha com lateral esquerda | conteúdo | lateral direita e barra de atalhos no rodapé. */
 
 .shell {
   display: flex;
@@ -20,7 +20,7 @@
   flex: none;
   flex-direction: column;
   min-height: 0;
-  background: var(--color-bg);
+  background: var(--color-bg-side);
   color: var(--color-text);
 }
 
@@ -59,108 +59,6 @@
   overflow: auto;
 }
 
-/* Abas */
-.tabBar {
-  display: flex;
-  flex: none;
-  align-items: stretch;
-  height: 36px;
-  padding: 0 var(--space-3);
-  /* Linha de 1px como fundo: a aba ativa a cobre com a sua própria linha. */
-  background: linear-gradient(var(--color-border), var(--color-border)) bottom / 100% 1px no-repeat var(--color-bg);
-}
-
-/* O tablist rola na horizontal dentro da faixa; "+" e os controles do kernel ficam fora dele. */
-.tabs {
-  display: flex;
-  flex: 0 1 auto;
-  min-width: 0;
-  align-items: stretch;
-  overflow-x: auto;
-}
-
-.tab {
-  display: flex;
-  flex: none;
-  align-items: center;
-  max-width: 240px;
-  border-right: 1px solid var(--color-border);
-  color: var(--color-text-muted);
-}
-
-.tab:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text);
-}
-
-.tab[data-active] {
-  background: linear-gradient(var(--color-text), var(--color-text)) bottom / 100% 1px no-repeat var(--color-bg);
-  color: var(--color-text);
-}
-
-.tabMain {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 100%;
-  padding: 0 var(--space-1) 0 var(--space-3);
-  border: none;
-  background: transparent;
-  color: inherit;
-  font-size: var(--font-size-sm);
-}
-
-.tabLabel {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tabDirty {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  background: currentColor;
-}
-
-.tabClose {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-right: var(--space-1);
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: var(--color-text-subtle);
-}
-
-.tabClose:hover {
-  background: var(--color-bg-active);
-  color: var(--color-text);
-}
-
-.tabAdd {
-  align-self: center;
-  flex: none;
-  margin-left: var(--space-1);
-}
-
-.tabSpacer {
-  flex: 1;
-  min-width: var(--space-3);
-}
-
-.tabActions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  align-self: center;
-  gap: var(--space-2);
-}
-
 .sysResources {
   flex-shrink: 0;
   color: var(--color-text-muted);
@@ -186,15 +84,15 @@
   padding: 0 var(--space-4);
   overflow: hidden;
   border-top: 1px solid var(--color-border);
-  background: var(--color-bg);
-  color: var(--color-text-muted);
+  background: var(--color-bg-side);
+  color: var(--color-text-subtle);
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 
 .shortcutBar kbd {
   margin-right: var(--space-1);
-  color: var(--color-text);
+  color: var(--color-text-muted);
   font-size: inherit;
 }
 

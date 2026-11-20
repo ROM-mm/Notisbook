@@ -49,6 +49,8 @@
   padding: 4px 0;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface-raised);
+  /* Sombra flutuante de todos os dropdowns (Menu, ContextMenu e lista do KernelSelector usam .list). */
+  box-shadow: var(--shadow-float);
   font-family: var(--font-sans);
   font-size: var(--font-size-sm);
 }
@@ -75,7 +77,7 @@
 
 .item:hover:not(:disabled),
 .item:focus-visible {
-  background: var(--color-bg-hover);
+  background: var(--color-selection);
 }
 
 .item:focus-visible {
@@ -99,7 +101,7 @@
 }
 
 .check {
-  color: var(--color-text);
+  color: var(--color-accent-text);
   font-size: var(--font-size-xs);
 }
 

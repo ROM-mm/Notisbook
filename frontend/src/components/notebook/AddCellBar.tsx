@@ -1,4 +1,4 @@
-/** Barra discreta entre células para inserir code/markdown (aparece no hover). */
+/** Barra fina entre células para inserir code/markdown (sempre visível). */
 import { type EditableCellType, type InsertWhere, type NotebookStore } from "../../state/notebook";
 import { useNotebookStore } from "../../state/notebookContext";
 import { PlusIcon } from "../shell/icons";

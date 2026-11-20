@@ -1,56 +1,68 @@
 /**
- * Header de terminal: nome e tagline empilhados, menubar em texto e toggles
- * discretos, com linha de 1px embaixo. Só variáveis de tema.
+ * Barra superior única (padrão do mock da landing): fina, fundo das laterais, linha
+ * de 1px embaixo; marca em Comic Sans; menus revelados no hover da barra; nomes dos
+ * notebooks abertos; kernel e toggles à direita. Só variáveis de tema.
  */
 
 .banner {
   position: relative;
+  z-index: 20;
   display: flex;
   flex: none;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-1);
   height: var(--header-height);
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-2) 0 var(--space-2);
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg);
+  background: var(--color-bg-side);
   color: var(--color-text);
+  font-size: var(--font-size-sm);
 }
 
-/* Nome na 1ª linha e tagline abaixo. */
-.brandText {
+/* Marca: ícone N + "notisbook" em Comic Sans bold. */
+.brand {
   display: flex;
   flex: none;
-  flex-direction: column;
-  justify-content: center;
-  gap: 4px;
+  align-items: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: 0 var(--space-2) 0 var(--space-1);
+  cursor: default;
 }
 
 .wordmark {
+  font-family: "Comic Sans MS", "Comic Sans", "Chalkboard SE", "Comic Neue", cursive;
   font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-bold);
   line-height: 1;
 }
 
-.tagline {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.separator {
-  flex: none;
-  width: 1px;
-  height: 24px;
-  background: var(--color-border);
-}
-
-/* Menubar: o overflow do header não pode cortar os dropdowns absolutos, por isso é visible. */
+/* Menubar: revelada no hover da barra inteira, com foco dentro dela ou com um menu
+   aberto. O overflow fica visível para não cortar os dropdowns absolutos. */
 .menubar {
   display: flex;
   flex: none;
   align-items: center;
-  gap: 2px;
+  gap: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-fast);
+}
+
+.banner:hover .menubar,
+.menubar:focus-within,
+.menubar:has([data-open]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.menubar :is(button[aria-haspopup="menu"], .menuButton) {
+  color: var(--color-text-muted);
+}
+
+.menubar :is(button[aria-haspopup="menu"], .menuButton):hover,
+.menubar button[data-open] {
+  color: var(--color-text);
 }
 
 .menuButton {
@@ -66,19 +78,141 @@
   background: var(--color-bg-hover);
 }
 
+/* Nomes dos notebooks abertos: rolam na horizontal; o "+" fica fora do tablist. */
+.tabBar {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin-left: var(--space-1);
+}
+
+.tabs {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 220px;
+  height: 26px;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+}
+
+.tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+/* Ativo: fundo leve e borda fina, sem sombra. */
+.tab[data-active] {
+  border-color: var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.tabMain {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm);
+}
+
+.tabLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tabDirty {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+}
+
+.tabClose {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-right: var(--space-1);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-subtle);
+  opacity: 0;
+}
+
+/* Oculto só por opacidade: o × das abas inativas continua focável pelo teclado. */
+.tab:hover .tabClose,
+.tab[data-active] .tabClose,
+.tab:focus-within .tabClose,
+.tabClose:focus-visible {
+  opacity: 1;
+}
+
+.tabClose:hover {
+  background: var(--color-bg-active);
+  color: var(--color-text);
+}
+
+.tabAdd {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.tabAdd:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
 .actions {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
   min-width: 0;
+  padding-left: var(--space-3);
+}
+
+.toggles {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border);
 }
 
 .saveText {
-  margin-right: var(--space-2);
   color: var(--color-text-subtle);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   white-space: nowrap;
 }
 
@@ -89,8 +223,8 @@
 .toggle {
   display: inline-grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 1px solid transparent;
   background: transparent;
@@ -103,6 +237,19 @@
 }
 
 .toggle[aria-pressed="true"] {
-  background: var(--color-bg-active);
-  color: var(--color-text);
+  color: var(--color-accent-text);
+}
+
+/* Janela estreita: some primeiro o uso da máquina, depois o nome do notebook; o
+   seletor de kernel encolhe com reticências e os toggles e o ⋮ ficam visíveis. */
+@media (max-width: 1100px) {
+  .actions :global([data-testid="system-resources"]) {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .actions :global([data-testid="kernel-notebook-name"]) {
+    display: none;
+  }
 }

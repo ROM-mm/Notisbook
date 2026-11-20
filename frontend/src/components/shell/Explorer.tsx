@@ -17,8 +17,8 @@ import { ResizeHandle } from "./ResizeHandle";
 const MIN_CARD_HEIGHT = 120;
 
 const GRIP_LABELS: Record<PanelCard, string> = {
-  catalog: "",
-  notebooks: "Resize notebooks and connections sections",
+  catalog: "Resize catalog and notislake sections",
+  notebooks: "",
   files: "",
 };
 
