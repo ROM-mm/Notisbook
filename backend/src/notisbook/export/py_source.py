@@ -12,6 +12,9 @@ DUCKDB_WARNING = "# NOTISBOOK: célula DuckDB SQL não convertida (sem equivalen
 _MAGIC_LINE = re.compile(r"%%?[A-Za-z]")
 _CELL_MAGIC = re.compile(r"%%[A-Za-z]")
 _BLOCK_COMMENT =re.compile(r"/\*.*?\*/", re.DOTALL)
+_ECHO_CALL = re.compile(r"(?<![\w.])echo\(")
+_N_KWARG = re.compile(r"n\s*=(?!=)")
+_CLOSERS = {"(": ")", "[": "]", "{": "}"}
 
 
 def _comment(text: str) -> str:
@@ -46,10 +49,75 @@ def _triple_state(line: str, open_quote: str | None) -> str | None:
     return open_quote
 
 
+def _skip_string(text: str, i: int) -> int:
+    """Índice logo após a string iniciada em `text[i]` (aspa simples ou tripla); fim do texto se não fechar."""
+    quote = text[i] * 3 if text.startswith(text[i] * 3, i) else text[i]
+    i += len(quote)
+    while i < len(text):
+        if text[i] == "\\" and len(quote) == 1:
+            i += 2
+        elif text.startswith(quote, i):
+            return i + len(quote)
+        else:
+            i += 1
+    return len(text)
+
+
+def _call_args(text: str, start: int) -> tuple[list[str], int] | None:
+    """Argumentos de topo da chamada cujo `(` abre antes de `start` e o índice após o `)`; None se não fechar."""
+    args: list[str] = []
+    stack = [")"]
+    begin = i = start
+    while i < len(text):
+        ch = text[i]
+        if ch in "'\"":
+            i = _skip_string(text, i)
+            continue
+        if ch in _CLOSERS:
+            stack.append(_CLOSERS[ch])
+        elif ch in ")]}":
+            if ch != stack.pop():
+                return None
+            if not stack:
+                args.append(text[begin:i])
+                return args, i + 1
+        elif ch == "," and len(stack) == 1:
+            args.append(text[begin:i])
+            begin = i + 1
+        i += 1
+    return None
+
+
+def _echo_to_display(source: str) -> str:
+    """Traduz `echo(df, n=...)` para `display(df)`: o Databricks só tem `display`, sem `n=`."""
+    out: list[str] = []
+    i = last = 0
+    while i < len(source):
+        ch = source[i]
+        if ch == "#":
+            end = source.find("\n", i)
+            i = len(source) if end == -1 else end
+        elif ch in "'\"":
+            i = _skip_string(source, i)
+        else:
+            match = _ECHO_CALL.match(source, i) if ch == "e" else None
+            parsed = _call_args(source, match.end()) if match else None
+            if parsed is None:
+                i += 1
+                continue
+            args, end = parsed
+            kept = [a for a in args if not _N_KWARG.match(a.strip())]
+            out.append(source[last:i] + "display(" + ",".join(kept).rstrip() + ")")
+            i = last = end
+    out.append(source[last:])
+    return "".join(out)
+
+
 def _python_block(source: str) -> str:
     first = next((ln for ln in source.split("\n") if ln.strip()), "")
     if _CELL_MAGIC.match(first):
         return _magic(source)  # cell magic applies to the whole cell body
+    source = _echo_to_display(source)
     lines: list[str] = []
     in_string: str | None = None  # linhas dentro de string tripla passam intactas
     for line in source.split("\n"):

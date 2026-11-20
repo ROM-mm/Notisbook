@@ -7,11 +7,11 @@ fallback, capped in rows and cell length) and registers a lazy IPython
 `text/html` formatter for PySpark DataFrames.
 
 Row limits: SQL/DuckDB cells and a bare `df` as the last line show up to
-`MAX_ROWS`; inside `display(df)` the limit is `DISPLAY_ROWS`, adjustable with
-the keyword `display(df, n=...)` (1..`MAX_ROWS`). That works through a marked
-wrapper of `display` (builtins, `IPython.display`, `IPython.core.display_functions`)
-that hands `n` to the formatter via a ContextVar; the original stays reachable
-through `_notisbook_original`.
+`MAX_ROWS`; inside `echo(df)` the limit is `DISPLAY_ROWS`, adjustable with
+the keyword `echo(df, n=...)` (1..`MAX_ROWS`). That works through a marked
+wrapper installed as `builtins.echo` (`builtins.display` is removed) and over
+`IPython.display` / `IPython.core.display_functions`, which hands `n` to the
+formatter via a ContextVar; the original stays reachable through `_notisbook_original`.
 
 The SQL query travels as a JSON string literal decoded inside the kernel, so its
 text is never spliced into code. `getOrCreate` is never called: with no active
@@ -82,8 +82,8 @@ def limit_var():
 def footer_text(count, truncated, limit):
     if truncated:
         text = "showing the first %d rows" % limit
-        # Hint only inside display(): there `n` can actually raise the limit.
-        return text + " \u2014 use display(df, n=...)" if limit_var().get() is not None else text
+        # Hint only inside echo(): there `n` can actually raise the limit.
+        return text + " \u2014 use echo(df, n=...)" if limit_var().get() is not None else text
     return "1 row" if count == 1 else "%d rows" % count
 
 def html_table(names, numeric, rows, footer):
@@ -218,7 +218,7 @@ def check_n(n):
     return value
 
 def wrap_display(original):
-    def display(*objs, n=None, **kwargs):
+    def echo(*objs, n=None, **kwargs):
         limit = check_n(n)  # before any output
         var = limit_var()
         token = var.set(limit)
@@ -226,8 +226,8 @@ def wrap_display(original):
             return original(*objs, **kwargs)
         finally:
             var.reset(token)
-    display._notisbook_original = original
-    return display
+    echo._notisbook_original = original
+    return echo
 
 def render(df, limit):
     # None means "fall back to the default repr": streaming frames cannot be
@@ -241,7 +241,7 @@ def render(df, limit):
 
 def html_formatter(df):
     limit = limit_var().get()
-    # Outside display() (displayhook of a bare `df`) keeps the MAX_ROWS cap.
+    # Outside echo() (displayhook of a bare `df`) keeps the MAX_ROWS cap.
     bundle = render(df, MAX_ROWS if limit is None else limit)
     return None if bundle is None else bundle["text/html"]
 
@@ -253,8 +253,10 @@ def install_display():
     wrapper = wrap_display(unwrap(display_functions.display))
     display_functions.display = wrapper
     IPython.display.display = wrapper
+    builtins.echo = wrapper
+    # `display` no longer exists in cells; the wrapper still calls the original internally.
     if hasattr(builtins, "display"):
-        builtins.display = wrapper
+        del builtins.display
 
 def register():
     from IPython import get_ipython
@@ -278,20 +280,20 @@ def register():
         pass
 
 def run(payload):
-    display = original_display()
+    show = original_display()
     mod = sys.modules.get("pyspark.sql")
     spark = mod.SparkSession.getActiveSession() if mod is not None else None
     if spark is None:
         raise RuntimeError(__NO_SESSION__)
     df = spark.sql(json.loads(payload))
     if not df.columns:
-        display({"text/plain": "OK"}, raw=True)
+        show({"text/plain": "OK"}, raw=True)
     elif getattr(df, "isStreaming", False):
-        display(df)
+        show(df)
     else:
         # `_build`, not `render`: a runtime Spark error must surface as the
         # cell's error instead of being swallowed into the default repr.
-        display(_build(df, MAX_ROWS), raw=True)
+        show(_build(df, MAX_ROWS), raw=True)
 '''
 
 _KERNEL_SOURCE = (
