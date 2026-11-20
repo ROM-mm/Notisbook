@@ -7,6 +7,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-20
+
+A redesigned interface with a single top bar and framed cells, keyboard-driven cell runs, and a public landing page.
+
+### Added
+
+- **Landing page.** A static landing page in English and Portuguese, under `site/`, presents the persistent
+  catalog with Spark, Delta, Iceberg and Hudi, the AWS Glue 5.0 Docker runtime and the local notislake (MinIO). It
+  ships its fonts and icons locally, loads no external resources and is published to GitHub Pages on every push
+  to `main`.
+- **Run and advance with Shift+Enter.** Shift+Enter runs a code cell (or renders a markdown one) and moves the
+  cursor into the next code cell below, skipping markdown cells and creating a new code cell at the end when there
+  is none. Cmd+Enter (Ctrl+Enter on Windows and Linux) runs the cell and keeps the cursor in it.
+- **Runtime icon and version in the kernel selector.** The selector shows the Spark or AWS Glue icon with the
+  runtime version, such as `3.5.9` for Spark or `5.0` for AWS Glue, and the kernel state as a small square: green
+  when idle, gray while busy, red on error. The full state is in the tooltip and the accessible label, and each
+  environment in the list shows its icon. Other kernels keep their full display name.
+
+### Changed
+
+- **Single top bar.** The header and the tab bar are merged into one bar: the colored N mark with the wordmark,
+  then the open notebooks, each with a small square that is green when active. The File, Edit, View, Run and Help
+  menus appear on hover or click of the mark and close with Escape or a click outside. The save state, kernel
+  controls (selector, run all, interrupt, restart and "Restart and run all") and panel toggles stay on the right.
+- **Reorganized sidebars.** The Notislake card moves to the left sidebar under the Catalog, leaving Notebooks
+  alone on the right. Notislake shows the `s3a://` root and always lists `landing`, `bronze`, `silver` and `gold`
+  in that order, even before a prefix exists; Catalog schemas follow the same order and show per-format table
+  icons. Machine usage moves to the shortcut bar at the bottom.
+- **Framed cells.** Each cell has a thin border that strengthens on the active cell, a header with the language
+  on the left and the run status, interrupt and cell menu on the right, and a dashed rule before the output. Line
+  numbers, the header run button and the blue edge on the cell being edited are gone, and the notebook scrollbar
+  is hidden while scrolling still works by wheel, trackpad and keyboard.
+- **Blue accent and colored syntax.** The accent color is now blue, syntax highlighting is colored in both dark
+  themes, and the add-cell bar is always visible, with a small green square in its "code" and "markdown" buttons.
+
+### Fixed
+
+- **Stale run status after a language change.** A cell's run status is cleared when its language changes.
+
 ## [0.3.0] - 2026-11-19
 
 Quieter cell output: Spark keeps its log noise to itself, and package downloads show up as a short list.
