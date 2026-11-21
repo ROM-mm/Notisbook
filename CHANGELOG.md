@@ -7,6 +7,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-20
+
+A retro terminal look in VT323, `echo(df)` for showing DataFrames, a button to clear every output, and a steadier
+home screen.
+
+### Added
+
+- **Clear all outputs.** The kernel toolbar has a "Clear all outputs" button that empties the outputs of every code
+  cell in one step. Execution counts and each cell's run time and status are kept, and the button is disabled while
+  a cell is running or queued.
+
+### Changed
+
+- **`echo(df)` replaces `display(df)` in cells.** DataFrames are now shown with `echo(df)`, which also takes a row
+  limit such as `echo(df, n=50)`; `display` is no longer available in cells. The bundled sample notebooks use
+  `echo`, and exporting to a Databricks `.py` file turns `echo(...)` back into `display(...)` without the `n=`
+  argument, skipping occurrences inside strings and comments.
+- **VT323 interface.** The interface uses the VT323 pixel font, scaled to 140% so it stays readable, and the brand
+  mark, favicon and panel and focus-mode icons are redrawn as pixel art. Cell code, outputs and code inside markdown
+  use VT323 too, without synthesized bold or italic; markdown prose stays in Roboto, now with real 600 and 700
+  italics.
+- **Landing page as a Data Workstation.** The landing page presents Notisbook as a 1970s-style Data Workstation
+  running Spark, with VT323 for the brand, headings and terminal and Monocode for body text.
+
+### Fixed
+
+- **Blank screen in focus mode.** Turning on focus mode while browsing notebooks with no tab open no longer leaves
+  an empty screen; it returns to the home screen.
+- **Browse from a folder link.** Opening `/tree/<folder>`, directly or through "Browse notebooks…", expands the
+  notebook tree down to that folder.
+- **Recent notebooks across browser tabs.** Recent notebooks are shared between tabs instead of one tab
+  overwriting the other's list, and they stay in memory for the session when the browser blocks local storage.
+- **Missing recent notebooks.** Opening a recent notebook that no longer exists removes it from the list and returns
+  to the home screen, instead of listing the whole folder first or leaving a broken tab open.
+
 ## [0.4.0] - 2026-11-20
 
 A redesigned interface with a single top bar and framed cells, keyboard-driven cell runs, and a public landing page.
