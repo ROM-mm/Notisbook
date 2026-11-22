@@ -1,27 +1,15 @@
-"""Spark SQL / DuckDB SQL cells and shared result renderer for the user's kernel.
+"""Spark SQL / DuckDB SQL cells and the shared result renderer for the user's kernel.
 
-The renderer lives in a hidden module (`_notisbook_display`) installed into the
-kernel by an idempotent `ensure` snippet, so nothing leaks into the user's
-namespace. It builds the `display_data` bundle (HTML table + ASCII `text/plain`
-fallback, capped in rows and cell length) and registers a lazy IPython
+The renderer lives in a hidden module (`_notisbook_display`) installed by an idempotent
+`ensure` snippet, so nothing leaks into the user's namespace. It builds the `display_data`
+bundle (HTML table + ASCII fallback, capped in rows and cell length) and registers a lazy
 `text/html` formatter for PySpark DataFrames.
 
-Row limits: SQL/DuckDB cells and a bare `df` as the last line show up to
-`MAX_ROWS`; inside `echo(df)` the limit is `DISPLAY_ROWS`, adjustable with
-the keyword `echo(df, n=...)` (1..`MAX_ROWS`). That works through a marked
-wrapper installed as `builtins.echo` (`builtins.display` is removed) and over
-`IPython.display` / `IPython.core.display_functions`, which hands `n` to the
-formatter via a ContextVar; the original stays reachable through `_notisbook_original`.
-
-The SQL query travels as a JSON string literal decoded inside the kernel, so its
-text is never spliced into code. `getOrCreate` is never called: with no active
-SparkSession the Spark cell fails with a clear message instead of starting a JVM.
-
-DuckDB cells need no SparkSession: one lazy in-memory connection per kernel is
-kept in the module's `STATE` (carried over when the module version changes) and
-dies with the kernel. Extension autoinstall is off so the kernel stays offline.
-In the DuckDB runtime kernel the connection is prepared by its bootstrap hook (catalog,
-secrets); cells there pass no extension directory and never create a connection themselves.
+Row limits: SQL/DuckDB cells and a bare `df` last line show up to `MAX_ROWS`; `echo(df, n=...)`
+(1..`MAX_ROWS`, default `DISPLAY_ROWS`) goes through a marked `builtins.echo` wrapper.
+The query travels as a JSON string literal decoded in the kernel, never spliced into code.
+Spark cells never call `getOrCreate`. DuckDB cells keep one lazy in-memory connection in `STATE`,
+with autoinstall off; in the DuckDB runtime kernel its bootstrap hook prepares that connection.
 """
 
 import hashlib
