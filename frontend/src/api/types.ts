@@ -1,6 +1,6 @@
 /** Tipos dos contratos REST do backend Notisbook. */
 
-import type { CellLanguage } from "../state/notebook";
+export type CellLanguage = "python" | "sql" | "duckdb";
 
 export type ContentType = "dir" | "notebook" | "file";
 

@@ -36,6 +36,7 @@ import type {
   RawCell,
 } from "../api/nbformat";
 import { joinMultiline } from "../api/nbformat";
+import type { CellLanguage } from "../api/types";
 
 export type CellType = Cell["cell_type"];
 /** Tipos que a UI cria/alterna (raw só é preservado quando vem do disco). */
@@ -214,7 +215,7 @@ export function cellTitle(cell: EditorCell): string | null {
   return typeof t === "string" && t.trim() ? t : null;
 }
 
-export type CellLanguage = "python" | "sql" | "duckdb";
+export type { CellLanguage };
 
 const CELL_LANGUAGES: readonly CellLanguage[] = ["sql", "duckdb"];
 
