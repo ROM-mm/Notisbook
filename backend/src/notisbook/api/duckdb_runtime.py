@@ -66,7 +66,7 @@ def _extension_rows(names: tuple[str, ...], version: str, directory: Path | None
 
 @router.get("")
 async def get_status(installer: Installer) -> dict[str, Any]:
-    entry = await asyncio.to_thread(lambda: _find(installer))
+    entry = await asyncio.to_thread(_find, installer)
     active = installer.active_job()
     try:
         version: str | None = load_manifest().duckdb_version
@@ -83,7 +83,7 @@ async def get_status(installer: Installer) -> dict[str, Any]:
 
 @router.get("/extensions")
 async def list_extensions(installer: Installer) -> dict[str, Any]:
-    entry = await asyncio.to_thread(lambda: _find(installer))
+    entry = await asyncio.to_thread(_find, installer)
     if entry is not None:
         # O runtime instalado manda: o manifesto pode ter avançado de versão depois da instalação.
         return {
