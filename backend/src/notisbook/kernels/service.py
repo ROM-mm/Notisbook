@@ -197,7 +197,7 @@ class KernelSpecInfo(TypedDict):
     name: str
     display_name: str
     language: str
-    cell_languages: list[str]
+    cell_languages: list[CellLanguage]
 
 
 def runtime_kind(kernel_name: str, metadata: dict[str, Any], docker: bool | None = None) -> RuntimeKind:
@@ -220,8 +220,8 @@ def cell_languages_for(kind: RuntimeKind, spec_language: str) -> tuple[CellLangu
     return CELL_LANGUAGES_BY_KIND[kind]
 
 
-def _unavailable_message(language: str, kind: RuntimeKind, spec_language: str) -> str:
-    label = CELL_LANGUAGE_LABELS.get(language, language)
+def _unavailable_message(language: CellLanguage, kind: RuntimeKind, spec_language: str) -> str:
+    label = CELL_LANGUAGE_LABELS[language]
     if spec_language != "python":
         where = "in non-Python kernels"
     else:
