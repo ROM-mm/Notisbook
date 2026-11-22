@@ -1,5 +1,7 @@
 /** Tipos dos contratos REST do backend Notisbook. */
 
+import type { CellLanguage } from "../state/notebook";
+
 export type ContentType = "dir" | "notebook" | "file";
 
 export interface ContentEntry {
@@ -18,6 +20,8 @@ export interface Kernelspec {
   name: string;
   display_name: string;
   language: string;
+  /** Linguagens de célula que o kernel executa, em ordem canônica; ausente em backends antigos. */
+  cell_languages?: CellLanguage[];
 }
 
 export type KernelState = "starting" | "idle" | "busy" | "restarting" | "dead";

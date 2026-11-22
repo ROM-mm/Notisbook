@@ -8,6 +8,7 @@
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
+import type { Kernelspec } from "../../api/types";
 import { useKernel, useKernelStore, useNotebookStore } from "../../state/notebookContext";
 import { Menu, type MenuItem } from "../shell/Menu";
 import { MoreVerticalIcon, StopFilledIcon } from "../shell/icons";
@@ -24,8 +25,20 @@ export interface CellHeaderProps {
   setTitleEditing: (editing: boolean) => void;
 }
 
-const LANGUAGE_LABEL: Record<CellLanguage, string> = { python: "python", sql: "spark sql", duckdb: "duckdb sql" };
+const LANGUAGE_LABEL: Record<CellLanguage, string> = { python: "Python", sql: "Spark SQL", duckdb: "DuckDB" };
 const LANGUAGES: CellLanguage[] = ["python", "sql", "duckdb"];
+const NOT_AVAILABLE = "not available in this kernel";
+
+/**
+ * Linguagens oferecidas no menu, na ordem canônica. Sem informação utilizável do
+ * kernel (nome nulo, spec ausente, campo ausente ou lista sem linguagem conhecida),
+ * oferece todas.
+ */
+function languagesFor(spec: Kernelspec | undefined): CellLanguage[] {
+  const supported = spec?.cell_languages;
+  const subset = supported ? LANGUAGES.filter((l) => supported.includes(l)) : [];
+  return subset.length > 0 ? subset : LANGUAGES;
+}
 
 function TitleInput({ initial, onDone }: { initial: string; onDone: (value: string | null) => void }) {
   const [value, setValue] = useState(initial);
@@ -108,9 +121,14 @@ export function CellHeader({
   ];
 
   const language = cellLanguage(cell);
+  const kernelName = useKernel((s) => s.kernelName);
+  const kernelspecs = useKernel((s) => s.kernelspecs);
+  const available = languagesFor(kernelName ? kernelspecs.find((k) => k.name === kernelName) : undefined);
+  // A linguagem salva na célula não é reescrita; só é sinalizada quando o kernel não a executa.
+  const unavailable = !available.includes(language);
   const languageItems = (): MenuItem[] =>
-    LANGUAGES.map((l) => ({
-      label: LANGUAGE_LABEL[l],
+    (unavailable ? LANGUAGES.filter((l) => l === language || available.includes(l)) : available).map((l) => ({
+      label: l === language && unavailable ? `${LANGUAGE_LABEL[l]} (${NOT_AVAILABLE})` : LANGUAGE_LABEL[l],
       checked: l === language,
       testId: `cell-language-${l}`,
       onSelect: () => nb().setCellLanguage(id, l),
@@ -153,7 +171,7 @@ export function CellHeader({
         <Menu
           trigger={LANGUAGE_LABEL[language]}
           ariaLabel="Cell language"
-          title="Cell language"
+          title={unavailable ? `Cell language: ${LANGUAGE_LABEL[language]} is ${NOT_AVAILABLE}` : "Cell language"}
           variant="icon"
           testId="cell-language"
           items={languageItems}
