@@ -200,16 +200,17 @@ class KernelSpecInfo(TypedDict):
     cell_languages: list[str]
 
 
-def runtime_kind(kernel_name: str, metadata: dict[str, Any]) -> RuntimeKind:
+def runtime_kind(kernel_name: str, metadata: dict[str, Any], docker: bool | None = None) -> RuntimeKind:
     """Tipo de runtime do kernel, na precedência do despacho: duckdb > docker > local.
 
-    DuckDB: nome fixo e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo.
+    DuckDB: nome fixo e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo,
+    ou `docker` quando o chamador já o consultou.
     """
     if kernel_name == DUCKDB_KERNEL_NAME and DUCKDB_METADATA_KEY in metadata:
         return "duckdb"
-    if docker_catalog.by_kernel_name(kernel_name) is not None:
-        return "docker"
-    return "local"
+    if docker is None:
+        docker = docker_catalog.by_kernel_name(kernel_name) is not None
+    return "docker" if docker else "local"
 
 
 def cell_languages_for(kind: RuntimeKind, spec_language: str) -> tuple[CellLanguage, ...]:
@@ -219,9 +220,9 @@ def cell_languages_for(kind: RuntimeKind, spec_language: str) -> tuple[CellLangu
     return CELL_LANGUAGES_BY_KIND[kind]
 
 
-def _unavailable_message(language: str, kind: RuntimeKind, languages: tuple[CellLanguage, ...]) -> str:
+def _unavailable_message(language: str, kind: RuntimeKind, spec_language: str) -> str:
     label = CELL_LANGUAGE_LABELS.get(language, language)
-    if kind == "local" and languages == CELL_LANGUAGES_NON_PYTHON_KERNEL:
+    if spec_language != "python":
         where = "in non-Python kernels"
     else:
         where = f"in the {RUNTIME_KIND_LABELS[kind]} kernel"
@@ -257,8 +258,9 @@ class KernelSession:
     runtime_grant: RuntimeGrant | None = None
     # Kernel do runtime DuckDB: conexão própria, sem hook Spark; `catalog_ensure` traz o bootstrap dela (com o token).
     duckdb_kernel: bool = False
-    # Tipo de runtime e linguagens de célula que ele executa (`_build_source` recusa as demais).
+    # Tipo de runtime, linguagem do kernelspec e linguagens de célula que o kernel executa (`execute()` recusa as demais).
     kind: RuntimeKind = "local"
+    spec_language: str = "python"
     cell_languages: tuple[CellLanguage, ...] = CELL_LANGUAGES_BY_KIND["local"]
     # Monta o snippet do hook (Docker: catálogo; DuckDB: bootstrap) a partir do token e das opções S3A; None deixa o hook desligado.
     catalog_factory: Callable[[str, Mapping[str, str] | None], str] | None = None
@@ -561,7 +563,7 @@ class KernelSession:
             return
         if language not in self.cell_languages:
             # Recusa no backend: o kernel pode não ser Python, então nenhum código é enviado a ele.
-            message = _unavailable_message(language, self.kind, self.cell_languages)
+            message = _unavailable_message(language, self.kind, self.spec_language)
             error = {"output_type": "error", "ename": "RuntimeError", "evalue": message, "traceback": [message]}
             await self.emit(OutputEvent(cell_id=cell_id, output=error))
             await self.emit(ExecuteReplyEvent(cell_id=cell_id, status="error"))
@@ -951,14 +953,14 @@ class KernelService:
         só sessões novas são recusadas. Uma conexão manual válida abre mesmo com o MinIO local fora.
         """
         # Sem o metadata do kernelspec (só chega após o await) o DuckDB não é visível; docker e local já se decidem aqui.
-        is_docker = runtime_kind(kernel_name, {}) == "docker"
+        docker_runtime = docker_catalog.by_kernel_name(kernel_name)
+        is_docker = docker_runtime is not None
         s3a = self._resolve_s3a(docker=is_docker)
         session_id = uuid.uuid4().hex
         # Registered before the spec lookup so has_session sees the session during the whole arranque.
         self._starting[session_id] = kernel_name
         self._starting_paths[session_id] = target
         try:
-            docker_runtime = docker_catalog.by_kernel_name(kernel_name)
             if docker_runtime is None and kernel_name.startswith(DOCKER_KERNEL_PREFIX):
                 raise KernelNotFound(kernel_name)
             if docker_runtime is not None and self._docker is not None:
@@ -970,8 +972,11 @@ class KernelService:
                 raise KernelNotFound(kernel_name) from exc
             runtime_grant: RuntimeGrant | None = None
             spec_metadata = getattr(spec, "metadata", None)
-            kind = runtime_kind(kernel_name, spec_metadata if isinstance(spec_metadata, dict) else {})
+            kind = runtime_kind(
+                kernel_name, spec_metadata if isinstance(spec_metadata, dict) else {}, docker=is_docker
+            )
             is_duckdb = kind == "duckdb"
+            spec_language = str(getattr(spec, "language", ""))
             if is_duckdb:
                 # O DuckDB só usa s3a (sem pastas locais): roots vazio; o fingerprint libera a gravação em s3a.
                 runtime_grant = RuntimeGrant(session_id=session_id, roots=(), s3a_fingerprint=s3a.fingerprint)
@@ -1005,7 +1010,8 @@ class KernelService:
                 local_catalog_factory=None if (docker_runtime is not None or is_duckdb) else local_factory,
                 duckdb_kernel=is_duckdb,
                 kind=kind,
-                cell_languages=cell_languages_for(kind, str(getattr(spec, "language", ""))),
+                spec_language=spec_language,
+                cell_languages=cell_languages_for(kind, spec_language),
                 s3a_resolver=lambda: self._resolve_s3a(docker=is_docker),
                 _s3a_options=s3a.options,
                 s3a_notice=s3a.notice,
