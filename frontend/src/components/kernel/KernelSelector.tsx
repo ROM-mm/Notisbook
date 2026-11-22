@@ -33,19 +33,24 @@ const RUNTIME_ICON_URL: Record<Runtime, string | null> = {
   other: null,
 };
 
+/** Nome fixo do kernelspec DuckDB (backend `runtimes/duckdb/kernelspec.py`). */
+const DUCKDB_KERNEL_NAME = "duckdb";
+
 /**
- * Tipo e versão do runtime derivados do `display_name`/`name` do kernelspec. A
- * versão é a logo após a palavra do runtime (ex.: "Spark 3.5.1"); sem ela, `null`.
+ * Tipo e versão do runtime. DuckDB vem do nome exato do kernel; glue/spark, do
+ * `display_name`/`name`. A versão é a logo após a palavra do runtime (ex.:
+ * "Spark 3.5.1"); sem ela, `null`.
  */
 function runtimeOf(displayName: string, name: string | null): { runtime: Runtime; version: string | null } {
   const text = `${displayName} ${name ?? ""}`.toLowerCase();
-  const runtime: Runtime = text.includes("glue")
-    ? "glue"
-    : text.includes("spark")
-      ? "spark"
-      : text.includes("duckdb")
-        ? "duckdb"
-        : "other";
+  const runtime: Runtime =
+    name === DUCKDB_KERNEL_NAME
+      ? "duckdb"
+      : text.includes("glue")
+        ? "glue"
+        : text.includes("spark")
+          ? "spark"
+          : "other";
   const version = runtime !== "other" ? (displayName.match(/(?:spark|glue|duckdb)\D*(\d+(?:\.\d+)+)/i)?.[1] ?? null) : null;
   return { runtime, version };
 }
