@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from .api import appearance, catalog, contents, docker, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
+from .api import appearance, catalog, contents, docker, duckdb_runtime, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
 from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
@@ -14,6 +14,7 @@ from .notebooks.store import NotebookStore
 from .notislake.supervisor import NotislakeSupervisor
 from .preferences import protected_paths
 from .runtimes.docker.service import DockerRuntimes
+from .runtimes.duckdb.installer import DuckDBInstaller
 from .spark.catalog import CatalogService
 from .spark.installer import SparkInstaller
 from .static import mount_frontend
@@ -27,10 +28,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     installer: SparkInstaller = app.state.installer
     docker: DockerRuntimes = app.state.docker
     await asyncio.to_thread(installer.sweep_trash)
+    duckdb_installer: DuckDBInstaller = app.state.duckdb
+    await asyncio.to_thread(duckdb_installer.sweep_trash)
     try:
         yield
     finally:
         await installer.shutdown()
+        await duckdb_installer.shutdown()
         await docker.shutdown()
         await kernels.shutdown_all()
         await kernels.stop_docker_runtimes()
@@ -58,6 +62,7 @@ def create_app(
         kernels.has_session,
         settings.pypi_url,
     )
+    app.state.duckdb = DuckDBInstaller(settings.home, app.state.jobs, kernels.has_session)
     app.state.catalog = CatalogService(settings.pypi_url)
     app.state.docker = DockerRuntimes(
         settings.home,
@@ -81,6 +86,7 @@ def create_app(
     app.include_router(sessions.ws_router)
     app.include_router(spark.router)
     app.include_router(docker.router)
+    app.include_router(duckdb_runtime.router)
     app.include_router(jobs.router)
     app.include_router(jobs.ws_router)
     app.include_router(notislake_api.router)
