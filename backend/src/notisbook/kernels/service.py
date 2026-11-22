@@ -58,6 +58,7 @@ from ..spark.bundles import (
 from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
 from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
+from .languages import CELL_LANGUAGE_LABELS
 from .protocol import (
     ClearOutputEvent,
     ErrorEvent,
@@ -73,7 +74,6 @@ from .sql_cell import (
     build_duckdb_code,
     build_duckdb_kernel_code,
     build_ensure_code,
-    build_unavailable_code,
 )
 from .sql_cell import build_code as build_sql_code
 
@@ -191,7 +191,6 @@ CELL_LANGUAGES_BY_KIND: dict[RuntimeKind, tuple[CellLanguage, ...]] = {
     "docker": ("python", "sql"),
 }
 NON_PYTHON_CELL_LANGUAGES: tuple[CellLanguage, ...] = ("python",)
-CELL_LANGUAGE_LABELS: dict[str, str] = {"python": "Python", "sql": "Spark SQL", "duckdb": "DuckDB"}
 RUNTIME_KIND_LABELS: dict[RuntimeKind, str] = {"duckdb": "DuckDB", "docker": "Docker", "local": "local"}
 
 
@@ -561,14 +560,19 @@ class KernelSession:
             await self.emit(ErrorEvent(code=f"kernel_{self.state}", message=f"Kernel is {self.state}"))
             await self.emit(ExecuteReplyEvent(cell_id=cell_id, status="aborted"))
             return
+        if language not in self.cell_languages:
+            # Recusa no backend: o kernel pode não ser Python, então nenhum código é enviado a ele.
+            message = _unavailable_message(language, self.kind, self.cell_languages)
+            error = {"output_type": "error", "ename": "RuntimeError", "evalue": message, "traceback": [message]}
+            await self.emit(OutputEvent(cell_id=cell_id, output=error))
+            await self.emit(ExecuteReplyEvent(cell_id=cell_id, status="error"))
+            return
         self.stream_bytes[cell_id] = 0
         source = self._build_source(code, language)
         msg_id = self.client.execute(source, allow_stdin=False)
         self.pending[msg_id] = _Pending(cell_id=cell_id)
 
     def _build_source(self, code: str, language: str) -> str:
-        if language not in self.cell_languages:
-            return build_unavailable_code(_unavailable_message(language, self.kind, self.cell_languages))
         if language == "sql":
             return build_sql_code(code)
         if language == "duckdb":

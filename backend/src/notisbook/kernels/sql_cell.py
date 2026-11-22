@@ -370,8 +370,3 @@ def build_duckdb_kernel_code(sql: str) -> str:
     )
     call = f"exec({guard!r}, {{}})"
     return f"{build_ensure_code()}\n{call}"
-
-
-def build_unavailable_code(message: str) -> str:
-    """Return the Python source that fails the cell with `message` (embedded as a `repr` literal)."""
-    return f"raise RuntimeError({message!r})"
