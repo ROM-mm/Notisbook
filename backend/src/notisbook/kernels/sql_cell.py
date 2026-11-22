@@ -20,6 +20,8 @@ SparkSession the Spark cell fails with a clear message instead of starting a JVM
 DuckDB cells need no SparkSession: one lazy in-memory connection per kernel is
 kept in the module's `STATE` (carried over when the module version changes) and
 dies with the kernel. Extension autoinstall is off so the kernel stays offline.
+In the DuckDB runtime kernel the connection is prepared by its bootstrap hook (catalog,
+secrets); cells there pass no extension directory and never create a connection themselves.
 """
 
 import hashlib
@@ -30,6 +32,7 @@ NO_SESSION_MESSAGE = "No active SparkSession; create one in a Python cell"
 DUCKDB_MISSING_MESSAGE = (
     "DuckDB is not installed in this runtime; reinstall it from Settings › Runtimes"
 )
+DUCKDB_NOT_READY_MESSAGE = "The DuckDB session is not ready; restart the kernel"
 DUCKDB_DOCKER_MESSAGE = "DuckDB cells are not available in the Docker runtime; use a Spark SQL cell or a local Spark kernel"
 MAX_ROWS = 1000
 DISPLAY_ROWS = 50
@@ -160,6 +163,10 @@ def _duckdb_connection(ext_dir):
     con = STATE.get("duckdb")
     if con is not None:
         return con
+    if ext_dir is None:
+        # Kernel DuckDB: sem a conexão do hook não há catálogo nem credencial; não abre uma solta.
+        reason = STATE.get("duckdb_error")
+        raise RuntimeError(__DUCKDB_NOT_READY__ + (" (" + reason + ")" if reason else ""))
     try:
         import duckdb
     except ImportError:
@@ -302,6 +309,7 @@ _KERNEL_SOURCE = (
     .replace("__MAX_CELL_CHARS__", str(MAX_CELL_CHARS))
     .replace("__NO_SESSION__", repr(NO_SESSION_MESSAGE))
     .replace("__DUCKDB_MISSING__", repr(DUCKDB_MISSING_MESSAGE))
+    .replace("__DUCKDB_NOT_READY__", repr(DUCKDB_NOT_READY_MESSAGE))
 )
 _VERSION = hashlib.sha1(_KERNEL_SOURCE.encode()).hexdigest()[:12]
 
@@ -360,6 +368,18 @@ def build_duckdb_code(sql: str, ext_dir: str) -> str:
         f"m = sys.modules.get({MODULE_NAME!r})\n"
         f"if m is None:\n    raise RuntimeError({RENDERER_MISSING_MESSAGE!r})\n"
         f"m.run_duckdb({json.dumps(sql)!r}, {json.dumps(ext_dir)!r})"
+    )
+    call = f"exec({guard!r}, {{}})"
+    return f"{build_ensure_code()}\n{call}"
+
+
+def build_duckdb_kernel_code(sql: str) -> str:
+    """Como `build_duckdb_code`, para o kernel DuckDB: usa só a conexão preparada pelo hook (sem extension_directory)."""
+    guard = (
+        "import sys\n"
+        f"m = sys.modules.get({MODULE_NAME!r})\n"
+        f"if m is None:\n    raise RuntimeError({RENDERER_MISSING_MESSAGE!r})\n"
+        f"m.run_duckdb({json.dumps(sql)!r}, 'null')"
     )
     call = f"exec({guard!r}, {{}})"
     return f"{build_ensure_code()}\n{call}"

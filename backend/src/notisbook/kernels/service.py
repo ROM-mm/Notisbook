@@ -43,6 +43,7 @@ from ..runtimes.docker.service import (
     SessionsActive,
     inspect_container,
 )
+from ..runtimes.duckdb.hook import build_bootstrap_code as build_duckdb_bootstrap_code
 from ..runtimes.duckdb.kernelspec import KERNEL_NAME as DUCKDB_KERNEL_NAME
 from ..runtimes.duckdb.kernelspec import METADATA_KEY as DUCKDB_METADATA_KEY
 from ..security import RuntimeGrant, RuntimeTokens
@@ -71,6 +72,7 @@ from .sql_cell import (
     DUCKDB_DOCKER_MESSAGE,
     MODULE_NAME,
     build_duckdb_code,
+    build_duckdb_kernel_code,
     build_ensure_code,
     build_unavailable_code,
 )
@@ -207,9 +209,9 @@ class KernelSession:
     # Token de runtime da sessão Docker ou DuckDB: emitido na criação, trocado no restart, revogado no close.
     runtime_tokens: RuntimeTokens | None = None
     runtime_grant: RuntimeGrant | None = None
-    # Token vigente da sessão DuckDB, só em memória, para o hook entregá-lo ao kernel; nunca em argv, env, kernel.json ou log.
-    runtime_token: str | None = field(default=None, repr=False)
-    # Monta o snippet do hook de catálogo a partir do token e das opções S3A; None deixa o hook desligado na sessão.
+    # Kernel do runtime DuckDB: conexão própria, sem hook Spark; `catalog_ensure` traz o bootstrap dela (com o token).
+    duckdb_kernel: bool = False
+    # Monta o snippet do hook (Docker: catálogo; DuckDB: bootstrap) a partir do token e das opções S3A; None deixa o hook desligado.
     catalog_factory: Callable[[str, Mapping[str, str] | None], str] | None = None
     # Sessão local: monta o snippet a partir das opções S3A (o hook local fala com o SQLite, sem token).
     local_catalog_factory: Callable[[Mapping[str, str] | None], str] | None = None
@@ -313,13 +315,11 @@ class KernelSession:
         token = self.runtime_tokens.issue(self.runtime_grant)
         if self.catalog_factory is not None:
             self.catalog_ensure = self.catalog_factory(token, self._s3a_options)
-        else:
-            self.runtime_token = token  # sem fábrica (kernel DuckDB), o token fica à disposição do hook
 
     def refresh_s3a(self) -> tuple[str, str] | None:
         """Reavalia a conexão S3A para o kernel novo; levanta `ConfigInvalid` ou `NotislakeUnavailable` sem alterar a sessão.
 
-        Atualiza o fingerprint do grant e o snippet local; o snippet Docker sai de `issue_runtime_token`. Devolve o aviso, se houver.
+        Atualiza o fingerprint do grant e o snippet local; o snippet Docker e o bootstrap DuckDB saem de `issue_runtime_token`. Devolve o aviso, se houver.
         """
         if self.s3a_resolver is None:
             return None
@@ -519,6 +519,8 @@ class KernelSession:
         if language == "sql":
             return build_sql_code(code)
         if language == "duckdb":
+            if self.duckdb_kernel:
+                return build_duckdb_kernel_code(code)
             if self.docker_runtime is not None:
                 return build_unavailable_code(DUCKDB_DOCKER_MESSAGE)
             # Extensões ficam sob a raiz única de dados; o autoinstall é desligado no kernel.
@@ -573,7 +575,6 @@ class KernelSession:
             self.sink = None
             if self.runtime_tokens is not None:
                 self.runtime_tokens.revoke(self.session_id)
-            self.runtime_token = None
             for task in list(self._bg_tasks):
                 task.cancel()
             await asyncio.gather(*self._bg_tasks, return_exceptions=True)
@@ -734,6 +735,18 @@ class KernelService:
         """Kernel do runtime DuckDB: nome fixo e o registro `notisbook_duckdb` no metadata do kernelspec."""
         metadata = getattr(spec, "metadata", None)
         return kernel_name == DUCKDB_KERNEL_NAME and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata
+
+    def _duckdb_bootstrap_factory(self, spec: Any) -> Callable[[str, Mapping[str, str] | None], str]:
+        """Bootstrap do kernel DuckDB; o diretório e a lista de extensões vêm do metadata do kernelspec."""
+        meta = spec.metadata[DUCKDB_METADATA_KEY]
+        ext_dir = str(meta.get("extension_directory") or "")
+        extensions = tuple(str(e) for e in meta.get("extensions") or ())
+        port = self._port
+
+        def build(token: str, s3a: Mapping[str, str] | None) -> str:
+            return build_duckdb_bootstrap_code(ext_dir, extensions, s3a, port, token)
+
+        return build
 
     def _local_catalog_factory(self) -> Callable[[Mapping[str, str] | None], str]:
         """Snippet do hook com transporte SQLite; as opções S3A entram por sessão."""
@@ -916,7 +929,12 @@ class KernelService:
             connection_file = str(self._runtime_dir / f"{self._prefix}{session_id}.json")
             manager = AsyncKernelManager(kernel_name=kernel_name, connection_file=connection_file)
             manager.shutdown_wait_time = SHUTDOWN_WAIT
-            local_factory = self._local_catalog_factory()
+            local_factory = None if is_duckdb else self._local_catalog_factory()
+            catalog_factory = None
+            if is_duckdb:
+                catalog_factory = self._duckdb_bootstrap_factory(spec)
+            elif docker_runtime is not None and runtime_grant is not None:
+                catalog_factory = self._docker_catalog_factory(runtime_grant)
             session = KernelSession(
                 session_id,
                 path,
@@ -925,9 +943,10 @@ class KernelService:
                 target=target,
                 duckdb_ext_dir=self._duckdb_ext_dir,
                 # O container nunca toca o catalog.db: no Docker o hook fala com a API do backend (snippet vem do token).
-                catalog_ensure="" if docker_runtime is not None else local_factory(s3a.options),
-                catalog_factory=self._docker_catalog_factory(runtime_grant) if docker_runtime is not None and runtime_grant is not None else None,
-                local_catalog_factory=None if docker_runtime is not None else local_factory,
+                catalog_ensure="" if (docker_runtime is not None or local_factory is None) else local_factory(s3a.options),
+                catalog_factory=catalog_factory,
+                local_catalog_factory=None if (docker_runtime is not None or is_duckdb) else local_factory,
+                duckdb_kernel=is_duckdb,
                 s3a_resolver=lambda: self._resolve_s3a(docker=is_docker),
                 _s3a_options=s3a.options,
                 s3a_notice=s3a.notice,
