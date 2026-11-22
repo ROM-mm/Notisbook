@@ -190,7 +190,7 @@ CELL_LANGUAGES_BY_KIND: dict[RuntimeKind, tuple[CellLanguage, ...]] = {
     "duckdb": ("python", "duckdb"),
     "docker": ("python", "sql"),
 }
-NON_PYTHON_CELL_LANGUAGES: tuple[CellLanguage, ...] = ("python",)
+CELL_LANGUAGES_NON_PYTHON_KERNEL: tuple[CellLanguage, ...] = ("python",)
 RUNTIME_KIND_LABELS: dict[RuntimeKind, str] = {"duckdb": "DuckDB", "docker": "Docker", "local": "local"}
 
 
@@ -216,13 +216,13 @@ def runtime_kind(kernel_name: str, metadata: dict[str, Any]) -> RuntimeKind:
 def cell_languages_for(kind: RuntimeKind, spec_language: str) -> tuple[CellLanguage, ...]:
     """Linguagens de célula executáveis no kernel; kernel que não é Python (R, Julia) só roda `python`."""
     if spec_language != "python":
-        return NON_PYTHON_CELL_LANGUAGES
+        return CELL_LANGUAGES_NON_PYTHON_KERNEL
     return CELL_LANGUAGES_BY_KIND[kind]
 
 
 def _unavailable_message(language: str, kind: RuntimeKind, languages: tuple[CellLanguage, ...]) -> str:
     label = CELL_LANGUAGE_LABELS.get(language, language)
-    if kind == "local" and languages == NON_PYTHON_CELL_LANGUAGES:
+    if kind == "local" and languages == CELL_LANGUAGES_NON_PYTHON_KERNEL:
         where = "in non-Python kernels"
     else:
         where = f"in the {RUNTIME_KIND_LABELS[kind]} kernel"
