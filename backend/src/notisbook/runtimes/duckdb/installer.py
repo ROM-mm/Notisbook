@@ -59,7 +59,8 @@ MAX_GZ_BYTES = 256 << 20
 MAX_EXT_BYTES = 1 << 30
 # extensions.duckdb.org responde 403 ao User-Agent padrão do urllib.
 USER_AGENT = "notisbook"
-# Roda no env: confere a plataforma e carrega cada extensão com autoinstall/autoload desligados.
+# Roda no interpretador do env novo, antes de trocar o kernelspec, para pegar divergência de
+# versão/plataforma e extensão que não carrega sem depender de rede (autoinstall/autoload off).
 VALIDATE_SCRIPT = """
 import sys
 import duckdb

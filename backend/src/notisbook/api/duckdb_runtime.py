@@ -83,15 +83,20 @@ def _find(installer: DuckDBInstaller) -> Any:
 
 @router.get("/extensions")
 async def list_extensions(installer: Installer) -> dict[str, Any]:
+    entry = await asyncio.to_thread(lambda: _find(installer))
+    if entry is not None:
+        # O runtime instalado manda: o manifesto pode ter avançado de versão depois da instalação.
+        return {
+            "version": entry.version,
+            "extensions": _extension_rows(entry.extensions, entry.version, entry.extension_directory),
+        }
     try:
         manifest = load_manifest()
     except ManifestError as exc:
         raise HTTPException(500, str(exc)) from exc
-    entry = await asyncio.to_thread(lambda: _find(installer))
-    directory = entry.extension_directory if entry else None
     return {
         "version": manifest.duckdb_version,
-        "extensions": _extension_rows(manifest.names, manifest.duckdb_version, directory),
+        "extensions": _extension_rows(manifest.names, manifest.duckdb_version, None),
     }
 
 
