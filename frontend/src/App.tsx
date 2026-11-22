@@ -8,19 +8,22 @@
  *                com o início no centro. `browsing` sem abas: `AppShell` com painel Notebooks e centro vazio
  * - "notebook" → aba do notebook (abre se preciso) com components/kernel/NotebookPage
  * - "settings" → components/settings/SettingsPage ("Ambientes Spark")
+ * - "appearance" → components/appearance/AppearancePage (fontes; ⌘, abre de qualquer tela)
  */
 import { lazy, Suspense, useEffect, useState } from "react";
 import { bootstrapAuth, errorMessage } from "./api";
+import { isMac } from "./components/shell/platform";
 import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
 import { HomeBrandMark } from "./components/shell/icons";
 import { Placeholder, StatusScreen } from "./components/shell/StatusScreen";
+import { AppearancePage } from "./components/appearance/AppearancePage";
 import { SettingsPage } from "./components/settings/SettingsPage";
 import { joinPath, notebookTitle } from "./lib/paths";
 import { useRecent } from "./state/recent";
 import { useFiles } from "./state/files";
 import { useNotebookTree } from "./state/notebookTree";
-import { openNotebook, type Route, useRouter } from "./state/router";
+import { openAppearance, openNotebook, type Route, useRouter } from "./state/router";
 import { useSystemResources } from "./state/systemResources";
 import { createUntitledNotebook, getEntry, useWorkspace } from "./state/workspace";
 
@@ -54,6 +57,18 @@ export function App() {
       cancelled = true;
       useSystemResources.getState().stop();
     };
+  }, []);
+
+  // ⌘, (Ctrl+, fora do Mac) abre Appearance de qualquer tela (inclusive o início, sem AppShell).
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const mod = isMac() ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      if (e.key !== "," || !mod || e.altKey || e.shiftKey) return;
+      e.preventDefault();
+      if (!e.repeat) openAppearance();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
   switch (boot.status) {
@@ -160,6 +175,8 @@ function Workspace({ route }: { route: Route }) {
   let content;
   if (route.view === "settings") {
     content = <SettingsPage />;
+  } else if (route.view === "appearance") {
+    content = <AppearancePage />;
   } else if (route.view === "files") {
     content = tabs.length > 0 ? <Home dir={route.dir} embedded /> : null;
   } else {

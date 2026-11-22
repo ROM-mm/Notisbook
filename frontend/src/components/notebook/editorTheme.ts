@@ -6,7 +6,7 @@
  */
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { type Extension, RangeSetBuilder } from "@codemirror/state";
+import { type Extension, Prec, RangeSetBuilder } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 
 const theme = EditorView.theme({
@@ -85,13 +85,21 @@ const highlight = HighlightStyle.define([
   { tag: t.emphasis, fontFamily: "var(--font-sans)", fontStyle: "italic" },
   { tag: t.strikethrough, textDecoration: "line-through" },
   { tag: [t.link, t.url], color: "var(--syntax-link)" },
-  { tag: t.monospace, color: "var(--syntax-string)" },
+  { tag: t.monospace, color: "var(--syntax-string)", fontFamily: "var(--font-code)" },
   { tag: t.quote, color: "var(--syntax-comment)" },
   { tag: t.contentSeparator, color: "var(--syntax-punctuation)" },
   { tag: t.invalid, color: "var(--color-danger)" },
 ]);
 
 export const notebookEditorTheme: Extension = [theme, syntaxHighlighting(highlight)];
+
+/** Célula markdown: o corpo usa a fonte de conteúdo; `tags.monospace` (código) volta a `--font-code`. */
+export const markdownEditorTheme: Extension = Prec.high(
+  EditorView.theme({
+    ".cm-scroller": { fontFamily: "var(--font-content)" },
+    ".cm-content": { fontFamily: "var(--font-content)" },
+  }),
+);
 
 const qualifierMark = Decoration.mark({ class: "cm-sql-qualifier" });
 const QUALIFIER_TAIL = /^\.[\w"`]/;

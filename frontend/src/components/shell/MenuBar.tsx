@@ -1,5 +1,5 @@
 /**
- * Barra de menus File / Edit / View / Run / Help (+ About) do header. Os itens
+ * Barra de menus File / Edit / View / Run / Settings / Help (+ About) do header. Os itens
  * são montados na abertura de cada menu a partir da aba ativa (`entry`); sem
  * notebook ativo, os itens que dependem dele ficam desabilitados.
  */
@@ -7,6 +7,7 @@ import { exportNotebook, type ExportFormat } from "../../api/export";
 import { saveBlob } from "../../lib/download";
 import { basename, dirname } from "../../lib/paths";
 import { type EditableCellType, type InsertWhere, toNotebook } from "../../state/notebook";
+import { openAppearance, openSettings } from "../../state/router";
 import { type ThemePref, useTheme } from "../../state/theme";
 import { getTargetDir } from "../../state/notebookTree";
 import { createUntitledNotebook, type NotebookEntry, useWorkspace } from "../../state/workspace";
@@ -156,6 +157,13 @@ function runItems(entry: NotebookEntry | null): MenuItem[] {
   ];
 }
 
+function settingsItems(): MenuItem[] {
+  return [
+    { label: "Appearance…", shortcut: "⌘,", onSelect: openAppearance, testId: "menu-settings-appearance" },
+    { label: "Spark environments…", onSelect: openSettings, testId: "menu-settings-spark" },
+  ];
+}
+
 function helpItems(): MenuItem[] {
   return [{ label: "Keyboard shortcuts", onSelect: () => useWorkspace.getState().setShortcutsOpen(true), testId: "menu-help-shortcuts" }];
 }
@@ -167,6 +175,7 @@ export function MenuBar({ entry, id }: { entry: NotebookEntry | null; id?: strin
       <Menu trigger="Edit" testId="menu-edit" items={() => editItems(entry)} />
       <Menu trigger="View" testId="menu-view" items={viewItems} />
       <Menu trigger="Run" testId="menu-run" items={() => runItems(entry)} />
+      <Menu trigger="Settings" testId="menu-settings" items={settingsItems} />
       <Menu trigger="Help" testId="menu-help" items={helpItems} />
       <button
         type="button"

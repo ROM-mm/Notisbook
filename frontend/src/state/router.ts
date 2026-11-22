@@ -4,12 +4,13 @@
  *   /                      → início (nenhum notebook ativo)
  *   /tree/<dir>            → início; a árvore de Notebooks é expandida até <dir> (abertura direta e Browse)
  *   /notebooks/<path>      → aba do notebook <path> ativa (abre a aba se preciso)
+ *   /settings/appearance   → Settings › Appearance (fontes)
  *   /settings              → Settings (gestão do Spark); `/spark` é alias legado
  * Em produção o FastAPI devolve index.html para essas rotas (fallback SPA).
  */
 import { create } from "zustand";
 
-export type Route = { view: "files"; dir: string } | { view: "notebook"; path: string } | { view: "settings" };
+export type Route = { view: "files"; dir: string } | { view: "notebook"; path: string } | { view: "settings" } | { view: "appearance" };
 
 function decodeRest(pathname: string, prefix: string): string {
   return pathname
@@ -36,6 +37,7 @@ function isUnder(pathname: string, base: string): boolean {
 
 export function parseRoute(pathname: string): Route {
   if (pathname.startsWith("/notebooks/")) return { view: "notebook", path: decodeRest(pathname, "/notebooks/") };
+  if (isUnder(pathname, "/settings/appearance")) return { view: "appearance" };
   if (isUnder(pathname, "/settings") || isUnder(pathname, "/spark")) return { view: "settings" };
   if (pathname.startsWith("/tree/")) return { view: "files", dir: decodeRest(pathname, "/tree/") };
   return { view: "files", dir: "" };
@@ -47,6 +49,8 @@ export function routeToUrl(route: Route): string {
       return `/notebooks/${encodeRest(route.path)}`;
     case "settings":
       return "/settings";
+    case "appearance":
+      return "/settings/appearance";
     case "files":
       return route.dir ? `/tree/${encodeRest(route.dir)}` : "/";
   }
@@ -76,6 +80,21 @@ export const openHome = (opts?: { replace?: boolean }) => useRouter.getState().n
 export const openNotebook = (path: string, opts?: { replace?: boolean }) =>
   useRouter.getState().navigate({ view: "notebook", path }, opts);
 export const openSettings = () => useRouter.getState().navigate({ view: "settings" });
+const FROM_APP_STATE = { notisbookFromApp: true };
+
+export const openAppearance = () => {
+  const router = useRouter.getState();
+  const alreadyThere = router.route.view === "appearance";
+  router.navigate({ view: "appearance" });
+  // Marca a entrada criada aqui: a anterior é do app, então `history.back()` é seguro.
+  if (!alreadyThere) window.history.replaceState(FROM_APP_STATE, "");
+};
+
+/** True se a entrada anterior do histórico é do app (a atual foi aberta por `openAppearance`). */
+export function previousEntryIsApp(): boolean {
+  const state: unknown = window.history.state;
+  return typeof state === "object" && state !== null && "notisbookFromApp" in state;
+}
 
 /** Path do notebook ativo segundo a rota (ou null). */
 export function activeNotebookPath(route: Route): string | null {
