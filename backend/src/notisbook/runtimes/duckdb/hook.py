@@ -17,7 +17,8 @@ SECRET_S3 = "notisbook_s3"
 SECRET_ICEBERG = "notisbook_iceberg"
 CATALOG = "notislake"
 # Mesmo bucket com os dois esquemas: um SCOPE só com um deles dá 403 no outro.
-S3_SCOPES = ("s3://notislake", "s3a://notislake")
+# A barra final impede casar outro bucket com o mesmo prefixo (`s3://notislake-outro`).
+S3_SCOPES = ("s3://notislake/", "s3a://notislake/")
 REQUIRED_EXTENSIONS = ("httpfs", "iceberg", "avro")
 _S3A_PREFIX = "fs.s3a.bucket.notislake."
 
@@ -31,8 +32,10 @@ def q(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 def redact(text):
+    # O erro do DuckDB pode ecoar o SQL, onde o segredo aparece escapado (`'` -> `''`).
     for s in secrets:
-        text = text.replace(s, "***")
+        for form in (s, s.replace("'", "''")):
+            text = text.replace(form, "***")
     return text
 
 con = None
