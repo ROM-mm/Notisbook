@@ -23,11 +23,11 @@ from pygments.token import (
     _TokenType,
 )
 
+from ..kernels.languages import CELL_LANGUAGE_LABELS
 from .common import cell_language, cell_source
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
-LANGUAGE_LABELS = {"python": "Python", "sql": "Spark SQL", "duckdb": "DuckDB"}
 WARNING_UNSUPPORTED = "saída não exportável"
 _STAMP_FORMAT = "%d/%m/%Y %H:%M:%S"
 _LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -261,7 +261,7 @@ def _render_cell(n: int, cell: dict[str, Any]) -> tuple[str, list[tuple[int, str
         headings = [(level, text, n) for level, text in found]
         inner = f'<div class="md">{body}</div>'
     elif cell.get("cell_type") == "code":
-        label = LANGUAGE_LABELS[cell_language(cell)]
+        label = CELL_LANGUAGE_LABELS[cell_language(cell)]
         inner = f'<div class="lang">{label}</div><pre><code>{_highlight_code(source, cell_language(cell))}</code></pre>'
         inner += "".join(f'<div class="out">{_render_output(o)}</div>' for o in outputs if isinstance(o, dict))
     else:
