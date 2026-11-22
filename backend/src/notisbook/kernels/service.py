@@ -223,10 +223,10 @@ def cell_languages_for(kind: RuntimeKind, spec_language: str) -> tuple[CellLangu
 def _unavailable_message(language: str, kind: RuntimeKind, languages: tuple[CellLanguage, ...]) -> str:
     label = CELL_LANGUAGE_LABELS.get(language, language)
     if kind == "local" and languages == NON_PYTHON_CELL_LANGUAGES:
-        where = "em kernels que não são Python"
+        where = "in non-Python kernels"
     else:
-        where = f"no kernel {RUNTIME_KIND_LABELS[kind]}"
-    return f"{label} não está disponível {where}. Troque a linguagem da célula ou o kernel."
+        where = f"in the {RUNTIME_KIND_LABELS[kind]} kernel"
+    return f"{label} is not available {where}. Change the cell language or the kernel."
 
 
 @dataclass
