@@ -12,6 +12,7 @@ const PHASE_LABEL: Record<string, string> = {
   python: "Preparing Python",
   venv: "Creating virtual environment",
   install: "Installing packages",
+  extensions: "Installing extensions",
   validate: "Validating installation",
   kernelspec: "Registering kernel",
   cleanup: "Cleaning up",

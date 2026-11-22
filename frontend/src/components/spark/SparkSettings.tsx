@@ -5,6 +5,7 @@
 import { useState } from "react";
 import type { DockerRuntime } from "../../api/types";
 import { DockerInstallDialog } from "./DockerInstallDialog";
+import { DuckDBSettings } from "./DuckDBSettings";
 import { InstalledList } from "./InstalledList";
 import { InstallPanel } from "./InstallPanel";
 import { JobProgress } from "./JobProgress";
@@ -60,6 +61,7 @@ export function SparkSettings() {
         onDockerAction={dockerAction}
         onDockerRecreate={(rt) => openDialog(rt, true)}
       />
+      <DuckDBSettings />
       {dialog && dialogRuntime ? (
         <DockerInstallDialog
           runtime={dialogRuntime}

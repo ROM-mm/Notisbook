@@ -85,6 +85,34 @@ export interface SparkVersions {
   installing: InstallingSpark[];
 }
 
+export interface InstalledDuckDB {
+  version: string;
+  kernel_name: string;
+  display_name: string;
+  env_dir: string;
+  extension_directory: string;
+  extensions: string[];
+}
+
+export interface DuckDBStatus {
+  kernel_name: string;
+  supported: boolean;
+  /** Versão fixada no manifesto; `null` se o manifesto não carregou. */
+  version: string | null;
+  installed: InstalledDuckDB | null;
+  installing: { job_id: string; kind: string } | null;
+}
+
+export interface DuckDBExtension {
+  name: string;
+  installed: boolean;
+}
+
+export interface DuckDBExtensions {
+  version: string;
+  extensions: DuckDBExtension[];
+}
+
 export interface PackageItem {
   name: string;
   version: string;
