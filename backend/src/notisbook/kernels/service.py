@@ -58,7 +58,7 @@ from ..spark.bundles import (
 from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
 from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
-from .languages import CELL_LANGUAGE_LABELS
+from .languages import CELL_LANGUAGE_LABELS, CellLanguage
 from .protocol import (
     ClearOutputEvent,
     ErrorEvent,
@@ -182,7 +182,6 @@ class _Pending:
 
 
 RuntimeKind = Literal["duckdb", "docker", "local"]
-CellLanguage = Literal["python", "sql", "duckdb"]
 
 # Fonte única de "linguagem de célula x kernel"; a ordem é a canônica do seletor (python, sql, duckdb).
 CELL_LANGUAGES_BY_KIND: dict[RuntimeKind, tuple[CellLanguage, ...]] = {
