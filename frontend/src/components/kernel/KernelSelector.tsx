@@ -15,6 +15,7 @@ import { useKernel, useKernelStore, useNotebook } from "../../state/notebookCont
 import { refreshKernelspecs } from "../../state/workspace";
 import sparkIconUrl from "../../../icons/spark.png";
 import glueIconUrl from "../../../icons/glue.png";
+import duckdbIconUrl from "../../../icons/duckdb.png";
 import menuStyles from "../shell/Menu.module.css";
 import { useKernelDescription } from "./KernelStatus";
 import styles from "./Kernel.module.css";
@@ -22,12 +23,13 @@ import styles from "./Kernel.module.css";
 const SWITCH_BUSY =
   "Cells are running or queued. Switching runtimes ends the current session (pending runs are discarded). Continue?";
 
-type Runtime = "spark" | "glue" | "other";
+type Runtime = "spark" | "glue" | "duckdb" | "other";
 
 /** Ícone por runtime: PNG em `frontend/icons/`; `null` (runtime "other") fica sem ícone. */
 const RUNTIME_ICON_URL: Record<Runtime, string | null> = {
   spark: sparkIconUrl,
   glue: glueIconUrl,
+  duckdb: duckdbIconUrl,
   other: null,
 };
 
@@ -37,8 +39,14 @@ const RUNTIME_ICON_URL: Record<Runtime, string | null> = {
  */
 function runtimeOf(displayName: string, name: string | null): { runtime: Runtime; version: string | null } {
   const text = `${displayName} ${name ?? ""}`.toLowerCase();
-  const runtime: Runtime = text.includes("glue") ? "glue" : text.includes("spark") ? "spark" : "other";
-  const version = runtime !== "other" ? (displayName.match(/(?:spark|glue)\D*(\d+(?:\.\d+)+)/i)?.[1] ?? null) : null;
+  const runtime: Runtime = text.includes("glue")
+    ? "glue"
+    : text.includes("spark")
+      ? "spark"
+      : text.includes("duckdb")
+        ? "duckdb"
+        : "other";
+  const version = runtime !== "other" ? (displayName.match(/(?:spark|glue|duckdb)\D*(\d+(?:\.\d+)+)/i)?.[1] ?? null) : null;
   return { runtime, version };
 }
 
