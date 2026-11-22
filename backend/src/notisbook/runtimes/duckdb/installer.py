@@ -17,7 +17,7 @@ import threading
 import urllib.request
 import uuid
 import zlib
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -94,7 +94,7 @@ class DuckDBInstaller:
         self,
         base_dir: Path,
         jobs: JobRegistry,
-        has_active_session: Any = None,
+        has_active_session: Callable[[str], bool] | None = None,
         manifest: Manifest | None = None,
     ) -> None:
         self.base_dir = Path(os.path.abspath(base_dir.expanduser()))
@@ -243,7 +243,8 @@ class DuckDBInstaller:
             await self._install_extensions(job, env_dir, manifest, key, cancel)
             await self._validate(job, python, env_dir, manifest, key)
             await job.emit("kernelspec", f"writing kernelspec {KERNEL_NAME}", self._progress("kernelspec"))
-            previous = {e.env_dir for e in [discover(self.base_dir)] if e is not None}
+            current = await asyncio.to_thread(discover, self.base_dir)
+            previous = {current.env_dir} if current is not None else set()
             await asyncio.to_thread(write_kernelspec, manifest.duckdb_version, env_dir, manifest.names)
             installed, env_dir = env_dir, None  # switched: the new env must survive from here on
             await self._cleanup(job, installed, previous)
