@@ -7,6 +7,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-22
+
+A Settings menu with an Appearance screen to pick the interface, code and markdown fonts, and "Runtimes" as the
+name for the place where Spark and AWS Glue runtimes are managed.
+
+### Added
+
+- **Settings menu with an Appearance screen.** A new Settings menu, between Run and Help, opens Appearance
+  (Cmd+, on macOS, Ctrl+, elsewhere) and Runtimes. The ISPF-style `/settings/appearance` screen chooses the
+  Interface, Code cell (and outputs) and Markdown fonts with a live preview, and F5 applies the choice. It is kept
+  only in the browser's local storage, under `notisbook.appearance`, and applied before the first render; without
+  a saved choice the interface looks exactly as before. Markdown cells being edited use the Markdown font for text
+  and the Code font for inline and fenced code.
+- **System fonts in the font picker.** On macOS the font list shows the installed font families next to the
+  bundled ones, grouped into Bundled and System and each drawn in its own font; a click or F4 opens it. The list
+  comes from a new read-only `GET /api/appearance/system-fonts` route, which asks the system once (with a 5-second
+  timeout) and caches the result. On other systems, or if the query fails, the picker offers the bundled fonts and
+  accepts a typed name. Font names containing backslashes are rejected.
+
+### Changed
+
+- **"Spark environments" is now "Runtimes".** The area that manages Spark and AWS Glue runtimes is called Runtimes
+  throughout the interface and is reached from Settings › Runtimes, which is also where backend error messages now
+  point. The kernel selector drops its duplicate "Manage environments…" item and hides the technical kernel name,
+  showing it as a muted suffix only when two runtimes share the same display name. Routes, URLs and API paths are
+  unchanged.
+
+### Fixed
+
+- **Full font names in the font list.** The font list sizes itself to its content within the settings panel, never
+  scrolls sideways and shows each name in a tooltip, so long family names are no longer cut mid-word.
+
 ## [0.5.0] - 2026-11-20
 
 A retro terminal look in VT323, `echo(df)` for showing DataFrames, a button to clear every output, and a steadier
