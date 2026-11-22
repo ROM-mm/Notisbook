@@ -14,7 +14,7 @@ import { getJob } from "../../api/spark";
 import type { DuckDBExtensions, DuckDBStatus, SessionInfo } from "../../api/types";
 import { JobStream } from "../../ws/jobs";
 import { refreshKernelspecs } from "../../state/workspace";
-import { useLoadable, type InstallJob } from "./useSparkData";
+import { useLoadable, type InstallJob } from "../spark/useSparkData";
 
 const SESSIONS_POLL_MS = 4000;
 

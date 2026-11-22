@@ -4,9 +4,9 @@
  */
 import { useState } from "react";
 import { ApiError, errorMessage } from "../../api/http";
-import { JobProgress, type JobLabels } from "./JobProgress";
+import { JobProgress, type JobLabels } from "../spark/JobProgress";
 import { useDuckDBData } from "./useDuckDBData";
-import styles from "./Spark.module.css";
+import styles from "../spark/Spark.module.css";
 
 const LABELS: JobLabels = {
   succeeded: "Installation complete",
