@@ -74,6 +74,8 @@
 }
 
 .fields {
+  /* Referência de largura (cqi) para limitar a .list ao espaço real da linha de campos. */
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -137,10 +139,15 @@
 .list {
   position: absolute;
   top: 100%;
-  left: 0;
   right: 0;
   z-index: 20;
+  /* Largura pelo conteúdo, ancorada à direita do campo (cresce para a esquerda) e limitada à largura de .fields
+     menos a coluna da flag (min-width 8ch de .flag) e o gap, para não passar da borda esquerda do conteúdo. */
+  width: max-content;
+  min-width: 100%;
+  max-width: min(48ch, calc(100cqi - 8ch - var(--space-2)));
   max-height: 14em;
+  overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--color-border-strong);
   background-color: var(--color-surface-raised);
@@ -149,6 +156,9 @@
 
 .option {
   padding: 0 var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   cursor: pointer;
 }
 
@@ -159,12 +169,16 @@
 
 .groupLabel {
   padding: 0 var(--space-2);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--color-text-muted);
   font-family: "VT323", ui-monospace, Menlo, monospace;
 }
 
 .listEmpty {
   padding: 0 var(--space-2);
+  white-space: nowrap;
   color: var(--color-text-muted);
 }
 

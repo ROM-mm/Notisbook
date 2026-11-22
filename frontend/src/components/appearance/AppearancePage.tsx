@@ -334,6 +334,7 @@ export function AppearancePage() {
                           <div
                             id={`${listId}-${i}`}
                             role="option"
+                            title={option.name}
                             aria-selected={i === active}
                             className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
                             style={{ fontFamily: fontFamilyValue(slot, option.name) }}
