@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from .api import catalog, contents, docker, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
+from .api import appearance, catalog, contents, docker, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
 from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
@@ -68,6 +68,7 @@ def create_app(
     kernels.bind_docker(app.state.docker)
     kernels.bind_notislake(notislake)
     app.include_router(system.router)
+    app.include_router(appearance.router)
     app.include_router(contents.router)
     app.include_router(export.router)
     app.include_router(files.router)

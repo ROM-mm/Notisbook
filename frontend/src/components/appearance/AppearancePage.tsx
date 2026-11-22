@@ -3,7 +3,7 @@
  * Markdown em tela no estilo ISPF. Nada muda no app antes de Apply (F5, ⌘S ou APPLY); a prévia ao vivo
  * só afeta o bloco Preview, que redeclara as variáveis de fonte no próprio contêiner.
  */
-import { type CSSProperties, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type CSSProperties, Fragment, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   BUNDLED_FONTS,
   DEFAULT_APPEARANCE,
@@ -14,6 +14,7 @@ import {
   MAX_FONT_NAME,
   useAppearance,
 } from "../../state/appearance";
+import { fetchSystemFonts } from "../../api/appearance";
 import { openHome, previousEntryIsApp } from "../../state/router";
 import styles from "./AppearancePage.module.css";
 
@@ -25,6 +26,9 @@ const FIELDS: readonly { slot: FontSlot; label: string }[] = [
 
 const HELP =
   "Type 1-3 or press F4 to pick a font. Code cell also sets outputs, tables and other monospaced text. F5 applies, F3/F12 exits, RESET restores the defaults.";
+
+type FontGroup = "Bundled" | "System";
+type FontOption = { name: string; group: FontGroup };
 
 type Message = { kind: "info" | "ok" | "error"; text: string };
 
@@ -42,6 +46,7 @@ export function AppearancePage() {
   const [openSlot, setOpenSlot] = useState<FontSlot | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   const [active, setActive] = useState(-1);
+  const [systemFonts, setSystemFonts] = useState<readonly string[]>([]);
   const [command, setCommand] = useState("");
   const [message, setMessage] = useState<Message>({ kind: "info", text: "Choose the fonts, then press F5 to apply." });
 
@@ -50,15 +55,34 @@ export function AppearancePage() {
   const fieldRefs = useRef<(HTMLInputElement | null)[]>([]);
   const lastField = useRef(0);
   const restoreValue = useRef("");
+  const keepActiveVisible = useRef(false);
 
   useEffect(() => {
     commandRef.current?.focus();
   }, []);
 
-  const options =
-    filter === null || filter.trim() === ""
-      ? BUNDLED_FONTS
-      : BUNDLED_FONTS.filter((name) => name.toLowerCase().includes(filter.trim().toLowerCase()));
+  // Falha ou `unsupported` resultam em lista vazia: só as empacotadas e o nome livre.
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchSystemFonts(false, controller.signal).then((names) => {
+      if (!controller.signal.aborted) setSystemFonts(names);
+    });
+    return () => controller.abort();
+  }, []);
+
+  const allOptions: FontOption[] = [
+    ...BUNDLED_FONTS.map((name) => ({ name, group: "Bundled" as const })),
+    ...systemFonts.filter((name) => !BUNDLED_FONTS.includes(name)).map((name) => ({ name, group: "System" as const })),
+  ];
+  const needle = filter?.trim().toLowerCase() ?? "";
+  const options = needle === "" ? allOptions : allOptions.filter((o) => o.name.toLowerCase().includes(needle));
+
+  // Navegação por teclado mantém o item ativo visível; o hover do mouse não rola a lista.
+  useEffect(() => {
+    if (!keepActiveVisible.current || openSlot === null || active < 0) return;
+    keepActiveVisible.current = false;
+    document.getElementById(`appearance-list-${openSlot}-${active}`)?.scrollIntoView?.({ block: "nearest" });
+  }, [active, openSlot]);
 
   const focusField = (index: number) => {
     lastField.current = index;
@@ -77,7 +101,9 @@ export function AppearancePage() {
     focusField(index);
     restoreValue.current = pending[slot];
     setFilter(null);
-    setActive(BUNDLED_FONTS.indexOf(pending[slot].trim()));
+    const selected = allOptions.findIndex((o) => o.name === pending[slot].trim());
+    keepActiveVisible.current = true;
+    setActive(selected);
     setOpenSlot(slot);
   };
 
@@ -145,10 +171,11 @@ export function AppearancePage() {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const step = e.key === "ArrowDown" ? 1 : -1;
+        keepActiveVisible.current = true;
         if (options.length > 0) setActive((a) => (a < 0 ? (step > 0 ? 0 : options.length - 1) : (a + step + options.length) % options.length));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (active >= 0 && options[active]) choose(slot, options[active]);
+        if (active >= 0 && options[active]) choose(slot, options[active].name);
         else closeList();
       } else if (e.key === "Escape") {
         e.preventDefault();
@@ -185,7 +212,7 @@ export function AppearancePage() {
   });
 
   const previewSlot = (slot: FontSlot): string => {
-    if (openSlot === slot && active >= 0 && options[active]) return options[active];
+    if (openSlot === slot && active >= 0 && options[active]) return options[active].name;
     const typed = pending[slot].trim();
     return isValidFontName(typed) ? typed : current[slot];
   };
@@ -262,6 +289,7 @@ export function AppearancePage() {
                     fieldRefs.current[index] = el;
                   }}
                   className={`${styles.input} ${dirty ? styles.inputPending : ""} ${invalid ? styles.inputInvalid : ""}`}
+                  size={Math.min(MAX_FONT_NAME, Math.max(pending[slot].length, 1))}
                   role="combobox"
                   aria-expanded={isOpen}
                   aria-controls={listId}
@@ -276,6 +304,9 @@ export function AppearancePage() {
                   onFocus={() => {
                     lastField.current = index;
                   }}
+                  onClick={() => {
+                    if (!isOpen) openList(index);
+                  }}
                   onBlur={() => {
                     if (openSlot === slot) closeList();
                   }}
@@ -288,35 +319,31 @@ export function AppearancePage() {
                   }}
                   onKeyDown={(e) => onFieldKeyDown(e, index)}
                 />
-                <button
-                  type="button"
-                  className={styles.listButton}
-                  tabIndex={-1}
-                  aria-label={`List ${label} fonts`}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => (isOpen ? closeList() : openList(index))}
-                >
-                  ▼
-                </button>
                 {isOpen ? (
                   <div className={styles.list} role="listbox" id={listId} aria-label={`${label} fonts`}>
                     {options.length === 0 ? (
-                      <div className={styles.listEmpty}>No bundled font matches; Enter keeps the typed name.</div>
+                      <div className={styles.listEmpty}>No font matches; Enter keeps the typed name.</div>
                     ) : (
-                      options.map((name, i) => (
-                        <div
-                          key={name}
-                          id={`${listId}-${i}`}
-                          role="option"
-                          aria-selected={i === active}
-                          className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
-                          style={{ fontFamily: fontFamilyValue(slot, name) }}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onMouseEnter={() => setActive(i)}
-                          onClick={() => choose(slot, name)}
-                        >
-                          {name}
-                        </div>
+                      options.map((option, i) => (
+                        <Fragment key={`${option.group}:${option.name}`}>
+                          {i === 0 || options[i - 1]?.group !== option.group ? (
+                            <div className={styles.groupLabel} role="presentation">
+                              ── {option.group} ──
+                            </div>
+                          ) : null}
+                          <div
+                            id={`${listId}-${i}`}
+                            role="option"
+                            aria-selected={i === active}
+                            className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
+                            style={{ fontFamily: fontFamilyValue(slot, option.name) }}
+                            onMouseDown={(e) => e.preventDefault()}
+                            onMouseEnter={() => setActive(i)}
+                            onClick={() => choose(slot, option.name)}
+                          >
+                            {option.name}
+                          </div>
+                        </Fragment>
                       ))
                     )}
                   </div>
