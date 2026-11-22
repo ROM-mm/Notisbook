@@ -28,7 +28,7 @@ import json
 RENDERER_MISSING_MESSAGE = "Notisbook renderer is not installed in the kernel; restart the kernel"
 NO_SESSION_MESSAGE = "No active SparkSession; create one in a Python cell"
 DUCKDB_MISSING_MESSAGE = (
-    "DuckDB is not installed in this Spark environment; reinstall it from the Spark versions panel"
+    "DuckDB is not installed in this runtime; reinstall it from Settings › Runtimes"
 )
 DUCKDB_DOCKER_MESSAGE = "DuckDB cells are not available in the Docker runtime; use a Spark SQL cell or a local Spark kernel"
 MAX_ROWS = 1000

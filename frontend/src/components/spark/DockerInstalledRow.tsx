@@ -18,7 +18,7 @@ interface Props {
 }
 
 function removeError(err: unknown): string {
-  if (err instanceof ApiError && err.status === 409) return `In use: close the notebooks that use this environment and wait for jobs to finish. (${err.message})`;
+  if (err instanceof ApiError && err.status === 409) return `In use: close the notebooks that use this runtime and wait for jobs to finish. (${err.message})`;
   return dockerError(err);
 }
 

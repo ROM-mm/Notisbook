@@ -31,7 +31,7 @@ const JOB_LABELS: JobLabels = {
 
 function actionError(err: unknown): string {
   if (err instanceof ApiError && err.status === 409)
-    return `Blocked: close the notebooks that use this environment and wait for other jobs to finish. (${err.message})`;
+    return `Blocked: close the notebooks that use this runtime and wait for other jobs to finish. (${err.message})`;
   if (err instanceof ApiError && err.status === 404) return "This version is no longer installed.";
   return errorMessage(err);
 }

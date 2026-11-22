@@ -204,7 +204,7 @@ export function DockerDetailsDialog({ runtime, connectionsDir, sessions, onActio
         {details && packages.length === 0 ? <p className={styles.text}>No libraries match.</p> : null}
       </div>
 
-      <p className={styles.notice}>To change the libraries of a Docker environment, edit the Dockerfile and reinstall. This keeps the container identical to the image.</p>
+      <p className={styles.notice}>To change the libraries of a Docker runtime, edit the Dockerfile and reinstall. This keeps the container identical to the image.</p>
 
       <div className={dlg.foot}>
         <span className={styles.footNote}>{details ? `${details.packages.length} libraries` : ""}</span>

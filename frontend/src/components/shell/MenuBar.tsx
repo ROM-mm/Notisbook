@@ -160,7 +160,7 @@ function runItems(entry: NotebookEntry | null): MenuItem[] {
 function settingsItems(): MenuItem[] {
   return [
     { label: "Appearance…", shortcut: "⌘,", onSelect: openAppearance, testId: "menu-settings-appearance" },
-    { label: "Spark environments…", onSelect: openSettings, testId: "menu-settings-spark" },
+    { label: "Runtimes…", onSelect: openSettings, testId: "menu-settings-spark" },
   ];
 }
 

@@ -84,7 +84,7 @@ def _invalid(errors: list[dict[str, Any]]) -> HTTPException:
 
 
 def _protected(value: str) -> str:
-    return f'"{value}" is protected: remove and reinstall the environment to change it'
+    return f'"{value}" is protected: remove and reinstall the runtime to change it'
 
 
 def _parse_rows(rows: list[RequirementRow], core: set[str]) -> tuple[list[str], list[str]]:

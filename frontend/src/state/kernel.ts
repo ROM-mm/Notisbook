@@ -417,7 +417,7 @@ export function createKernelStore(notebook: NotebookStore): KernelStore {
           let name = notebook.getState().metadata.kernelspec?.name;
           if (!name) {
             const first = specs[0];
-            if (!first) throw new Error("No kernel available. Install a Spark environment.");
+            if (!first) throw new Error("No kernel available. Install a runtime.");
             notebook.getState().setKernelspec(first.name, first.display_name, first.language);
             name = first.name;
           }

@@ -1,6 +1,6 @@
 /**
  * Settings (rota `/settings`; `/spark` é alias legado).
- * Seção "Spark environments": pré-requisitos/JDKs, instalação a partir do
+ * Seção "Runtimes": pré-requisitos/JDKs, instalação a partir do
  * catálogo com progresso ao vivo e versões instaladas.
  */
 import { SparkSettings } from "../spark/SparkSettings";
@@ -12,10 +12,10 @@ export function SettingsPage() {
       <section className={styles.section} aria-labelledby="settings-spark-title" data-testid="settings-spark">
         <header className={styles.header}>
           <h2 id="settings-spark-title" className={styles.title}>
-            Spark environments
+            Runtimes
           </h2>
           <p className={styles.text}>
-            Each Spark version becomes an isolated environment (uv + PySpark) with its own kernel. Pick the notebook's environment in
+            Each runtime (a Spark version or an AWS Glue image) is isolated and has its own kernel. Pick the notebook's runtime in
             the selector in the top bar.
           </p>
         </header>

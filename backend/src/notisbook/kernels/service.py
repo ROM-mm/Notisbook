@@ -117,7 +117,7 @@ CONFIG_INVALID_MESSAGE = "A configuração manual do notislake está inválida; 
 NOTISLAKE_UNAVAILABLE_CODE = "notislake_unavailable"
 SPARK_ENV_OUTDATED_CODE = "spark_env_outdated"
 SPARK_ENV_OUTDATED_MESSAGE = (
-    "O ambiente Spark deste kernel não tem os jars S3A da versão atual; reinstale a versão do Spark (Spark > Installed)."
+    "O runtime deste kernel não tem os jars S3A da versão atual; reinstale-o em Settings › Runtimes."
 )
 S3A_LOOPBACK_HTTPS_NOTICE = (
     "s3a_unsupported_endpoint",
@@ -783,7 +783,7 @@ class KernelService:
             raise DockerRuntimeError(
                 409,
                 "As pastas montadas no container estão defasadas em relação à raiz atual dos notebooks; "
-                "use Recriar no runtime Docker (Spark > Installed) e tente de novo",
+                "use Recriar no runtime Docker (Settings › Runtimes) e tente de novo",
             )
         # A Connections é escolha do cliente: o backend a descobre pela montagem real do container, revalidada.
         for source in sorted(set(info.mounts) - required):

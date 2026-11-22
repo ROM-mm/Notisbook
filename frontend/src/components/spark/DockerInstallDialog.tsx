@@ -24,7 +24,7 @@ const RUNNING_LABEL: Record<string, string> = {
   docker: "Checking Docker",
   image: "Preparing the image",
   container: "Creating the container",
-  validate: "Validating the environment",
+  validate: "Validating the runtime",
   kernelspec: "Registering the kernel",
 };
 
@@ -126,9 +126,9 @@ export function DockerInstallDialog({ runtime, recreate, connectionsDir, job, on
       <div className={dlg.head}>
         <div>
           <h2 id="docker-install-title" className={dlg.title}>
-            {verb} Docker environment · {runtime.label}
+            {verb} Docker runtime · {runtime.label}
           </h2>
-          <p className={styles.text}>This environment runs inside a container. Nothing is installed on this machine.</p>
+          <p className={styles.text}>This runtime runs inside a container. Nothing is installed on this machine.</p>
         </div>
       </div>
 

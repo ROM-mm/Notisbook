@@ -104,7 +104,7 @@ export function InstallPanel({ catalog, docker, prereqs, busyVersions, onInstall
       {docker.error ? <p className={styles.error}>Could not load the Docker runtimes: {docker.error}</p> : null}
       <div className={styles.installRow}>
         <label className={styles.selectWrap}>
-          <span className="visually-hidden">Environment to install</span>
+          <span className="visually-hidden">Runtime to install</span>
           <select
             className={`input ${styles.select}`}
             data-testid="spark-version-select"

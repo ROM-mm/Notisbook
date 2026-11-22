@@ -8,10 +8,9 @@
  * e, ao escolher outro, chama `changeKernel(name)` da sessão desta aba (grava
  * `metadata.kernelspec` e recria a sessão no novo kernel). A lista é relida
  * de `GET /api/kernelspecs` a cada abertura (e por Settings após instalar ou
- * remover). O último item leva a Settings → Ambientes Spark.
+ * remover).
  */
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
-import { openSettings } from "../../state/router";
 import { useKernel, useKernelStore, useNotebook } from "../../state/notebookContext";
 import { refreshKernelspecs } from "../../state/workspace";
 import sparkIconUrl from "../../../icons/spark.png";
@@ -21,7 +20,7 @@ import { useKernelDescription } from "./KernelStatus";
 import styles from "./Kernel.module.css";
 
 const SWITCH_BUSY =
-  "Cells are running or queued. Switching environments ends the current session (pending runs are discarded). Continue?";
+  "Cells are running or queued. Switching runtimes ends the current session (pending runs are discarded). Continue?";
 
 type Runtime = "spark" | "glue" | "other";
 
@@ -119,6 +118,13 @@ export function KernelSelector() {
     buttons[next]?.focus();
   };
 
+  const seen = new Set<string>();
+  const duplicatedNames = new Set<string>();
+  for (const k of kernelspecs) {
+    if (seen.has(k.display_name)) duplicatedNames.add(k.display_name);
+    seen.add(k.display_name);
+  }
+
   return (
     <div className={menuStyles.root} ref={rootRef} onKeyDown={onKeyDown}>
       <button
@@ -146,10 +152,11 @@ export function KernelSelector() {
         {stateLabel}
       </span>
       {open ? (
-        <div ref={listRef} className={`${menuStyles.list} ${styles.selectorList}`} role="listbox" aria-label="Environments" data-testid="kernel-selector-list">
-          {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No environments installed.</div> : null}
+        <div ref={listRef} className={`${menuStyles.list} ${styles.selectorList}`} role="listbox" aria-label="Runtimes" data-testid="kernel-selector-list">
+          {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No runtimes installed.</div> : null}
           {kernelspecs.map((k) => {
             const current = k.name === kernelName;
+            const ambiguous = duplicatedNames.has(k.display_name);
             return (
               <button
                 key={k.name}
@@ -166,24 +173,13 @@ export function KernelSelector() {
                   {current ? "✓" : ""}
                 </span>
                 <RuntimeIcon runtime={runtimeOf(k.display_name, k.name).runtime} spacer />
-                <span className={menuStyles.label}>{k.display_name}</span>
-                <span className={styles.selectorKernel}>{k.name}</span>
+                <span className={menuStyles.label}>
+                  {k.display_name}
+                  {ambiguous ? <span className={styles.selectorKernel}> {k.name}</span> : null}
+                </span>
               </button>
             );
           })}
-          <div className={menuStyles.separator} role="separator" />
-          <button
-            type="button"
-            className={menuStyles.item}
-            data-testid="kernel-manage"
-            onClick={() => {
-              close(false);
-              openSettings();
-            }}
-          >
-            <span className={menuStyles.check} aria-hidden="true" />
-            <span className={menuStyles.label}>Manage environments…</span>
-          </button>
         </div>
       ) : null}
     </div>

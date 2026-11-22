@@ -25,10 +25,10 @@ interface Props {
 
 function removeError(err: unknown): string {
   if (err instanceof ApiError && err.status === 409)
-    return `In use: close the notebooks that use this environment (or wait for the installation to finish). (${err.message})`;
+    return `In use: close the notebooks that use this runtime (or wait for the installation to finish). (${err.message})`;
   if (err instanceof ApiError && err.status === 404) return "This version is no longer installed.";
   if (err instanceof ApiError && err.status === 500)
-    return `The environment was not fully removed. ${err.message}. Delete what is left manually and try again.`;
+    return `The runtime was not fully removed. ${err.message}. Delete what is left manually and try again.`;
   return errorMessage(err);
 }
 
@@ -44,13 +44,13 @@ function Row({ item, sessions, installing, installingVersion, onRemove }: { item
       ? `In use by ${using.length === 1 ? "1 open notebook" : `${using.length} open notebooks`}: ${using.map((s) => s.path).join(", ")}. Close the tab to remove it.`
       : `Remove Spark ${item.version}`;
   const configReason = installingVersion
-    ? "A job is running for this environment."
+    ? "A job is running for this runtime."
     : using.length > 0
       ? `In use by ${using.length === 1 ? "1 open notebook" : `${using.length} open notebooks`}. Close the tab to change its libraries.`
       : `Libraries of Spark ${item.version}`;
 
   const remove = async () => {
-    const msg = `Remove Spark ${item.version}?\n\nThe kernel "${item.kernel_name}" and the environment ${item.env_dir ?? ""} will be deleted.`;
+    const msg = `Remove Spark ${item.version}?\n\nThe kernel "${item.kernel_name}" and the runtime ${item.env_dir ?? ""} will be deleted.`;
     if (!window.confirm(msg)) return;
     setBusy(true);
     setError(null);
@@ -70,7 +70,7 @@ function Row({ item, sessions, installing, installingVersion, onRemove }: { item
           <span className={styles.tag}>local</span>
           <span className={styles.rowKernel}>{item.kernel_name}</span>
           {item.legacy ? (
-            <span className={styles.tag} title="Environment created outside Notisbook (.venv-spark*)">
+            <span className={styles.tag} title="Runtime created outside Notisbook (.venv-spark*)">
               legacy
             </span>
           ) : null}
@@ -82,7 +82,7 @@ function Row({ item, sessions, installing, installingVersion, onRemove }: { item
         </div>
         {item.bundle_status === "outdated" ? (
           <p className={styles.error} data-testid="spark-version-outdated">
-            This environment predates the persistent catalog. Remove it and reinstall Spark {item.version} to enable it.
+            This runtime predates the persistent catalog. Remove it and reinstall Spark {item.version} to enable it.
           </p>
         ) : null}
         {error ? (
@@ -136,7 +136,7 @@ export function InstalledList({ versions, docker, connectionsDir, sessions, onRe
       {docker.error ? <p className={styles.error}>Could not list the Docker runtimes: {docker.error}</p> : null}
       {docker.data && !docker.data.available ? (
         <p className={styles.notice} data-testid="docker-unavailable">
-          Docker is not available (start Colima or Docker Desktop). Docker environments cannot be checked or used until it is running.
+          Docker is not available (start Colima or Docker Desktop). Docker runtimes cannot be checked or used until it is running.
         </p>
       ) : null}
       {data && data.installed.length === 0 && dockerInstalled.length === 0 ? <p className={styles.text}>No versions installed yet.</p> : null}
