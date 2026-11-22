@@ -27,7 +27,7 @@ from .common import cell_language, cell_source
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
 CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
-LANGUAGE_LABELS = {"python": "Python", "sql": "Spark SQL", "duckdb": "DuckDB SQL"}
+LANGUAGE_LABELS = {"python": "Python", "sql": "Spark SQL", "duckdb": "DuckDB"}
 WARNING_UNSUPPORTED = "saída não exportável"
 _STAMP_FORMAT = "%d/%m/%Y %H:%M:%S"
 _LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
