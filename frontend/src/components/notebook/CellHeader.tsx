@@ -126,8 +126,9 @@ export function CellHeader({
   const available = languagesFor(kernelName ? kernelspecs.find((k) => k.name === kernelName) : undefined);
   // A linguagem salva na célula não é reescrita; só é sinalizada quando o kernel não a executa.
   const unavailable = !available.includes(language);
+  const menuLanguages = unavailable ? LANGUAGES.filter((l) => l === language || available.includes(l)) : available;
   const languageItems = (): MenuItem[] =>
-    (unavailable ? LANGUAGES.filter((l) => l === language || available.includes(l)) : available).map((l) => ({
+    menuLanguages.map((l) => ({
       label: l === language && unavailable ? `${LANGUAGE_LABEL[l]} (${NOT_AVAILABLE})` : LANGUAGE_LABEL[l],
       checked: l === language,
       testId: `cell-language-${l}`,
