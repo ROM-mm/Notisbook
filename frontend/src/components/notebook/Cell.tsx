@@ -37,7 +37,7 @@ export interface CellProps {
 const CODE_PLACEHOLDER: Record<CellLanguage, string> = {
   python: "Python code",
   sql: "Spark SQL query",
-  duckdb: "DuckDB SQL query",
+  duckdb: "DuckDB query",
 };
 
 function languageOf(cell: EditorCell): EditorLanguage {
