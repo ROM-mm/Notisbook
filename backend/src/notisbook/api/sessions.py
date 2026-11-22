@@ -33,6 +33,7 @@ from ..kernels.service import (
     DockerRuntimeError,
     KernelNotFound,
     KernelService,
+    KernelSpecInfo,
     NotislakeUnavailable,
     SessionNotFound,
     SparkEnvOutdated,
@@ -64,7 +65,7 @@ ws_router = APIRouter(prefix="/api")
 
 
 @router.get("/kernelspecs")
-async def list_kernelspecs(kernels: Kernels) -> list[dict[str, str]]:
+async def list_kernelspecs(kernels: Kernels) -> list[KernelSpecInfo]:
     return await kernels.kernelspecs()
 
 

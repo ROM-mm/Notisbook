@@ -21,7 +21,6 @@ DUCKDB_MISSING_MESSAGE = (
     "DuckDB is not installed in this runtime; reinstall it from Settings › Runtimes"
 )
 DUCKDB_NOT_READY_MESSAGE = "The DuckDB session is not ready; restart the kernel"
-DUCKDB_DOCKER_MESSAGE = "DuckDB cells are not available in the Docker runtime; use a Spark SQL cell or a local Spark kernel"
 MAX_ROWS = 1000
 DISPLAY_ROWS = 50
 MAX_CELL_CHARS = 500

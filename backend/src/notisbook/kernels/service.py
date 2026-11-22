@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 from urllib.parse import urlsplit
 
 from jupyter_client.asynchronous.client import AsyncKernelClient
@@ -69,7 +69,6 @@ from .protocol import (
     StatusEvent,
 )
 from .sql_cell import (
-    DUCKDB_DOCKER_MESSAGE,
     MODULE_NAME,
     build_duckdb_code,
     build_duckdb_kernel_code,
@@ -182,6 +181,55 @@ class _Pending:
     idle: bool = False
 
 
+RuntimeKind = Literal["duckdb", "docker", "local"]
+CellLanguage = Literal["python", "sql", "duckdb"]
+
+# Fonte única de "linguagem de célula x kernel"; a ordem é a canônica do seletor (python, sql, duckdb).
+CELL_LANGUAGES_BY_KIND: dict[RuntimeKind, tuple[CellLanguage, ...]] = {
+    "local": ("python", "sql", "duckdb"),
+    "duckdb": ("python", "duckdb"),
+    "docker": ("python", "sql"),
+}
+NON_PYTHON_CELL_LANGUAGES: tuple[CellLanguage, ...] = ("python",)
+CELL_LANGUAGE_LABELS: dict[str, str] = {"python": "Python", "sql": "Spark SQL", "duckdb": "DuckDB"}
+RUNTIME_KIND_LABELS: dict[RuntimeKind, str] = {"duckdb": "DuckDB", "docker": "Docker", "local": "local"}
+
+
+class KernelSpecInfo(TypedDict):
+    name: str
+    display_name: str
+    language: str
+    cell_languages: list[str]
+
+
+def runtime_kind(kernel_name: str, metadata: dict[str, Any]) -> RuntimeKind:
+    """Tipo de runtime do kernel, na precedência do despacho: duckdb > docker > local.
+
+    DuckDB: nome fixo e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo.
+    """
+    if kernel_name == DUCKDB_KERNEL_NAME and DUCKDB_METADATA_KEY in metadata:
+        return "duckdb"
+    if docker_catalog.by_kernel_name(kernel_name) is not None:
+        return "docker"
+    return "local"
+
+
+def cell_languages_for(kind: RuntimeKind, spec_language: str) -> tuple[CellLanguage, ...]:
+    """Linguagens de célula executáveis no kernel; kernel que não é Python (R, Julia) só roda `python`."""
+    if spec_language != "python":
+        return NON_PYTHON_CELL_LANGUAGES
+    return CELL_LANGUAGES_BY_KIND[kind]
+
+
+def _unavailable_message(language: str, kind: RuntimeKind, languages: tuple[CellLanguage, ...]) -> str:
+    label = CELL_LANGUAGE_LABELS.get(language, language)
+    if kind == "local" and languages == NON_PYTHON_CELL_LANGUAGES:
+        where = "em kernels que não são Python"
+    else:
+        where = f"no kernel {RUNTIME_KIND_LABELS[kind]}"
+    return f"{label} não está disponível {where}. Troque a linguagem da célula ou o kernel."
+
+
 @dataclass
 class KernelSession:
     session_id: str
@@ -211,6 +259,9 @@ class KernelSession:
     runtime_grant: RuntimeGrant | None = None
     # Kernel do runtime DuckDB: conexão própria, sem hook Spark; `catalog_ensure` traz o bootstrap dela (com o token).
     duckdb_kernel: bool = False
+    # Tipo de runtime e linguagens de célula que ele executa (`_build_source` recusa as demais).
+    kind: RuntimeKind = "local"
+    cell_languages: tuple[CellLanguage, ...] = CELL_LANGUAGES_BY_KIND["local"]
     # Monta o snippet do hook (Docker: catálogo; DuckDB: bootstrap) a partir do token e das opções S3A; None deixa o hook desligado.
     catalog_factory: Callable[[str, Mapping[str, str] | None], str] | None = None
     # Sessão local: monta o snippet a partir das opções S3A (o hook local fala com o SQLite, sem token).
@@ -516,13 +567,13 @@ class KernelSession:
         self.pending[msg_id] = _Pending(cell_id=cell_id)
 
     def _build_source(self, code: str, language: str) -> str:
+        if language not in self.cell_languages:
+            return build_unavailable_code(_unavailable_message(language, self.kind, self.cell_languages))
         if language == "sql":
             return build_sql_code(code)
         if language == "duckdb":
             if self.duckdb_kernel:
                 return build_duckdb_kernel_code(code)
-            if self.docker_runtime is not None:
-                return build_unavailable_code(DUCKDB_DOCKER_MESSAGE)
             # Extensões ficam sob a raiz única de dados; o autoinstall é desligado no kernel.
             return build_duckdb_code(code, self.duckdb_ext_dir)
         return code
@@ -626,16 +677,22 @@ class KernelService:
                     removed += 1
         return removed
 
-    async def kernelspecs(self) -> list[dict[str, str]]:
+    async def kernelspecs(self) -> list[KernelSpecInfo]:
         specs = await asyncio.to_thread(self._specs.get_all_specs)
-        result = [
-            {
-                "name": name,
-                "display_name": info["spec"].get("display_name", name),
-                "language": info["spec"].get("language", ""),
-            }
-            for name, info in specs.items()
-        ]
+        result: list[KernelSpecInfo] = []
+        for name, info in specs.items():
+            spec = info["spec"]
+            language = spec.get("language", "")
+            metadata = spec.get("metadata")
+            kind = runtime_kind(name, metadata if isinstance(metadata, dict) else {})
+            result.append(
+                {
+                    "name": name,
+                    "display_name": spec.get("display_name", name),
+                    "language": language,
+                    "cell_languages": list(cell_languages_for(kind, language)),
+                }
+            )
         # Docker por último: o frontend usa o primeiro item como padrão e o Spark Local não pode mudar.
         return sorted(result, key=lambda item: (item["name"].startswith(DOCKER_KERNEL_PREFIX), item["name"]))
 
@@ -729,12 +786,6 @@ class KernelService:
                 notice = S3A_LOOPBACK_HTTPS_NOTICE
                 log.warning("manual notislake endpoint is https on loopback: not supported in the Docker runtime")
         return S3AResolution(dict(s3a_options(conn, docker=docker)), fingerprint(conn), notice)
-
-    @staticmethod
-    def _is_duckdb_spec(kernel_name: str, spec: Any) -> bool:
-        """Kernel do runtime DuckDB: nome fixo e o registro `notisbook_duckdb` no metadata do kernelspec."""
-        metadata = getattr(spec, "metadata", None)
-        return kernel_name == DUCKDB_KERNEL_NAME and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata
 
     def _duckdb_bootstrap_factory(self, spec: Any) -> Callable[[str, Mapping[str, str] | None], str]:
         """Bootstrap do kernel DuckDB; o diretório e a lista de extensões vêm do metadata do kernelspec."""
@@ -896,7 +947,8 @@ class KernelService:
         Levanta `ConfigInvalid` (conexão manual inválida) ou `NotislakeUnavailable` (automático sem MinIO `running`);
         só sessões novas são recusadas. Uma conexão manual válida abre mesmo com o MinIO local fora.
         """
-        is_docker = docker_catalog.by_kernel_name(kernel_name) is not None
+        # Sem o metadata do kernelspec (só chega após o await) o DuckDB não é visível; docker e local já se decidem aqui.
+        is_docker = runtime_kind(kernel_name, {}) == "docker"
         s3a = self._resolve_s3a(docker=is_docker)
         session_id = uuid.uuid4().hex
         # Registered before the spec lookup so has_session sees the session during the whole arranque.
@@ -914,7 +966,9 @@ class KernelService:
             except NoSuchKernel as exc:
                 raise KernelNotFound(kernel_name) from exc
             runtime_grant: RuntimeGrant | None = None
-            is_duckdb = self._is_duckdb_spec(kernel_name, spec)
+            spec_metadata = getattr(spec, "metadata", None)
+            kind = runtime_kind(kernel_name, spec_metadata if isinstance(spec_metadata, dict) else {})
+            is_duckdb = kind == "duckdb"
             if is_duckdb:
                 # O DuckDB só usa s3a (sem pastas locais): roots vazio; o fingerprint libera a gravação em s3a.
                 runtime_grant = RuntimeGrant(session_id=session_id, roots=(), s3a_fingerprint=s3a.fingerprint)
@@ -947,6 +1001,8 @@ class KernelService:
                 catalog_factory=catalog_factory,
                 local_catalog_factory=None if (docker_runtime is not None or is_duckdb) else local_factory,
                 duckdb_kernel=is_duckdb,
+                kind=kind,
+                cell_languages=cell_languages_for(kind, str(getattr(spec, "language", ""))),
                 s3a_resolver=lambda: self._resolve_s3a(docker=is_docker),
                 _s3a_options=s3a.options,
                 s3a_notice=s3a.notice,
