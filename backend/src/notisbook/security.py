@@ -60,7 +60,7 @@ class RuntimeGrant:
 
 
 class RuntimeTokens:
-    """Tokens de runtime vivos, um por sessão Docker; só vivem na memória do backend."""
+    """Tokens de runtime vivos, um por sessão Docker ou DuckDB; só vivem na memória do backend."""
 
     def __init__(self) -> None:
         self._by_session: dict[str, tuple[str, RuntimeGrant]] = {}
