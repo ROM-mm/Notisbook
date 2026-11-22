@@ -7,8 +7,8 @@
  * O ■ chama o interrupt do kernel, que é global à sessão.
  */
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
 import type { Kernelspec } from "../../api/types";
+import { type CellLanguage, cellLanguage, cellTitle, type EditorCell } from "../../state/notebook";
 import { useKernel, useKernelStore, useNotebookStore } from "../../state/notebookContext";
 import { Menu, type MenuItem } from "../shell/Menu";
 import { MoreVerticalIcon, StopFilledIcon } from "../shell/icons";
