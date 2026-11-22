@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..kernels.service import KernelService
 from ..runtimes.duckdb.installer import DuckDBInstaller, InstallInProgress, NotInstalled
-from ..runtimes.duckdb.kernelspec import KERNEL_NAME
+from ..runtimes.duckdb.kernelspec import KERNEL_NAME, InstalledRuntime
 from ..runtimes.duckdb.manifest import (
     ManifestError,
     UnsupportedPlatform,
@@ -39,6 +39,13 @@ def _supported() -> bool:
     except UnsupportedPlatform:
         return False
     return True
+
+
+def _find(installer: DuckDBInstaller) -> InstalledRuntime | None:
+    try:
+        return installer.find()
+    except NotInstalled:
+        return None
 
 
 def _extension_rows(names: tuple[str, ...], version: str, directory: Path | None) -> list[dict[str, Any]]:
@@ -72,13 +79,6 @@ async def get_status(installer: Installer) -> dict[str, Any]:
         "installed": entry.as_dict() if entry else None,
         "installing": {"job_id": active[0], "kind": active[1]} if active else None,
     }
-
-
-def _find(installer: DuckDBInstaller) -> Any:
-    try:
-        return installer.find()
-    except NotInstalled:
-        return None
 
 
 @router.get("/extensions")
