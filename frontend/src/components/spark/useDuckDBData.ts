@@ -14,25 +14,9 @@ import { getJob } from "../../api/spark";
 import type { DuckDBExtensions, DuckDBStatus, SessionInfo } from "../../api/types";
 import { JobStream } from "../../ws/jobs";
 import { refreshKernelspecs } from "../../state/workspace";
-import type { InstallJob, Loadable } from "./useSparkData";
+import { useLoadable, type InstallJob } from "./useSparkData";
 
 const SESSIONS_POLL_MS = 4000;
-
-function useLoadable<T>(fetcher: (signal?: AbortSignal) => Promise<T>) {
-  const [state, setState] = useState<Loadable<T>>({ data: null, error: null, loading: true });
-  const reload = useCallback(async () => {
-    setState((s) => ({ ...s, loading: true }));
-    try {
-      const data = await fetcher();
-      setState({ data, error: null, loading: false });
-      return data;
-    } catch (err) {
-      setState((s) => ({ ...s, error: errorMessage(err), loading: false }));
-      return null;
-    }
-  }, [fetcher]);
-  return [state, reload] as const;
-}
 
 export function useDuckDBData() {
   const [status, reloadStatus] = useLoadable<DuckDBStatus>(getDuckDBStatus);

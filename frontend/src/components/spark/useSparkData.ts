@@ -44,7 +44,7 @@ export interface Loadable<T> {
 
 const SESSIONS_POLL_MS = 4000;
 
-function useLoadable<T>(fetcher: (signal?: AbortSignal) => Promise<T>) {
+export function useLoadable<T>(fetcher: (signal?: AbortSignal) => Promise<T>) {
   const [state, setState] = useState<Loadable<T>>({ data: null, error: null, loading: true });
   const reload = useCallback(async () => {
     setState((s) => ({ ...s, loading: true }));
