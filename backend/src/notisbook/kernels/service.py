@@ -200,13 +200,13 @@ class KernelSpecInfo(TypedDict):
     cell_languages: list[CellLanguage]
 
 
-def runtime_kind(kernel_name: str, metadata: dict[str, Any], docker: bool | None = None) -> RuntimeKind:
+def runtime_kind(kernel_name: str, metadata: object, docker: bool | None = None) -> RuntimeKind:
     """Tipo de runtime do kernel, na precedência do despacho: duckdb > docker > local.
 
     DuckDB: nome fixo e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo,
-    ou `docker` quando o chamador já o consultou.
+    ou `docker` quando o chamador já o consultou. `metadata` que não seja dict conta como vazio.
     """
-    if kernel_name == DUCKDB_KERNEL_NAME and DUCKDB_METADATA_KEY in metadata:
+    if kernel_name == DUCKDB_KERNEL_NAME and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata:
         return "duckdb"
     if docker is None:
         docker = docker_catalog.by_kernel_name(kernel_name) is not None
@@ -689,7 +689,7 @@ class KernelService:
             spec = info["spec"]
             language = spec.get("language", "")
             metadata = spec.get("metadata")
-            kind = runtime_kind(name, metadata if isinstance(metadata, dict) else {})
+            kind = runtime_kind(name, metadata)
             result.append(
                 {
                     "name": name,
@@ -972,9 +972,7 @@ class KernelService:
                 raise KernelNotFound(kernel_name) from exc
             runtime_grant: RuntimeGrant | None = None
             spec_metadata = getattr(spec, "metadata", None)
-            kind = runtime_kind(
-                kernel_name, spec_metadata if isinstance(spec_metadata, dict) else {}, docker=is_docker
-            )
+            kind = runtime_kind(kernel_name, spec_metadata, docker=is_docker)
             is_duckdb = kind == "duckdb"
             spec_language = str(getattr(spec, "language", ""))
             if is_duckdb:
