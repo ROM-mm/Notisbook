@@ -3,9 +3,9 @@
 Uso: python3 scripts/clean.py [--deep] [--skip-uv] [--yes] [--dry-run]
 Padrão: remove o que é regenerável e barato (frontend/dist, _frontend/, caches,
 __pycache__, tarballs do MinIO copiados e artefatos de versões antigas em
-backend/dist). `--deep` soma o regenerável caro (imagens Docker do repositório golang,
-backend/dist/notislake, node_modules, backend/.venv) e a etapa `uv cache clean`, que
-apaga o cache inteiro do uv (global: o próximo `uv run`/`./start.sh` baixa tudo de novo).
+backend/dist). `--deep` soma o regenerável caro (backend/dist/notislake, node_modules,
+backend/.venv) e a etapa `uv cache clean`, que apaga o cache inteiro do uv (global: o
+próximo `uv run`/`./start.sh` baixa tudo de novo).
 Sempre lista alvos e tamanhos antes de apagar. Caminhos rastreados pelo git, ou
 que contenham arquivos rastreados, nunca são tocados. Nunca usa `git clean`.
 """
@@ -19,7 +19,6 @@ import shutil
 import stat
 import subprocess
 import sys
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -27,7 +26,6 @@ ROOT = Path(__file__).resolve().parent.parent
 BACKEND = ROOT / "backend"
 FRONTEND = ROOT / "frontend"
 DIST = BACKEND / "dist"
-DOCKER_TIMEOUT = 30
 
 # Áreas do operador: fora do alcance do script, inclusive na busca de __pycache__.
 # `.venv` aqui é só o da raiz (comparado ao 1º componente); backend/.venv segue alvo do --deep.
@@ -50,16 +48,10 @@ class CleanError(RuntimeError):
 class Target:
     label: str
     size: int = 0
-    detail: str = ""
     paths: list[Path] = field(default_factory=list)
-    action: Callable[[], None] | None = None
-    soft: bool = False  # falha vira aviso e não conta em `failures` (Docker nunca causa exit 1)
 
     def remove(self) -> None:
-        if self.action is not None:
-            self.action()
-        else:
-            delete_paths(self.paths)
+        delete_paths(self.paths)
 
 
 def human(size: int) -> str:
@@ -237,75 +229,11 @@ def deep_path_targets() -> list[Target]:
     return [t for label, paths in groups if (t := path_target(label, paths))]
 
 
-def docker_run(args: list[str], timeout: int = DOCKER_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["docker", *args], capture_output=True, text=True, timeout=timeout, check=False)
-
-
-def docker_warn(step: str, exc: Exception) -> None:
-    print(f"aviso: {step} falhou ({type(exc).__name__}); etapa ignorada.", file=sys.stderr)
-
-
-def docker_available() -> bool:
-    if shutil.which("docker") is None:
-        print("aviso: docker não encontrado; etapas do Docker ignoradas.", file=sys.stderr)
-        return False
-    try:
-        ok = docker_run(["info"]).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        ok = False
-    if not ok:
-        print("aviso: daemon do Docker indisponível; etapas do Docker ignoradas.", file=sys.stderr)
-    return ok
-
-
 def run_command(cmd: list[str]) -> None:
     print(f"$ {' '.join(cmd)}", flush=True)
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         raise CleanError(f"{cmd[0]} falhou com exit {result.returncode}")
-
-
-def docker_golang_targets() -> list[Target]:
-    """Um alvo por ID de imagem do repositório `golang`, removendo todas as suas tags juntas."""
-    try:
-        result = docker_run(["images", "--format", "{{.Repository}}\t{{.Tag}}\t{{.ID}}"])
-        if result.returncode != 0:
-            return []
-        rows = [line.split("\t") for line in result.stdout.splitlines() if line.count("\t") == 2]
-        by_id: dict[str, list[str]] = {}
-        for repo, tag, image_id in rows:
-            if repo == "golang":
-                refs = by_id.setdefault(image_id, [])
-                if tag != "<none>":
-                    refs.append(f"{repo}:{tag}")
-        targets: list[Target] = []
-        for image_id, refs in by_id.items():
-            others = sorted({f"{r[0]}:{r[1]}" for r in rows if r[2] == image_id and r[0] != "golang"})
-            if not refs and others:
-                print(
-                    f"aviso: imagem golang {image_id} sem tag compartilha ID com {', '.join(others)}; ignorada.",
-                    file=sys.stderr,
-                )
-                continue
-            size = 0
-            if not others:
-                inspect = docker_run(["image", "inspect", "--format", "{{.Size}}", image_id])
-                size = int(inspect.stdout.strip() or 0) if inspect.returncode == 0 else 0
-            detail = f"só remove a tag golang; ID compartilhado com {', '.join(others)}" if others else ""
-            refs = refs or [image_id]
-            targets.append(
-                Target(
-                    f"imagem Docker {', '.join(refs)}",
-                    size,
-                    detail,
-                    action=lambda r=tuple(refs): run_command(["docker", "rmi", *r]),
-                    soft=True,
-                )
-            )
-    except (OSError, subprocess.TimeoutExpired, ValueError) as exc:
-        docker_warn("listagem de imagens golang", exc)
-        return []
-    return targets
 
 
 def apply_policy(targets: list[Target], tracked: tuple[set[str], set[str]]) -> None:
@@ -351,9 +279,8 @@ def print_list(targets: list[Target], uv: tuple[str, int] | None) -> None:
     print("Alvos de limpeza:")
     total = 0
     for target in targets:
-        extra = f" — {target.detail}" if target.detail else ""
         count = f" ({len(target.paths)} itens)" if len(target.paths) > 1 else ""
-        print(f"  {human(target.size):>10}  {target.label}{count}{extra}")
+        print(f"  {human(target.size):>10}  {target.label}{count}")
         for path in target.paths if len(target.paths) <= 6 else []:
             print(f"{'':>14}{path.relative_to(ROOT)}")
         total += target.size
@@ -368,10 +295,10 @@ def parse_args() -> argparse.Namespace:
         description="Apaga resíduos de build e release do Notisbook, sempre listando antes.",
         epilog=(
             "Com --deep, `uv cache clean` (apaga o cache inteiro e global do uv) tem pergunta própria; só roda sem perguntar "
-            "quando --yes é passado junto com --deep. Docker ou uv ausentes são ignorados com aviso."
+            "quando --yes é passado junto com --deep. uv ausente é ignorado com aviso."
         ),
     )
-    parser.add_argument("--deep", action="store_true", help="inclui o regenerável caro (imagens golang do Docker, node_modules, backend/.venv, notislake) e o `uv cache clean`")
+    parser.add_argument("--deep", action="store_true", help="inclui o regenerável caro (node_modules, backend/.venv, notislake) e o `uv cache clean`")
     parser.add_argument("--skip-uv", action="store_true", help="com --deep, não oferece nem roda o `uv cache clean`")
     parser.add_argument("--yes", action="store_true", help="não pede confirmação")
     parser.add_argument("--dry-run", action="store_true", help="só lista; não apaga nem pergunta")
@@ -388,8 +315,6 @@ def main() -> int:
         targets += deep_path_targets()
     apply_policy(targets, tracked)
     if args.deep:
-        if docker_available():
-            targets += docker_golang_targets()
         if not args.skip_uv:
             uv = uv_target()
 
@@ -409,11 +334,8 @@ def main() -> int:
                 target.remove()
                 print(f"removido: {target.label}")
             except (OSError, CleanError) as exc:
-                if target.soft:
-                    print(f"aviso: {target.label}: {exc}; ignorado.", file=sys.stderr)
-                else:
-                    failures += 1
-                    print(f"erro: {target.label}: {exc}", file=sys.stderr)
+                failures += 1
+                print(f"erro: {target.label}: {exc}", file=sys.stderr)
     else:
         print("Nada foi apagado.")
     uv_question = (
