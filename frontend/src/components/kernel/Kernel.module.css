@@ -121,9 +121,9 @@
   max-width: min(440px, 90vw);
 }
 
-/* Item de ambiente: ✓, ícone do runtime, nome e id à direita. */
+/* Item de ambiente: ✓, ícone do runtime e label (nome + id técnico, quando ambíguo). */
 .selectorList .selectorOption {
-  grid-template-columns: 16px 14px minmax(0, 1fr) auto;
+  grid-template-columns: 16px 14px minmax(0, 1fr);
 }
 
 .selectorKernel {
