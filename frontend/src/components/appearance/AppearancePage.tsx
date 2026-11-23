@@ -1,6 +1,6 @@
 /**
  * Settings › Appearance (rota `/settings/appearance`): escolha das fontes de Interface, Code cell e
- * Markdown em tela no estilo ISPF. Nada muda no app antes de Apply (F5, ⌘S ou APPLY); a prévia ao vivo
+ * Markdown, no mesmo padrão visual da tela Runtimes. Nada muda no app antes de Apply (F5, ⌘S ou o botão); a prévia ao vivo
  * só afeta o bloco Preview, que redeclara as variáveis de fonte no próprio contêiner.
  */
 import { type CSSProperties, Fragment, type KeyboardEvent, useEffect, useRef, useState } from "react";
@@ -18,14 +18,14 @@ import { fetchSystemFonts } from "../../api/appearance";
 import { openHome, previousEntryIsApp } from "../../state/router";
 import styles from "./AppearancePage.module.css";
 
-const FIELDS: readonly { slot: FontSlot; label: string }[] = [
-  { slot: "interface", label: "Interface" },
-  { slot: "code", label: "Code cell + outputs" },
-  { slot: "markdown", label: "Markdown" },
+const FIELDS: readonly { slot: FontSlot; label: string; caption: string }[] = [
+  { slot: "interface", label: "Interface", caption: "menus, panels, dialogs" },
+  { slot: "code", label: "Code cell + outputs", caption: "also tables and monospaced text" },
+  { slot: "markdown", label: "Markdown", caption: "cell text" },
 ];
 
 const HELP =
-  "Type 1-3 or press F4 to pick a font. Code cell also sets outputs, tables and other monospaced text. F5 applies, F3/F12 exits, RESET restores the defaults.";
+  "Press F4 or click a field to pick a font, or type a font name. Code cell also sets outputs, tables and other monospaced text. F5 or ⌘S applies, Esc discards pending changes, F3/F12 exits.";
 
 type FontGroup = "Bundled" | "System";
 type FontOption = { name: string; group: FontGroup };
@@ -40,25 +40,22 @@ function leave(): void {
 export function AppearancePage() {
   const current = useAppearance((s) => s.current);
   const apply = useAppearance((s) => s.apply);
-  const reset = useAppearance((s) => s.reset);
 
   const [pending, setPending] = useState<Appearance>({ ...current });
   const [openSlot, setOpenSlot] = useState<FontSlot | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   const [active, setActive] = useState(-1);
   const [systemFonts, setSystemFonts] = useState<readonly string[]>([]);
-  const [command, setCommand] = useState("");
   const [message, setMessage] = useState<Message>({ kind: "info", text: "Choose the fonts, then press F5 to apply." });
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const commandRef = useRef<HTMLInputElement>(null);
   const fieldRefs = useRef<(HTMLInputElement | null)[]>([]);
   const lastField = useRef(0);
   const restoreValue = useRef("");
   const keepActiveVisible = useRef(false);
 
   useEffect(() => {
-    commandRef.current?.focus();
+    fieldRefs.current[0]?.focus();
   }, []);
 
   // Falha ou `unsupported` resultam em lista vazia: só as empacotadas e o nome livre.
@@ -131,10 +128,9 @@ export function AppearancePage() {
   };
 
   const doReset = () => {
-    reset();
     setPending({ ...DEFAULT_APPEARANCE });
     closeList();
-    setMessage({ kind: "ok", text: "Defaults restored." });
+    setMessage({ kind: "info", text: "Defaults loaded; press Apply to use them." });
   };
 
   const discardPending = () => {
@@ -142,17 +138,6 @@ export function AppearancePage() {
     setPending({ ...current });
     closeList();
     if (dirty) setMessage({ kind: "info", text: "Pending changes discarded." });
-  };
-
-  const runCommand = (raw: string) => {
-    const cmd = raw.trim().toUpperCase();
-    setCommand("");
-    if (cmd === "") return;
-    if (cmd === "APPLY") doApply();
-    else if (cmd === "CANCEL") leave();
-    else if (cmd === "RESET") doReset();
-    else if (/^[1-3]$/.test(cmd)) focusField(Number(cmd) - 1);
-    else setMessage({ kind: "error", text: `Invalid command: ${cmd}` });
   };
 
   const showHelp = () => setMessage({ kind: "info", text: HELP });
@@ -231,157 +216,154 @@ export function AppearancePage() {
     "--font-mono": face.code,
   } as CSSProperties;
 
+  const messageClass = message.kind === "error" ? styles.messageError : message.kind === "ok" ? styles.messageOk : "";
+
   return (
     <div className={styles.page} ref={rootRef} data-testid="appearance-page">
-      <header className={styles.titleLine}>
-        <h2 className={styles.title}>APPEARANCE ─ Fonts</h2>
-        <p
-          className={`${styles.message} ${message.kind === "error" ? styles.messageError : message.kind === "ok" ? styles.messageOk : ""}`}
-          role="status"
-          data-testid="appearance-message"
-        >
-          {message.text}
+      <header className={styles.header}>
+        <h2 className={styles.title}>Appearance</h2>
+        <p className={styles.text}>
+          Fonts for the interface, code cells and Markdown. Nothing changes in the app until you apply; the preview updates live.
         </p>
       </header>
 
-      <div className={styles.commandLine}>
-        <label htmlFor="appearance-command">Command ===&gt;</label>
-        <input
-          id="appearance-command"
-          ref={commandRef}
-          className={styles.commandInput}
-          value={command}
-          onChange={(e) => setCommand(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              runCommand(command);
-            }
-          }}
-          autoComplete="off"
-          spellCheck={false}
-          aria-describedby="appearance-command-hint"
-          data-testid="appearance-command"
-        />
-      </div>
-      <p id="appearance-command-hint" className={styles.hint}>
-        APPLY  CANCEL  RESET  1-3 (go to field)
-      </p>
-
-      <div className={styles.fields}>
-        {FIELDS.map(({ slot, label }, index) => {
-          const isOpen = openSlot === slot;
-          const dirty = pending[slot] !== current[slot];
-          const invalid = !isValidFontName(pending[slot].trim());
-          const listId = `appearance-list-${slot}`;
-          return (
-            <div className={styles.field} key={slot}>
-              <label className={styles.fieldLabel} htmlFor={`appearance-${slot}`}>
-                {index + 1}. {label}
-              </label>
-              <span className={styles.dots} aria-hidden="true">
-                {".".repeat(80)}
-              </span>
-              <div className={styles.combo}>
-                <input
-                  id={`appearance-${slot}`}
-                  ref={(el) => {
-                    fieldRefs.current[index] = el;
-                  }}
-                  className={`${styles.input} ${dirty ? styles.inputPending : ""} ${invalid ? styles.inputInvalid : ""}`}
-                  size={Math.min(MAX_FONT_NAME, Math.max(pending[slot].length, 1))}
-                  role="combobox"
-                  aria-expanded={isOpen}
-                  aria-controls={listId}
-                  aria-autocomplete="list"
-                  aria-activedescendant={isOpen && active >= 0 ? `${listId}-${active}` : undefined}
-                  aria-invalid={invalid}
-                  value={pending[slot]}
-                  maxLength={MAX_FONT_NAME}
-                  autoComplete="off"
-                  spellCheck={false}
-                  data-testid={`appearance-field-${slot}`}
-                  onFocus={() => {
-                    lastField.current = index;
-                  }}
-                  onClick={() => {
-                    if (!isOpen) openList(index);
-                  }}
-                  onBlur={() => {
-                    if (openSlot === slot) closeList();
-                  }}
-                  onChange={(e) => {
-                    if (openSlot !== slot) restoreValue.current = pending[slot];
-                    setValue(slot, e.target.value);
-                    setFilter(e.target.value);
-                    setActive(-1);
-                    setOpenSlot(slot);
-                  }}
-                  onKeyDown={(e) => onFieldKeyDown(e, index)}
-                />
-                {isOpen ? (
-                  <div className={styles.list} role="listbox" id={listId} aria-label={`${label} fonts`}>
-                    {options.length === 0 ? (
-                      <div className={styles.listEmpty}>No font matches; Enter keeps the typed name.</div>
-                    ) : (
-                      options.map((option, i) => (
-                        <Fragment key={`${option.group}:${option.name}`}>
-                          {i === 0 || options[i - 1]?.group !== option.group ? (
-                            <div className={styles.groupLabel} role="presentation">
-                              ── {option.group} ──
+      <section className={styles.block} aria-label="Fonts">
+        <div className={styles.blockHead}>
+          <h3 className={styles.blockTitle}>Fonts</h3>
+          <button type="button" className="btn btn-ghost" onClick={doReset}>
+            Reset to defaults
+          </button>
+        </div>
+        <div className={styles.fields}>
+          {FIELDS.map(({ slot, label, caption }, index) => {
+            const isOpen = openSlot === slot;
+            const dirty = pending[slot] !== current[slot];
+            const invalid = !isValidFontName(pending[slot].trim());
+            const listId = `appearance-list-${slot}`;
+            return (
+              <div className={styles.field} key={slot}>
+                <div className={styles.fieldLabel}>
+                  <label htmlFor={`appearance-${slot}`}>{label}</label>
+                  <small className={styles.caption}>{caption}</small>
+                </div>
+                <div className={styles.combo}>
+                  <input
+                    id={`appearance-${slot}`}
+                    ref={(el) => {
+                      fieldRefs.current[index] = el;
+                    }}
+                    className={`${styles.input} ${invalid ? styles.inputInvalid : ""}`}
+                    role="combobox"
+                    aria-expanded={isOpen}
+                    aria-controls={listId}
+                    aria-autocomplete="list"
+                    aria-activedescendant={isOpen && active >= 0 ? `${listId}-${active}` : undefined}
+                    aria-invalid={invalid}
+                    value={pending[slot]}
+                    maxLength={MAX_FONT_NAME}
+                    autoComplete="off"
+                    spellCheck={false}
+                    data-testid={`appearance-field-${slot}`}
+                    onFocus={() => {
+                      lastField.current = index;
+                    }}
+                    onClick={() => {
+                      if (!isOpen) openList(index);
+                    }}
+                    onBlur={() => {
+                      if (openSlot === slot) closeList();
+                    }}
+                    onChange={(e) => {
+                      if (openSlot !== slot) restoreValue.current = pending[slot];
+                      setValue(slot, e.target.value);
+                      setFilter(e.target.value);
+                      setActive(-1);
+                      setOpenSlot(slot);
+                    }}
+                    onKeyDown={(e) => onFieldKeyDown(e, index)}
+                  />
+                  <span className={styles.chevron} aria-hidden="true">
+                    {isOpen ? "▲" : "▼"}
+                  </span>
+                  {isOpen ? (
+                    <div className={styles.list} role="listbox" id={listId} aria-label={`${label} fonts`}>
+                      {options.length === 0 ? (
+                        <div className={styles.listEmpty}>No font matches; Enter keeps the typed name.</div>
+                      ) : (
+                        options.map((option, i) => (
+                          <Fragment key={`${option.group}:${option.name}`}>
+                            {i === 0 || options[i - 1]?.group !== option.group ? (
+                              <div className={styles.groupLabel} role="presentation">
+                                {option.group}
+                              </div>
+                            ) : null}
+                            <div
+                              id={`${listId}-${i}`}
+                              role="option"
+                              title={option.name}
+                              aria-selected={i === active}
+                              className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
+                              style={{ fontFamily: fontFamilyValue(slot, option.name) }}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onMouseEnter={() => setActive(i)}
+                              onClick={() => choose(slot, option.name)}
+                            >
+                              {option.name}
                             </div>
-                          ) : null}
-                          <div
-                            id={`${listId}-${i}`}
-                            role="option"
-                            title={option.name}
-                            aria-selected={i === active}
-                            className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
-                            style={{ fontFamily: fontFamilyValue(slot, option.name) }}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onMouseEnter={() => setActive(i)}
-                            onClick={() => choose(slot, option.name)}
-                          >
-                            {option.name}
-                          </div>
-                        </Fragment>
-                      ))
-                    )}
-                  </div>
-                ) : null}
+                          </Fragment>
+                        ))
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+                <span className={styles.status} aria-live="polite">
+                  {invalid ? (
+                    <span className={`${styles.badge} ${styles.badgeBad}`}>invalid</span>
+                  ) : dirty ? (
+                    <span className={`${styles.badge} ${styles.badgePending}`}>pending</span>
+                  ) : null}
+                </span>
               </div>
-              <span className={`${styles.flag} ${invalid ? styles.flagInvalid : ""}`} aria-live="polite">
-                {invalid ? "invalid" : dirty ? "*pending" : ""}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <section className={styles.preview} aria-label="Preview" style={previewVars} data-testid="appearance-preview">
-        <h3 className={styles.previewTitle}>Preview</h3>
-        <p className={styles.previewInterface}>Interface: File Edit View Run Settings Help ─ New notebook</p>
-        <pre className={styles.previewCode}>{"def greet(name):\n    return f\"Hello, {name}!\""}</pre>
-        <div className={styles.previewMarkdown}>
-          <strong>Markdown</strong> text with <code>inline code</code> and accents: ação, coração, você.
+            );
+          })}
         </div>
       </section>
 
-      <footer className={styles.footer}>
-        <FooterKey label="F1=Help" onClick={showHelp} />
-        <FooterKey label="F3=Exit" onClick={leave} />
-        <FooterKey label="F4=List" onClick={() => openList(lastField.current)} />
-        <FooterKey label="F5=Apply" onClick={doApply} />
-        <FooterKey label="F12=Cancel" onClick={leave} />
-      </footer>
-    </div>
-  );
-}
+      <section className={styles.block} aria-label="Preview" style={previewVars} data-testid="appearance-preview">
+        <div className={styles.blockHead}>
+          <h3 className={styles.blockTitle}>Preview</h3>
+        </div>
+        <div className={styles.previewRow}>
+          <span className={styles.fieldLabel}>Interface</span>
+          <p className={styles.previewInterface}>Interface: File Edit View Run Settings Help ─ New notebook</p>
+        </div>
+        <div className={styles.previewRow}>
+          <span className={styles.fieldLabel}>Code cell</span>
+          <pre className={styles.previewCode}>{"def greet(name):\n    return f\"Hello, {name}!\""}</pre>
+        </div>
+        <div className={styles.previewRow}>
+          <span className={styles.fieldLabel}>Markdown</span>
+          <div className={styles.previewMarkdown}>
+            <strong>Markdown</strong> text with <code>inline code</code> and accents: ação, coração, você.
+          </div>
+        </div>
+      </section>
 
-function FooterKey({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button type="button" className={styles.footerKey} onClick={onClick}>
-      {label}
-    </button>
+      <p className={`${styles.message} ${messageClass}`} role="status" data-testid="appearance-message">
+        {message.text}
+      </p>
+
+      <div className={styles.actions}>
+        <span className={styles.keys}>⌘S apply · Esc discard · F4 open list</span>
+        <div className={styles.buttons}>
+          <button type="button" className="btn" onClick={leave}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn-primary" onClick={doApply}>
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

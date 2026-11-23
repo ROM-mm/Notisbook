@@ -86,8 +86,6 @@ interface AppearanceState {
   current: Appearance;
   /** Valida, aplica e salva; se algum nome for inválido, devolve o slot que falhou (sem alterar nada). */
   apply: (next: Appearance) => { ok: true } | { ok: false; slot: FontSlot };
-  /** Volta aos defaults e apaga a escolha salva. */
-  reset: () => void;
 }
 
 export const useAppearance = create<AppearanceState>((set) => ({
@@ -103,12 +101,6 @@ export const useAppearance = create<AppearanceState>((set) => ({
     write(normalized);
     set({ current: normalized });
     return { ok: true };
-  },
-  reset: () => {
-    const defaults = { ...DEFAULT_APPEARANCE };
-    applyToDom(defaults);
-    write(defaults);
-    set({ current: defaults });
   },
 }));
 
