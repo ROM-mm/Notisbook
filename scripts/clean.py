@@ -174,7 +174,7 @@ def find_pycache() -> list[Path]:
         rel = Path(current).relative_to(ROOT).parts
         dirs[:] = [
             d for d in dirs
-            if d not in WALK_SKIP and d != "__pycache__" and not is_inside_protected((*rel, d))
+            if d.casefold() not in WALK_SKIP and d != "__pycache__" and not is_inside_protected((*rel, d))
         ]
     return sorted(found)
 
@@ -285,16 +285,20 @@ def apply_policy(targets: list[Target], tracked: tuple[set[str], set[str]]) -> N
     targets[:] = [t for t in targets if t.paths]
 
 
-def cache_size(cache: Path) -> int | None:
-    """Tamanho via `du -sk` com timeout (o cache global do uv é grande); None se não medir."""
+def cache_size(cache: Path) -> tuple[int | None, bool]:
+    """Tamanho via `du -sk` com timeout (o cache global do uv é grande).
+
+    Retorna (bytes, aproximado). `du` com exit != 0 mas total impresso (ex.: subdiretório
+    ilegível) vale como aproximado; sem total legível ou timeout, (None, False).
+    """
     try:
         result = subprocess.run(["du", "-sk", str(cache)], capture_output=True, text=True, check=False, timeout=DU_TIMEOUT)
-        return int(result.stdout.split()[0]) * 1024 if result.returncode == 0 else None
+        return int(result.stdout.split()[0]) * 1024, result.returncode != 0
     except (OSError, subprocess.SubprocessError, ValueError, IndexError):
-        return None
+        return None, False
 
 
-def uv_target() -> tuple[str, int | None] | None:
+def uv_target() -> tuple[str, int | None, bool] | None:
     if shutil.which("uv") is None:
         print("aviso: uv não encontrado; `uv cache clean` ignorado.", file=sys.stderr)
         return None
@@ -307,7 +311,7 @@ def uv_target() -> tuple[str, int | None] | None:
     if cache is None or not cache.is_dir():
         print("aviso: cache do uv não localizado; `uv cache clean` ignorado.", file=sys.stderr)
         return None
-    return str(cache), cache_size(cache)
+    return str(cache), *cache_size(cache)
 
 
 def confirm(question: str) -> bool:
@@ -318,7 +322,7 @@ def confirm(question: str) -> bool:
     return answer.strip().lower() in {"y", "yes", "s", "sim"}
 
 
-def print_list(targets: list[Target], uv: tuple[str, int | None] | None) -> None:
+def print_list(targets: list[Target], uv: tuple[str, int | None, bool] | None) -> None:
     print("Alvos de limpeza:")
     total = 0
     for target in targets:
@@ -329,7 +333,7 @@ def print_list(targets: list[Target], uv: tuple[str, int | None] | None) -> None
         total += target.size
     print(f"  {'-' * 10}\n  {human(total):>10}  total")
     if uv:
-        size = human(uv[1]) if uv[1] is not None else "tamanho desconhecido"
+        size = ("≥ " if uv[2] else "") + human(uv[1]) if uv[1] is not None else "tamanho desconhecido"
         print(f"\nEtapa com confirmação própria: uv cache clean (cache em {uv[0]}, hoje {size}).")
         print("Apaga o cache inteiro, é global (afeta outros projetos) e o próximo `uv run`/`./start.sh` baixa tudo de novo.")
 
