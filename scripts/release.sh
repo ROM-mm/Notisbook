@@ -343,15 +343,40 @@ local_install() {
 
   ETAPA="instalação"
   info "Instalando $VERSION neste Mac (substitui o notisbook instalado)"
-  run env "NOTISBOOK_INSTALL_FROM=$ROOT/$local_dir" sh "$INSTALL_SH" --version "$VERSION"
+  # O instalador não herda o env Python ativo do terminal (VIRTUAL_ENV e o bin dele no PATH)
+  path_instalador=":$PATH:"
+  if [ -n "${VIRTUAL_ENV:-}" ]; then
+    venv_bin=":$VIRTUAL_ENV/bin:"
+    while [[ "$path_instalador" == *"$venv_bin"* ]]; do
+      # Sem aspas externas: o bash 3.2 do macOS trataria as aspas internas como literais
+      path_instalador=${path_instalador//"$venv_bin"/:}
+    done
+  fi
+  path_instalador="${path_instalador#:}"
+  path_instalador="${path_instalador%:}"
+  run env -u VIRTUAL_ENV "PATH=$path_instalador" "NOTISBOOK_INSTALL_FROM=$ROOT/$local_dir" \
+    sh "$INSTALL_SH" --version "$VERSION"
 
   ETAPA="concluído"
   echo
-  if command -v notisbook >/dev/null 2>&1; then
-    printf 'notisbook --version: '
-    notisbook --version || aviso "notisbook --version falhou"
+  # Confere o executável que o uv tool instalou, não o primeiro notisbook do PATH
+  uv_bin_dir="$(uv tool dir --bin 2>/dev/null)" || uv_bin_dir=""
+  uv_exe="$uv_bin_dir/notisbook"
+  if [ -n "$uv_bin_dir" ] && [ -x "$uv_exe" ]; then
+    versao_impressa="$("$uv_exe" --version 2>&1)" || aviso "$uv_exe --version falhou"
+    echo "notisbook --version ($uv_exe): $versao_impressa"
+    case "$versao_impressa" in
+      *"$VERSION"*) ;;
+      *) aviso "a versão impressa não contém $VERSION; confira a instalação em $uv_exe" ;;
+    esac
+    path_exe="$(command -v notisbook 2>/dev/null || true)"
+    if [ -z "$path_exe" ]; then
+      aviso "notisbook não está no PATH desta shell; abra um novo terminal ou use $uv_exe"
+    elif [ "$path_exe" != "$uv_exe" ]; then
+      aviso "nesta shell, notisbook abre $path_exe (por exemplo, um env ativo), não $uv_exe; use o caminho completo ou abra um novo terminal"
+    fi
   else
-    aviso "notisbook não está no PATH desta shell; abra um novo terminal e rode notisbook --version"
+    aviso "executável do uv tool não encontrado em ${uv_exe}; a instalação pode ter falhado"
   fi
   info "Ensaio local de $TAG concluído (nada foi commitado, tagueado nem publicado)"
   echo "Para publicar de verdade: ./scripts/release.sh $VERSION"
