@@ -26,7 +26,6 @@ from ..spark import kernelspec as spark_kernelspec
 from ..spark.bundles import SAFETY_WAREHOUSE_DIR, WAREHOUSE_DIR
 from . import toolenv
 
-CONFIRM_WORD = "uninstall"
 DOCKER_STOP_GRACE_S = 10
 DOCKER_TIMEOUT_S = 60.0
 LEGACY_ENV_GLOB = f"{spark_kernelspec.LEGACY_PREFIX}*"
@@ -217,10 +216,10 @@ def _confirmed(assume_yes: bool) -> bool:
         print("Notisbook: refusing to uninstall without confirmation; stdin is not a terminal (use --yes).", file=sys.stderr)
         return False
     try:
-        answer = input(f"Type '{CONFIRM_WORD}' to continue: ")
+        answer = input("Proceed with the uninstall? [y/N]: ")
     except EOFError:
         answer = ""
-    if answer.strip() != CONFIRM_WORD:
+    if answer.strip().lower() not in ("y", "yes"):
         print("Notisbook: aborted; nothing was removed.", file=sys.stderr)
         return False
     return True
