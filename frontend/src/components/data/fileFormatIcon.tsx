@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { FileCsvIcon, FileJsonIcon, FileParquetIcon, FileTextIcon } from "../shell/icons";
-import { AvroIcon, DeltaIcon, ParquetIcon } from "../shell/techIcons";
+import { FileCsvIcon, FileJsonIcon, FileTextIcon } from "../shell/icons";
+import { AvroIcon, DeltaIcon, OrcIcon, ParquetIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
 
 /** Ícone de um arquivo pela extensão; `null` quando o formato não tem ícone próprio. */
@@ -11,7 +11,7 @@ export function fileFormatIcon(ext: string): ReactNode | null {
     case "avro":
       return <BrandIcon icon={AvroIcon} />;
     case "orc":
-      return <FileParquetIcon size={14} />;
+      return <BrandIcon icon={OrcIcon} />;
     case "csv":
     case "tsv":
     case "psv":

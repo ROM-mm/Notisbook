@@ -219,3 +219,22 @@ export const AvroIcon = (p: IconProps) => (
     </g>
   </TechSvg>
 );
+
+export const OrcIcon = (p: IconProps) => {
+  const id = useSvgId();
+  return (
+    <TechSvg {...p}>
+      <defs>
+        <mask id={`${id}-m-orc`}>
+          <rect width="32" height="32" fill="#fff" />
+          <path
+            d="M5 18.2Q6.6 13.6 9.4 11.2V8.9L12.8 8.6L16 6.4L19.2 8.6L22.6 8.9V11.2Q25.4 13.6 27 18.2L22.2 20.6Q20.2 15.6 16 13.4Q11.8 15.6 9.8 20.6Z"
+            fill="#000"
+          />
+          <path d="M16 16.8Q18.4 18.6 19.2 20.6Q18 23.6 16 26.6Q14 23.6 12.8 20.6Q13.6 18.6 16 16.8Z" fill="#000" />
+        </mask>
+      </defs>
+      <circle cx="16" cy="16" r="15" fill="currentColor" stroke="none" mask={`url(#${id}-m-orc)`} />
+    </TechSvg>
+  );
+};
