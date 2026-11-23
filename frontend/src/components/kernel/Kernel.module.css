@@ -126,9 +126,26 @@
   grid-template-columns: 16px 14px minmax(0, 1fr);
 }
 
+/* Label da opção: o nome encolhe com reticência; o id técnico (opção ambígua) nunca é cortado. */
+.selectorOptionLabel {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.selectorOptionName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .selectorKernel {
+  flex-shrink: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
+  white-space: nowrap;
 }
 
 .selectorEmpty {

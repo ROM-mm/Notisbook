@@ -178,15 +178,16 @@ export function KernelSelector() {
                 className={`${menuStyles.item} ${styles.selectorOption}`}
                 data-testid="kernel-option"
                 data-kernel={k.name}
+                title={ambiguous ? `${k.display_name} (${k.name})` : k.display_name}
                 onClick={() => choose(k.name)}
               >
                 <span className={menuStyles.check} aria-hidden="true">
                   {current ? "✓" : ""}
                 </span>
                 <RuntimeIcon runtime={runtimeOf(k.display_name, k.name).runtime} spacer />
-                <span className={menuStyles.label}>
-                  {k.display_name}
-                  {ambiguous ? <span className={styles.selectorKernel}> {k.name}</span> : null}
+                <span className={`${menuStyles.label} ${styles.selectorOptionLabel}`}>
+                  <span className={styles.selectorOptionName}>{k.display_name}</span>
+                  {ambiguous ? <span className={styles.selectorKernel}>{k.name}</span> : null}
                 </span>
               </button>
             );
