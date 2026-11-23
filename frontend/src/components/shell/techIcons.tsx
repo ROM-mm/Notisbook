@@ -83,6 +83,8 @@ export const IcebergIcon = (p: IconProps) => {
 
 const HUDI_FRONT = "19.00,10.00 29.50,30.00 8.50,30.00";
 
+// O HudiIcon reaproveita `LINES_13_31` (compartilhado com o IcebergIcon): a última linha,
+// em y=31, fica fora do clip `HUDI_FRONT` (triângulo com y ≤ 30) e por isso não aparece.
 export const HudiIcon = (p: IconProps) => {
   const id = useSvgId();
   return (
