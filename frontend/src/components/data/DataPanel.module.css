@@ -194,7 +194,7 @@
   outline-offset: -3px;
 }
 
-/* Seleção: azul suave, sem barra lateral. */
+/* Seleção: cinza suave, sem barra lateral. */
 .treeRow[aria-selected="true"] {
   border-left-color: transparent;
   background-color: var(--color-selection);

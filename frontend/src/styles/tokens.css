@@ -1,6 +1,7 @@
 /*
- * Design tokens do Notisbook: tema terminal claro (linhas finas de 1px, sem
- * cartão nem raio; paleta neutra com acento azul; sombra só nos dropdowns). Os nomes
+ * Design tokens do Notisbook: tema monocromático (claro: fundo branco com linhas
+ * e texto pretos; escuro: grafite; status e sintaxe coloridos; linhas finas de 1px,
+ * sem cartão nem raio; sombra só nos dropdowns). Os nomes
  * --color-* são a API principal; --yellow, --blue etc. são aliases legados
  * remapeados para tons neutros. Fontes empacotadas (fonts.css e @fontsource em main.tsx)
  * — nada de CDN (CSP: default-src 'self').
@@ -65,7 +66,7 @@
   --color-bg: #ffffff;
   --color-bg-subtle: #ffffff;
   --color-bg-muted: #ffffff;
-  --color-bg-hover: #f2f3f5;
+  --color-bg-hover: #e9eaed;
   --color-bg-active: #e9eaed;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
@@ -89,19 +90,19 @@
   --color-code-bg: #ffffff;
   --color-code-inline-bg: transparent;
   --color-code-border: var(--color-border);
-  --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes; no escuro usa o cinza das faixas, distinto do fundo da página */
+  --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes (igual ao fundo da página nos dois temas) */
   --color-overlay: rgba(28, 28, 26, 0.35);
   --color-cell-bg: #ffffff;
   --color-cell-bg-active: #f2f3f5;
   --color-editor-selection: #d0d2d6;
   --color-bg-side: #ffffff; /* fundo das laterais e da barra superior (não usar --color-bg-panel, que pinta diálogos e tabelas) */
-  --color-selection: #e9eaed; /* seleção azul suave das árvores (Catalog, Notislake) */
+  --color-selection: #e9eaed; /* seleção cinza suave das árvores (Catalog, Notislake) */
 
   /* Aliases legados do tema anterior, remapeados para o tema limpo */
   --shadow-float: 0 6px 18px rgba(28, 28, 26, 0.14); /* dropdowns: Menu, ContextMenu, lista do KernelSelector */
   --on-fill: #000000;
   --on-accent: #ffffff;
-  --hover: #f2f3f5;
+  --hover: #e9eaed;
   --placeholder: #6b6d72;
   --yellow: #e9eaed;
   --blue: #e9eaed;
