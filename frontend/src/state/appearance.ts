@@ -39,6 +39,11 @@ export function isValidFontName(name: string): boolean {
   return name === name.trim() && name.length > 0 && name.length <= MAX_FONT_NAME && FONT_NAME_PATTERN.test(name);
 }
 
+/** Forma canônica de um nome digitado (sem espaços nas pontas); usada pelo `apply` e pela tela. */
+export function normalizeFontName(name: string): string {
+  return name.trim();
+}
+
 function read(): Appearance {
   const result: Appearance = { ...DEFAULT_APPEARANCE };
   try {
@@ -84,8 +89,11 @@ function applyToDom(appearance: Appearance): void {
 interface AppearanceState {
   /** Escolha em vigor (a aplicada ao app). */
   current: Appearance;
-  /** Valida, aplica e salva; se algum nome for inválido, devolve o slot que falhou (sem alterar nada). */
-  apply: (next: Appearance) => { ok: true } | { ok: false; slot: FontSlot };
+  /**
+   * Normaliza (trim), valida, aplica e salva; devolve a escolha aplicada ou, se algum nome for
+   * inválido, o slot que falhou (sem alterar nada).
+   */
+  apply: (next: Appearance) => { ok: true; applied: Appearance } | { ok: false; slot: FontSlot };
 }
 
 export const useAppearance = create<AppearanceState>((set) => ({
@@ -93,14 +101,14 @@ export const useAppearance = create<AppearanceState>((set) => ({
   apply: (next) => {
     const normalized = { ...DEFAULT_APPEARANCE };
     for (const slot of SLOTS) {
-      const name = next[slot].trim();
+      const name = normalizeFontName(next[slot]);
       if (!isValidFontName(name)) return { ok: false, slot };
       normalized[slot] = name;
     }
     applyToDom(normalized);
     write(normalized);
     set({ current: normalized });
-    return { ok: true };
+    return { ok: true, applied: normalized };
   },
 }));
 
