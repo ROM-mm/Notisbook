@@ -1,4 +1,4 @@
-"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`."""
+"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]` and `notisbook uninstall [--yes]`."""
 
 import argparse
 import dataclasses
@@ -29,6 +29,7 @@ from .config import (
     default_root,
     ensure_home,
 )
+from .maintenance import uninstall, update
 from .notislake import binary
 from .notislake.supervisor import NotislakeSupervisor, StartError
 from .onboarding import run_onboarding
@@ -63,7 +64,26 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="stop the running Notisbook registered in the data folder, whatever its version, and exit (starts no server)",
     )
-    return parser.parse_args(argv)
+    commands = parser.add_subparsers(dest="command")
+    update_cmd = commands.add_parser("update", help="update Notisbook to the latest release (or --version)")
+    update_cmd.add_argument("--version", dest="target_version", metavar="X.Y.Z", help="release to install (default: latest)")
+    uninstall_cmd = commands.add_parser("uninstall", help="remove Notisbook and keep your data folder")
+    uninstall_cmd.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    args = parser.parse_args(argv)
+    if args.command and _server_flags_set(args):
+        parser.error(f"server options cannot be combined with the '{args.command}' command")
+    return args
+
+
+def _server_flags_set(args: argparse.Namespace) -> bool:
+    """True se alguma flag do modo servidor difere do default (argparse aceitaria `--port 1 update` em silêncio)."""
+    return (
+        args.port != DEFAULT_PORT
+        or args.root is not None
+        or args.no_browser
+        or args.check_notislake
+        or args.stop_running
+    )
 
 
 def _check_notislake() -> int:
@@ -255,6 +275,10 @@ def _bind_listener(port: int) -> socket.socket:
 
 def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
+    if args.command == "update":
+        sys.exit(update.run(args.target_version))
+    if args.command == "uninstall":
+        sys.exit(uninstall.run(assume_yes=args.yes))
     if args.check_notislake:
         sys.exit(_check_notislake())
     if args.stop_running:

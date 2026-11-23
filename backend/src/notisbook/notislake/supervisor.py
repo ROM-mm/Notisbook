@@ -144,6 +144,29 @@ class _Paths:
         return self.logs / "minio.log"
 
 
+class LockBusyError(Exception):
+    """O flock da pasta de dados está com outro processo."""
+
+
+def lock_path(home: Path) -> Path:
+    """Arquivo do flock que garante um único backend por `NOTISBOOK_HOME`."""
+    return _Paths(home / "minio").lock
+
+
+def acquire_flock(path: Path) -> int:
+    """Abre `path` e toma o flock exclusivo sem bloquear; devolve o fd (não herdável).
+
+    `LockBusyError` se outro processo o detém; falha ao abrir sobe como `OSError`.
+    """
+    fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, _FILE_MODE)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        raise LockBusyError from None
+    return fd
+
+
 def _say(message: str) -> None:
     print(f"Notisbook: {message}", file=sys.stderr, flush=True)
 
@@ -351,17 +374,13 @@ class NotislakeSupervisor:
         if self._lock_fd is not None:
             return
         try:
-            fd = os.open(self._paths.lock, os.O_RDWR | os.O_CREAT | os.O_CLOEXEC | os.O_NOFOLLOW, _FILE_MODE)
-        except OSError as exc:
-            raise StartError("io_error", f"não foi possível abrir {self._paths.lock} ({exc.strerror})") from None
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            os.close(fd)
+            self._lock_fd = acquire_flock(self._paths.lock)
+        except LockBusyError:
             raise StartError(
                 "locked", f"a pasta de dados {self._home} já está em uso por outro Notisbook; use outro NOTISBOOK_HOME"
             ) from None
-        self._lock_fd = fd
+        except OSError as exc:
+            raise StartError("io_error", f"não foi possível abrir {self._paths.lock} ({exc.strerror})") from None
 
     def _release_lock(self) -> None:
         fd, self._lock_fd = self._lock_fd, None

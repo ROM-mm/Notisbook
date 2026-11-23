@@ -3,7 +3,7 @@
 Uso: uv run --project backend python scripts/build_release.py [--checksums-only]
 Etapas: build do frontend, cópia para `_frontend/`, `uv build`, conferência
 do `index.html`, constraints do uv.lock, gate de wheel binária (macOS arm64),
-SHA256SUMS e sha256 da wheel e do sdist.
+SHA256SUMS (inclui o install.sh) e sha256 da wheel e do sdist.
 `--checksums-only` só regenera o SHA256SUMS, exigindo os tarballs do MinIO.
 """
 
@@ -31,6 +31,8 @@ INDEX_IN_ARCHIVE = "notisbook/_frontend/index.html"
 MINIO_DIST = DIST / "notislake"
 MINIO_MANIFEST = BACKEND / "src" / "notisbook" / "notislake" / "minio_manifest.json"
 SUMS_NAME = "SHA256SUMS"
+# Publicado como asset ao lado da wheel; `notisbook update` o confere contra o SHA256SUMS antes de executá-lo.
+INSTALL_SCRIPT = ROOT / "install.sh"
 GATE_PYTHON = "3.12"
 GATE_PLATFORMS = ("aarch64-apple-darwin",)
 PIN_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;]+)")
@@ -192,9 +194,12 @@ def write_checksums(version: str, *, require_minio: bool) -> Path:
     constraints = DIST / f"constraints-{version}.txt"
     if len(wheels) != 1 or not constraints.is_file():
         raise ReleaseError(f"wheel e constraints de {version} não encontradas em {DIST}")
+    if not INSTALL_SCRIPT.is_file():
+        raise ReleaseError(f"{INSTALL_SCRIPT.name} não encontrado em {ROOT}")
     names = [wheels[0].name, constraints.name, *stage_minio_tarballs(required=require_minio)]
+    entries = [(DIST / n, n) for n in names] + [(INSTALL_SCRIPT, INSTALL_SCRIPT.name)]
     sums = DIST / SUMS_NAME
-    sums.write_text("".join(f"{sha256(DIST / n)}  {n}\n" for n in names))
+    sums.write_text("".join(f"{sha256(path)}  {name}\n" for path, name in entries))
     return sums
 
 

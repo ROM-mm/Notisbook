@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
 # Publica uma versão do Notisbook: versão + tag + build + release no GitHub
 # com wheel, constraints, binários do MinIO, SHA256SUMS e install.sh.
-# Uso: ./scripts/release.sh [--dry-run] <versão X.Y.Z>
+# Uso: ./scripts/release.sh [--dry-run | --local-install] <versão X.Y.Z>
+# --local-install é o ensaio: instala a versão neste Mac sem publicar nada.
 set -euo pipefail
 
 REPO_SLUG="ROM-mm/Notisbook"
 
 DRY_RUN=0
+LOCAL_INSTALL=0
 VERSION=""
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 WORKDIR=""
 ETAPA="conferências"
 PUSH_FEITO=0
+# Cópia do backend/pyproject.toml original durante o --local-install (restaurada por limpar)
+PYPROJECT_BACKUP=""
+RESTAURO_FALHOU=0
 
 uso() {
   cat <<EOF
-Uso: scripts/release.sh [--dry-run] <versão>
+Uso: scripts/release.sh [--dry-run | --local-install] <versão>
 
 Publica o Notisbook <versão> (formato X.Y.Z) no GitHub (wheel, constraints,
 binários do MinIO, SHA256SUMS e install.sh).
@@ -24,6 +29,12 @@ binários do MinIO, SHA256SUMS e install.sh).
 Opções:
   --dry-run          executa só as conferências e imprime os comandos de
                      escrita/push/release sem executá-los
+  --local-install    ensaio: gera o build da versão e a instala neste Mac a
+                     partir de backend/dist/local-<versão>/, sem commit, tag,
+                     push nem release (o pyproject.toml é restaurado ao fim).
+                     Reaproveita o tarball do MinIO de backend/dist/notislake/
+                     ou o da última release; só compila (Docker) se não houver.
+                     Não combina com --dry-run
   -h, --help         mostra esta ajuda
 EOF
 }
@@ -42,18 +53,34 @@ run() {
   fi
 }
 
+# Devolve o backend/pyproject.toml ao conteúdo original (idempotente)
+restaurar_pyproject() {
+  [ -n "$PYPROJECT_BACKUP" ] || return 0
+  if cat "$PYPROJECT_BACKUP" >"$ROOT/backend/pyproject.toml"; then
+    PYPROJECT_BACKUP=""
+  else
+    RESTAURO_FALHOU=1
+    aviso "não consegui restaurar backend/pyproject.toml; o original está em $PYPROJECT_BACKUP"
+    return 1
+  fi
+}
+
 limpar() {
   local codigo=$?
   local notas_salvas=""
+  restaurar_pyproject || true
   # Pós-push, as notas precisam sobreviver à remoção do WORKDIR para a retomada manual
   if [ "$codigo" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$PUSH_FEITO" -eq 1 ] && [ -f "${NOTES_FILE:-}" ]; then
     notas_salvas="$ROOT/backend/dist/release-notes-$TAG.md"
     mkdir -p "$ROOT/backend/dist" && cp "$NOTES_FILE" "$notas_salvas" || notas_salvas=""
   fi
-  if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+  # Com o restauro falho, o WORKDIR guarda o único original do pyproject: não o apague
+  if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ] && [ "$RESTAURO_FALHOU" -eq 0 ]; then
     rm -rf "$WORKDIR"
   fi
-  if [ "$codigo" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$ETAPA" != "conferências" ]; then
+  if [ "$codigo" -ne 0 ] && [ "$LOCAL_INSTALL" -eq 1 ] && [ "$ETAPA" != "conferências" ]; then
+    printf '\nFalha na etapa: %s (exit %s). Nada foi commitado, tagueado nem publicado.\n' "$ETAPA" "$codigo" >&2
+  elif [ "$codigo" -ne 0 ] && [ "$DRY_RUN" -eq 0 ] && [ "$ETAPA" != "conferências" ]; then
     {
       printf '\nFalha na etapa: %s (exit %s).\n' "$ETAPA" "$codigo"
       if [ "$PUSH_FEITO" -eq 1 ]; then
@@ -88,11 +115,15 @@ limpar() {
   return "$codigo"
 }
 trap limpar EXIT
+# Ctrl+C/kill também passam por limpar (via EXIT), que restaura o pyproject
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 
 # Argumentos
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
+    --local-install) LOCAL_INSTALL=1 ;;
     -h|--help) uso; exit 0 ;;
     -*) uso >&2; die "opção desconhecida: $1" ;;
     *)
@@ -102,6 +133,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+if [ "$DRY_RUN" -eq 1 ] && [ "$LOCAL_INSTALL" -eq 1 ]; then
+  uso >&2
+  die "--dry-run e --local-install são mutuamente exclusivos"
+fi
 
 [ -n "$VERSION" ] || { uso >&2; die "versão obrigatória (X.Y.Z)"; }
 if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -122,14 +158,16 @@ CMD_RELEASE=()
 N_ASSETS=0
 
 [ "$DRY_RUN" -eq 1 ] && info "Modo --dry-run: nada será alterado."
+[ "$LOCAL_INSTALL" -eq 1 ] && info "Modo --local-install: ensaio local, nada será commitado nem publicado."
 
 # Conferências (nenhuma escrita antes de todas passarem)
 info "Conferindo pré-requisitos"
 for cmd in git gh uv npm shasum python3; do
   command -v "$cmd" >/dev/null 2>&1 || die "comando não encontrado: $cmd"
 done
-# O build do notislake roda num container; em --dry-run nada é compilado
-if [ "$DRY_RUN" -eq 0 ]; then
+# O build do notislake roda num container; em --dry-run nada é compilado e,
+# em --local-install, o Docker só é exigido se o MinIO precisar ser compilado
+if [ "$DRY_RUN" -eq 0 ] && [ "$LOCAL_INSTALL" -eq 0 ]; then
   command -v docker >/dev/null 2>&1 || die "comando não encontrado: docker"
   docker info >/dev/null 2>&1 || die "docker indisponível (daemon parado?)"
 fi
@@ -173,7 +211,7 @@ branch="$(git rev-parse --abbrev-ref HEAD)"
 
 git fetch origin
 if [ "$(git rev-parse main)" != "$(git rev-parse origin/main)" ]; then
-  if [ "$DRY_RUN" -eq 1 ]; then
+  if [ "$DRY_RUN" -eq 1 ] || [ "$LOCAL_INSTALL" -eq 1 ]; then
     aviso "main difere de origin/main (commits não enviados?); em release real isto aborta"
   else
     die "main local difere de origin/main; sincronize antes de publicar"
@@ -205,6 +243,124 @@ versao_atual="$(awk -F'"' '/^version = "/ { print $2; exit }' backend/pyproject.
 versao_maior "$VERSION" "$versao_atual" || die "a versão $VERSION deve ser maior que a atual $versao_atual"
 
 info "Conferências ok para $TAG"
+
+# Preenche MINIO_NAMES/MINIO_SHAS com os tarballs e sha256 do manifesto
+carregar_manifesto_minio() {
+  MINIO_NAMES=()
+  MINIO_SHAS=()
+  local nome sha
+  while read -r nome sha; do
+    MINIO_NAMES+=("$nome")
+    MINIO_SHAS+=("$sha")
+  done < <(python3 -c 'import json, sys
+for _, a in sorted(json.load(open(sys.argv[1]))["archs"].items()):
+    print(a["tarball"], a["sha256"])' "$MINIO_MANIFEST")
+  [ "${#MINIO_NAMES[@]}" -gt 0 ] || die "nenhum tarball listado em $MINIO_MANIFEST"
+}
+
+# Baixa o tarball <nome> da última release para $MINIO_DIST, se o sha256 bater com
+# o manifesto (<sha esperado>). Retorna 1 se não houver release/asset para baixar.
+baixar_minio() {
+  local nome="$1" esperado="$2" destino="$WORKDIR/minio-download" sha_arquivo
+  rm -rf "$destino" && mkdir -p "$destino"
+  info "Baixando $nome da última release publicada"
+  gh release download --repo "$REPO_SLUG" -p "$nome" --dir "$destino" >/dev/null 2>&1 || return 1
+  [ -f "$destino/$nome" ] || return 1
+  sha_arquivo="$(shasum -a 256 "$destino/$nome" | awk '{print $1}')"
+  [ "$sha_arquivo" = "$esperado" ] \
+    || die "o $nome da última release tem sha256 diferente do manifesto ($sha_arquivo != $esperado); a release mais recente usa outro build do MinIO. Compile com Docker removendo o tarball de $MINIO_DIST ou atualize o manifesto"
+  mkdir -p "$MINIO_DIST" && mv "$destino/$nome" "$MINIO_DIST/$nome"
+}
+
+# Ensaio local: gera a versão pedida e a instala neste Mac. Sem commit, tag, push
+# nem gh release; só backend/pyproject.toml muda durante o build e é restaurado.
+local_install() {
+  local local_dir="$DIST/local-$VERSION" faltando=() i nome sha_arquivo wheels
+
+  WORKDIR="$(mktemp -d)"
+
+  # MinIO antes de tocar no pyproject: uma falha aqui não deixa nada alterado
+  ETAPA="build notislake"
+  info "Preparando os binários do notislake"
+  carregar_manifesto_minio
+  for i in "${!MINIO_NAMES[@]}"; do
+    nome="${MINIO_NAMES[$i]}"
+    if [ -f "$MINIO_DIST/$nome" ]; then
+      info "Reaproveitando $MINIO_DIST/$nome"
+    elif ! baixar_minio "$nome" "${MINIO_SHAS[$i]}"; then
+      faltando+=("$nome")
+    fi
+  done
+  if [ "${#faltando[@]}" -gt 0 ]; then
+    aviso "sem tarball reaproveitável (${faltando[*]}); será preciso compilar o MinIO"
+    command -v docker >/dev/null 2>&1 || die "comando não encontrado: docker (necessário para compilar o MinIO)"
+    docker info >/dev/null 2>&1 || die "docker indisponível (daemon parado?)"
+    rm -rf "$MINIO_DIST"
+    run uv run --frozen --project backend python scripts/build_minio.py --out "$MINIO_DIST"
+    git diff --quiet -- "$MINIO_MANIFEST" || die "$MINIO_MANIFEST mudou após o build; revise e faça commit antes de ensaiar"
+  fi
+  for i in "${!MINIO_NAMES[@]}"; do
+    nome="${MINIO_NAMES[$i]}"
+    [ -f "$MINIO_DIST/$nome" ] || die "tarball esperado não encontrado: $MINIO_DIST/$nome"
+    sha_arquivo="$(shasum -a 256 "$MINIO_DIST/$nome" | awk '{print $1}')"
+    [ "$sha_arquivo" = "${MINIO_SHAS[$i]}" ] \
+      || die "sha256 de $MINIO_DIST/$nome difere do manifesto ($sha_arquivo != ${MINIO_SHAS[$i]}); remova o arquivo para baixar/compilar de novo"
+  done
+
+  # Versão só durante o build (restaurada logo após, ou por limpar em erro/Ctrl+C)
+  ETAPA="versão"
+  info "Gravando versão $VERSION (temporária) em backend/pyproject.toml"
+  cp -p backend/pyproject.toml "$WORKDIR/pyproject.orig" || die "falha ao copiar backend/pyproject.toml"
+  PYPROJECT_BACKUP="$WORKDIR/pyproject.orig"
+  awk -v v="$VERSION" '!feito && /^version = "/ { print "version = \"" v "\""; feito=1; next } { print }' \
+    "$PYPROJECT_BACKUP" >"$WORKDIR/pyproject.novo"
+  cat "$WORKDIR/pyproject.novo" >backend/pyproject.toml
+  grep -q "^version = \"$VERSION\"$" backend/pyproject.toml || die "falha ao gravar a versão em backend/pyproject.toml"
+
+  # --frozen: o uv.lock não pode ser regravado (a versão do projeto nele não é a do ensaio)
+  ETAPA="build"
+  info "Gerando build"
+  run uv run --frozen --project backend python scripts/build_release.py
+  ETAPA="checksums"
+  info "Gerando SHA256SUMS"
+  run uv run --frozen --project backend python scripts/build_release.py --checksums-only
+  restaurar_pyproject || die "pyproject.toml não restaurado"
+
+  wheels=("$DIST"/notisbook-"$VERSION"-*.whl)
+  [ "${#wheels[@]}" -eq 1 ] && [ -f "${wheels[0]}" ] || die "esperava exatamente uma wheel de $VERSION em $DIST"
+  [ -f "$CONSTRAINTS_PATH" ] || die "artefato esperado não encontrado: $CONSTRAINTS_PATH"
+  [ -f "$SUMS_PATH" ] || die "artefato esperado não encontrado: $SUMS_PATH"
+
+  # Mesma estrutura de arquivos de uma release, para NOTISBOOK_INSTALL_FROM
+  ETAPA="montagem"
+  info "Montando $local_dir"
+  rm -rf "$local_dir" && mkdir -p "$local_dir"
+  cp "${wheels[0]}" "$CONSTRAINTS_PATH" "$SUMS_PATH" "$INSTALL_SH" "$local_dir/"
+  for nome in "${MINIO_NAMES[@]}"; do
+    cp "$MINIO_DIST/$nome" "$local_dir/"
+  done
+  (cd "$local_dir" && shasum -a 256 -c SHA256SUMS) || die "SHA256SUMS não confere com os arquivos de $local_dir"
+
+  ETAPA="instalação"
+  info "Instalando $VERSION neste Mac (substitui o notisbook instalado)"
+  run env "NOTISBOOK_INSTALL_FROM=$ROOT/$local_dir" sh "$INSTALL_SH" --version "$VERSION"
+
+  ETAPA="concluído"
+  echo
+  if command -v notisbook >/dev/null 2>&1; then
+    printf 'notisbook --version: '
+    notisbook --version || aviso "notisbook --version falhou"
+  else
+    aviso "notisbook não está no PATH desta shell; abra um novo terminal e rode notisbook --version"
+  fi
+  info "Ensaio local de $TAG concluído (nada foi commitado, tagueado nem publicado)"
+  echo "Para publicar de verdade: ./scripts/release.sh $VERSION"
+}
+
+if [ "$LOCAL_INSTALL" -eq 1 ]; then
+  local_install
+  exit 0
+fi
 
 # Temporários ficam aqui dentro; o trap limpar remove o diretório inteiro
 WORKDIR="$(mktemp -d)"
@@ -247,15 +403,7 @@ fi
 # notislake: antes do push, para que uma falha aqui ainda não tenha publicado nada
 ETAPA="build notislake"
 info "Compilando os binários do notislake"
-MINIO_NAMES=()
-MINIO_SHAS=()
-while read -r nome sha; do
-  MINIO_NAMES+=("$nome")
-  MINIO_SHAS+=("$sha")
-done < <(python3 -c 'import json, sys
-for _, a in sorted(json.load(open(sys.argv[1]))["archs"].items()):
-    print(a["tarball"], a["sha256"])' "$MINIO_MANIFEST")
-[ "${#MINIO_NAMES[@]}" -gt 0 ] || die "nenhum tarball listado em $MINIO_MANIFEST"
+carregar_manifesto_minio
 MINIO_ASSETS=()
 for nome in "${MINIO_NAMES[@]}"; do
   MINIO_ASSETS+=("$DIST/$nome")
@@ -286,6 +434,9 @@ if [ "$DRY_RUN" -eq 0 ]; then
     [ -f "$asset" ] || die "tarball esperado não encontrado: $asset"
     grep -q "  $(basename "$asset")\$" "$SUMS_PATH" || die "$SUMS_PATH não lista $(basename "$asset")"
   done
+  # `notisbook update` confere o install.sh baixado contra esta linha
+  grep -q "^$(shasum -a 256 "$INSTALL_SH" | awk '{print $1}')  $INSTALL_SH\$" "$SUMS_PATH" \
+    || die "$SUMS_PATH não lista o $INSTALL_SH com o sha256 atual"
 fi
 
 # Criação da release e envio dos assets num passo só: não há estado "release sem os binários"

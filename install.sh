@@ -8,7 +8,7 @@
 # checking the SHA-256 of every downloaded file. Your data folder is never touched.
 #
 #   --version <X.Y.Z>   NOTISBOOK_VERSION       release to install (default: latest)
-#   --uninstall                                 remove Notisbook; keeps ~/.notisbook
+#   --uninstall                                 remove Notisbook; keeps your data (lake, catalog, notebooks, preferences)
 #   -h, --help                                  show this help
 #
 # NOTISBOOK_INSTALL_FROM=<dir> reads the assets from a local folder (same file
@@ -39,7 +39,7 @@ and the bundled MinIO package into ~/.local/share/notisbook/notislake, after
 checking the SHA-256 of every downloaded file. Your data folder is never touched.
 
   --version <X.Y.Z>   NOTISBOOK_VERSION       release to install (default: latest)
-  --uninstall                                 remove Notisbook; keeps ~/.notisbook
+  --uninstall                                 remove Notisbook; keeps your data (lake, catalog, notebooks, preferences)
   -h, --help                                  show this help
 
 NOTISBOOK_INSTALL_FROM=<dir> reads the assets from a local folder (same file
@@ -172,6 +172,10 @@ warn_brew() {
 do_uninstall() {
   need uv
   bin="$(notisbook_bin)"
+  # Versions that ship the `uninstall` command do the full cleanup; older ones fall back to the steps below.
+  if [ -n "$bin" ] && "$bin" uninstall --help 2>&1 | grep -q -- '--yes'; then
+    exec "$bin" uninstall --yes
+  fi
   if [ -n "$bin" ]; then
     "$bin" --stop-running || err "could not stop the running Notisbook; stop it and retry"
   fi
@@ -187,6 +191,8 @@ do_uninstall() {
     say "Removed $dist."
   fi
   say "Notisbook was uninstalled. Your data was kept in ${NOTISBOOK_HOME:-$HOME/.notisbook}."
+  warn "the cleanup was partial: this version cannot remove the Spark/DuckDB environments (envs/), the Jupyter kernels or the Docker container."
+  warn "for a full cleanup, reinstall the latest Notisbook, run \`notisbook uninstall\`, or delete those folders yourself."
 }
 
 do_install() {
