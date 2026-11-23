@@ -19,7 +19,7 @@ import {
 } from "../../state/notislake";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
-import { ChevronRightIcon, FileIcon } from "../shell/icons";
+import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 
@@ -128,9 +128,9 @@ function buildRows(
   }
 }
 
-/** Pasta em traço fino e cantos retos (CSS `.fold`); objeto com o ícone de arquivo. */
+/** Pasta com o `FolderIcon`; objeto com o ícone de arquivo. */
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
-  return node.isDir ? <span className={styles.fold} aria-hidden="true" /> : <FileIcon size={14} />;
+  return node.isDir ? <FolderIcon size={14} /> : <FileIcon size={14} />;
 }
 
 export function NotislakeTree() {

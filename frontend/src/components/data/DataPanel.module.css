@@ -283,28 +283,6 @@
   color: var(--color-warning);
 }
 
-/* Pasta do Notislake: traço fino de 1px e cantos retos (aba no canto superior esquerdo). */
-.fold {
-  position: relative;
-  display: block;
-  flex: none;
-  width: 14px;
-  height: 11px;
-  margin-top: 2px;
-  border: 1px solid currentColor;
-}
-
-.fold::before {
-  content: "";
-  position: absolute;
-  top: -4px;
-  left: -1px;
-  width: 6px;
-  height: 3px;
-  border: 1px solid currentColor;
-  border-bottom: 0;
-}
-
 /* Linha atenuada (ex.: `landing/` na raiz do Notislake). */
 .treeMuted,
 .treeMuted .treeIcon {

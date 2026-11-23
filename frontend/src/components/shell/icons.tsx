@@ -2,7 +2,8 @@
  * Ícones SVG inline (paths Tabler, viewBox 24, traço 2.25 com pontas retas); herdam `currentColor`.
  * Exceção: PanelLeft, PanelRight, Focus e o "N" das marcas são desenhos em pixel preenchidos
  * (`shape-rendering: crispEdges`), não paths Tabler com traço. As marcas (`BrandMark`,
- * `HomeBrandMark`) usam cores fixas ou tokens de tema.
+ * `HomeBrandMark`) usam cores fixas ou tokens de tema. `FolderIcon` é o desenho liso `s-folder` de
+ * `frontend/icons/retro-icons.html` (viewBox 32, traço 2 com pontas redondas).
  */
 import type { ReactNode, SVGProps } from "react";
 
@@ -29,8 +30,8 @@ function Svg({ size = 16, children, ...rest }: IconProps & { children: ReactNode
 }
 
 export const FolderIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2" />
+  <Svg viewBox="0 0 32 32" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...p}>
+    <path d="M3 26V8Q3 7 4 7H11.5L14 10H28Q29 10 29 11V26Q29 27 28 27H4Q3 27 3 26ZM3 13.5H29" />
   </Svg>
 );
 
