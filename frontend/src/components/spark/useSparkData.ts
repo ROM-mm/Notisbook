@@ -8,9 +8,9 @@
  *   instalações já em andamento (`installing`) são reconectadas ao abrir a página.
  * - Ao terminar uma instalação ou remoção, recarrega listas e os kernelspecs
  *   das abas abertas (seletor de ambiente da barra de abas).
- * - Runtimes Docker: lidos com a pasta Connections atual (localStorage, `state/files`; nula enquanto
- *   `LOCAL_FOLDERS_ENABLED` for false) para o
- *   backend apontar montagens defasadas; seus jobs seguem o mesmo mecanismo das instalações Local.
+ * - Runtimes Docker: lidos com a pasta Connections atual (localStorage, `state/files`;
+ *   nula enquanto `LOCAL_FOLDERS_ENABLED` for false) para o backend apontar montagens
+ *   defasadas; seus jobs seguem o mesmo mecanismo das instalações Local.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { installDockerRuntime, listDockerRuntimes, removeDockerRuntime, restartDockerRuntime, stopDockerRuntime } from "../../api/docker";

@@ -3,8 +3,9 @@
 Uso: python3 scripts/clean.py [--deep] [--skip-uv] [--yes] [--dry-run]
 Padrão: remove o que é regenerável e barato (frontend/dist, _frontend/, caches,
 __pycache__, tarballs do MinIO copiados e artefatos de versões antigas em
-backend/dist). `--deep` soma o regenerável caro (node_modules, backend/.venv) e a etapa `uv cache clean`, que apaga o cache inteiro do uv (global: o
-próximo `uv run`/`./start.sh` baixa tudo de novo).
+backend/dist). `--deep` soma o regenerável caro (node_modules, backend/.venv) e a etapa
+`uv cache clean`, que apaga o cache inteiro do uv (global: o próximo `uv run`/`./start.sh`
+baixa tudo de novo).
 backend/dist/notislake (fonte dos tarballs MinIO) é protegido: nunca é alvo.
 Sempre lista alvos e tamanhos antes de apagar. Caminhos rastreados pelo git, ou
 que contenham arquivos rastreados, nunca são tocados. Nunca usa `git clean`.
@@ -28,11 +29,14 @@ FRONTEND = ROOT / "frontend"
 DIST = BACKEND / "dist"
 
 # Áreas do operador: fora do alcance do script, inclusive na busca de __pycache__.
-# `.venv` aqui é só o da raiz (comparado ao 1º componente); backend/.venv segue alvo do --deep.
+# Em PROTECTED_TOP, `.venv` é só o da raiz (1º componente); backend/.venv segue alvo do --deep.
+# Em WALK_SKIP os nomes valem em qualquer profundidade: o walk não desce em nenhum `.venv`.
 PROTECTED_TOP = frozenset({".git", ".claude", ".idea", ".venv", "docs", "todo", "site"})
 # Protegido em qualquer modo: nem o caminho, nem o que está dentro, nem os pais dele viram alvo.
 PROTECTED_PATHS = (("backend", "dist", "notislake"),)
 WALK_SKIP = PROTECTED_TOP | {".venv", "venv", "node_modules"}
+UV_TIMEOUT = 15
+DU_TIMEOUT = 30
 CACHE_DIRS = (".mypy_cache", ".ruff_cache", ".pytest_cache")
 
 VERSION_RE = re.compile(r'^version\s*=\s*"([^"]+)"', re.MULTILINE)
@@ -116,14 +120,21 @@ def is_tracked(path: Path, tracked: tuple[set[str], set[str]]) -> bool:
     return rel in tracked[0] or rel in tracked[1]
 
 
+def fold(parts: tuple[str, ...]) -> tuple[str, ...]:
+    """Partes sem distinção de caixa: no APFS `Notislake` e `notislake` são o mesmo diretório."""
+    return tuple(part.casefold() for part in parts)
+
+
 def is_inside_protected(parts: tuple[str, ...]) -> bool:
     """True se `parts` (relativo à raiz) é um caminho protegido ou está dentro dele."""
-    return any(parts[: len(prot)] == prot for prot in PROTECTED_PATHS)
+    folded = fold(parts)
+    return any(folded[: len(prot)] == fold(prot) for prot in PROTECTED_PATHS)
 
 
 def is_protected_path(parts: tuple[str, ...]) -> bool:
     """Como `is_inside_protected`, mas também True para os pais (evita rmtree num ancestral)."""
-    return is_inside_protected(parts) or any(prot[: len(parts)] == parts for prot in PROTECTED_PATHS)
+    folded = fold(parts)
+    return is_inside_protected(parts) or any(fold(prot)[: len(folded)] == folded for prot in PROTECTED_PATHS)
 
 
 def is_allowed(path: Path) -> bool:
@@ -138,7 +149,7 @@ def is_allowed(path: Path) -> bool:
         resolved_parts = (*parent.relative_to(ROOT).parts, path.name)
     except (ValueError, OSError, RuntimeError):
         return False
-    if not parts or resolved_parts[0] in PROTECTED_TOP or parts[0] in PROTECTED_TOP:
+    if not parts or resolved_parts[0].casefold() in PROTECTED_TOP or parts[0].casefold() in PROTECTED_TOP:
         return False
     if is_protected_path(parts) or is_protected_path(resolved_parts):
         return False
@@ -201,8 +212,10 @@ def stale_dist_files(version: str) -> list[Path]:
     for entry in entries:
         if not entry.is_file():
             continue
+        # Sem backend/dist/notislake a cópia do tarball MinIO é a única: não apagar.
         if MINIO_TARBALL_RE.match(entry.name):
-            found.append(entry)
+            if (DIST / "notislake").is_dir():
+                found.append(entry)
             continue
         for regex in (PACKAGE_RE, CONSTRAINTS_RE, NOTES_RE):
             match = regex.match(entry.name)
@@ -258,12 +271,12 @@ def apply_policy(targets: list[Target], tracked: tuple[set[str], set[str]]) -> N
     for target in targets:
         kept = []
         for path in target.paths:
-            if is_tracked(path, tracked):
-                print(f"aviso: {path.relative_to(ROOT)} é rastreado pelo git; ignorado.", file=sys.stderr)
-            elif is_allowed(path):
-                kept.append(path)
-            else:
+            if not is_allowed(path):
                 print(f"aviso: {path} fora do escopo permitido ou atrás de symlink; ignorado.", file=sys.stderr)
+            elif is_tracked(path, tracked):
+                print(f"aviso: {path.relative_to(ROOT)} é rastreado pelo git; ignorado.", file=sys.stderr)
+            else:
+                kept.append(path)
         target.paths = kept
     every = [p for t in targets for p in t.paths]
     for target in targets:
@@ -272,16 +285,29 @@ def apply_policy(targets: list[Target], tracked: tuple[set[str], set[str]]) -> N
     targets[:] = [t for t in targets if t.paths]
 
 
-def uv_target() -> tuple[str, int] | None:
+def cache_size(cache: Path) -> int | None:
+    """Tamanho via `du -sk` com timeout (o cache global do uv é grande); None se não medir."""
+    try:
+        result = subprocess.run(["du", "-sk", str(cache)], capture_output=True, text=True, check=False, timeout=DU_TIMEOUT)
+        return int(result.stdout.split()[0]) * 1024 if result.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return None
+
+
+def uv_target() -> tuple[str, int | None] | None:
     if shutil.which("uv") is None:
         print("aviso: uv não encontrado; `uv cache clean` ignorado.", file=sys.stderr)
         return None
-    result = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, check=False)
+    try:
+        result = subprocess.run(["uv", "cache", "dir"], capture_output=True, text=True, check=False, timeout=UV_TIMEOUT)
+    except (OSError, subprocess.SubprocessError):
+        print("aviso: `uv cache dir` falhou ou excedeu o tempo; `uv cache clean` ignorado.", file=sys.stderr)
+        return None
     cache = Path(result.stdout.strip()) if result.returncode == 0 and result.stdout.strip() else None
     if cache is None or not cache.is_dir():
         print("aviso: cache do uv não localizado; `uv cache clean` ignorado.", file=sys.stderr)
         return None
-    return str(cache), tree_size(cache)
+    return str(cache), cache_size(cache)
 
 
 def confirm(question: str) -> bool:
@@ -292,7 +318,7 @@ def confirm(question: str) -> bool:
     return answer.strip().lower() in {"y", "yes", "s", "sim"}
 
 
-def print_list(targets: list[Target], uv: tuple[str, int] | None) -> None:
+def print_list(targets: list[Target], uv: tuple[str, int | None] | None) -> None:
     print("Alvos de limpeza:")
     total = 0
     for target in targets:
@@ -303,7 +329,8 @@ def print_list(targets: list[Target], uv: tuple[str, int] | None) -> None:
         total += target.size
     print(f"  {'-' * 10}\n  {human(total):>10}  total")
     if uv:
-        print(f"\nEtapa com confirmação própria: uv cache clean (cache em {uv[0]}, hoje {human(uv[1])}).")
+        size = human(uv[1]) if uv[1] is not None else "tamanho desconhecido"
+        print(f"\nEtapa com confirmação própria: uv cache clean (cache em {uv[0]}, hoje {size}).")
         print("Apaga o cache inteiro, é global (afeta outros projetos) e o próximo `uv run`/`./start.sh` baixa tudo de novo.")
 
 
@@ -331,9 +358,8 @@ def main() -> int:
     if args.deep:
         targets += deep_path_targets()
     apply_policy(targets, tracked)
-    if args.deep:
-        if not args.skip_uv:
-            uv = uv_target()
+    if args.deep and not args.skip_uv:
+        uv = uv_target()
 
     print(f"Versão atual preservada: {version}\n")
     if not targets and not uv:
@@ -353,7 +379,7 @@ def main() -> int:
             except (OSError, CleanError) as exc:
                 failures += 1
                 print(f"erro: {target.label}: {exc}", file=sys.stderr)
-    else:
+    elif targets:
         print("Nada foi apagado.")
     uv_question = (
         "\nPare o app (`./start.sh`/`uv run`) antes: o uv espera o lock do cache em uso. "

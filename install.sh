@@ -91,7 +91,7 @@ detect_arch() {
   fi
   case "$machine" in
     arm64 | aarch64) echo "arm64" ;;
-    x86_64) err "Notisbook supports Apple silicon only; this is an Intel Mac" ;;
+    x86_64) err "Notisbook supports Apple silicon only (detected x86_64)" ;;
     *) err "unsupported CPU architecture: $machine" ;;
   esac
 }

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import functools
 import platform
 import subprocess
 
 _SYSCTL = "/usr/sbin/sysctl"
 
 
+@functools.cache
 def _is_rosetta() -> bool:
     """True quando o processo x86_64 roda traduzido pelo Rosetta num Mac Apple silicon."""
     try:
