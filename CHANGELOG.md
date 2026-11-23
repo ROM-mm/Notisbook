@@ -7,6 +7,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-23
+
+Notisbook can now update and uninstall itself from the command line, and a release can be rehearsed on your own Mac
+before it is published.
+
+### Added
+
+- **`notisbook update`.** Installs the latest release, or a specific one with `notisbook update --version X.Y.Z`,
+  through the release's own `install.sh`. It says "already up to date" when there is nothing newer, refuses to go back
+  to an older version so `catalog.db` is never opened by a version that predates it, and only runs `install.sh` when
+  its checksum is listed in the release's `SHA256SUMS`.
+- **`notisbook uninstall`.** Lists what will be removed and what will be kept, with sizes, and asks you to type
+  `uninstall` to confirm (`--yes` skips the question). It removes the app, the bundled MinIO package, the Spark and
+  DuckDB environments, the Jupyter kernels and the AWS Glue container of this data folder, and keeps your data:
+  the Notislake lake (`minio/data`), its credentials, `catalog.db`, the warehouse folders, your notebooks and your
+  preferences, so a later reinstall picks up where you left off. Docker images are left in place.
+- **Local release rehearsal.** `./scripts/release.sh --local-install X.Y.Z` runs the same checks as `--dry-run`,
+  builds version X.Y.Z and installs it on this Mac from `backend/dist/local-X.Y.Z/`, without committing, tagging,
+  pushing or creating a GitHub release. It reuses the MinIO tarball already built (or the one from the latest
+  release) and only compiles MinIO when neither is available.
+
+### Changed
+
+- **`install.sh --uninstall` does the full cleanup.** On installs that ship `notisbook uninstall`, the installer hands
+  the removal over to it; older installs fall back to the previous behaviour and warn that environments, kernels and
+  the container were left behind.
+- **`install.sh` is checksummed.** Every release now lists `install.sh` in `SHA256SUMS`, and `release.sh` checks that
+  the listed checksum matches the script before publishing.
+
 ## [0.9.0] - 2026-11-23
 
 Notisbook now supports Apple silicon Macs only: releases ship a single arm64 build of the bundled object store and
