@@ -20,8 +20,9 @@ import {
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
-import { ParquetIcon } from "../shell/techIcons";
+import { DeltaIcon, ParquetIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
+import { extension } from "./fileExtension";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 
@@ -131,8 +132,14 @@ function buildRows(
 }
 
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
-  if (node.isDir) return <FolderIcon size={14} />;
-  if (node.name.toLowerCase().endsWith(".parquet")) return <BrandIcon icon={ParquetIcon} />;
+  const name = node.name.endsWith("/") ? node.name.slice(0, -1) : node.name;
+  const ext = extension(name);
+  if (node.isDir) {
+    if (name === "_delta_log" || ext === "delta") return <BrandIcon icon={DeltaIcon} />;
+    return <FolderIcon size={14} />;
+  }
+  if (ext === "parquet") return <BrandIcon icon={ParquetIcon} />;
+  if (ext === "delta") return <BrandIcon icon={DeltaIcon} />;
   return <FileIcon size={14} />;
 }
 

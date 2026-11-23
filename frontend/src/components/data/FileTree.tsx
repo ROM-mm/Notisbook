@@ -31,6 +31,7 @@ import {
 } from "../shell/icons";
 import { DeltaIcon, ParquetIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
+import { extension } from "./fileExtension";
 import styles from "./DataPanel.module.css";
 
 type Row =
@@ -93,11 +94,6 @@ function relativeToRoot(root: string, path: string): string {
   if (path === root) return ".";
   const base = root.endsWith("/") ? root : `${root}/`;
   return path.startsWith(base) ? path.slice(base.length) : path;
-}
-
-function extension(name: string): string {
-  const i = name.lastIndexOf(".");
-  return i > 0 ? name.slice(i + 1).toLowerCase() : "";
 }
 
 function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
