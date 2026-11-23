@@ -1,14 +1,15 @@
-/* Segue a fonte de Interface aplicada (--font-sans) e a escala de tamanhos da tela Runtimes. */
+/* Segue a fonte de Interface aplicada (--font-sans) e reaproveita a base da tela Runtimes. */
 .page {
-  composes: neo from "../../styles/dialog.module.css";
+  composes: page from "../settings/SettingsPage.module.css";
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  min-height: 100%;
-  /* O padding mantém a coluna central limitada por --content-max-width, como a tela Runtimes. */
-  padding: var(--space-8) max(var(--space-6), calc((100% - var(--content-max-width)) / 2 + var(--space-6))) var(--space-16);
-  background-color: var(--color-bg);
   font-family: var(--font-sans);
+}
+
+/* tabIndex=-1 no contêiner: clicar numa área vazia mantém o foco na tela (atalhos), sem contorno. */
+.page:focus {
+  outline: none;
 }
 
 .page button,
@@ -17,20 +18,16 @@
 }
 
 .header {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  composes: header from "../settings/SettingsPage.module.css";
 }
 
+/* A .title de Runtimes usa var(--font-sans), a mesma fonte que a .page aplica aqui. */
 .title {
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-regular);
-  letter-spacing: var(--letter-spacing-tight);
+  composes: title from "../settings/SettingsPage.module.css";
 }
 
 .text {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
+  composes: text from "../settings/SettingsPage.module.css";
 }
 
 .block {
@@ -145,7 +142,9 @@
   right: 0;
   left: 0;
   z-index: 20;
-  max-height: 14em;
+  /* Rótulo de grupo e opção têm a mesma altura: 7 linhas inteiras + a borda, sem cortar a última. */
+  --list-row-height: 32px;
+  max-height: calc(7 * var(--list-row-height) + 2px);
   overflow-x: hidden;
   overflow-y: auto;
   border: 1px solid var(--color-border-strong);
@@ -155,7 +154,7 @@
 .option {
   display: flex;
   align-items: center;
-  height: 32px;
+  height: var(--list-row-height);
   padding: 0 var(--space-3);
   overflow: hidden;
   font-size: var(--font-size-sm);
@@ -170,7 +169,10 @@
 }
 
 .groupLabel {
-  padding: var(--space-2) var(--space-3) var(--space-1);
+  display: flex;
+  align-items: flex-end;
+  height: var(--list-row-height);
+  padding: 0 var(--space-3) var(--space-1);
   border-bottom: 1px solid var(--color-bg-hover);
   color: var(--color-text-subtle);
   font-size: var(--font-size-xs);
