@@ -10,6 +10,9 @@ import { useId, type ReactNode, type SVGProps } from "react";
 
 type IconProps = SVGProps<SVGSVGElement> & { size?: number };
 
+/** Tipo de qualquer componente deste módulo (para mapas nome → ícone). */
+export type TechIcon = (props: IconProps) => ReactNode;
+
 function TechSvg({ size = 14, children, ...rest }: IconProps & { children: ReactNode }) {
   return (
     <svg

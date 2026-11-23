@@ -29,8 +29,7 @@ import {
   FolderIcon,
   SymlinkIcon,
 } from "../shell/icons";
-import deltaIconUrl from "../../../icons/delta.png";
-import parquetIconUrl from "../../../icons/parquet.png";
+import { DeltaIcon, ParquetIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
 import styles from "./DataPanel.module.css";
 
@@ -105,18 +104,18 @@ function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
   const ext = extension(entry.name);
   if (entry.is_dir) {
     if (entry.name === "_delta_log" || ext === "delta")
-      return <BrandIcon src={deltaIconUrl} />;
+      return <BrandIcon icon={DeltaIcon} />;
     if (entry.is_symlink) return <SymlinkIcon size={14} />;
     return <FolderIcon size={14} />;
   }
   if (entry.is_symlink) return <SymlinkIcon size={14} />;
-  if (ext === "parquet") return <BrandIcon src={parquetIconUrl} />;
+  if (ext === "parquet") return <BrandIcon icon={ParquetIcon} />;
   if (ext === "orc" || ext === "avro")
     return <FileParquetIcon size={14} />;
   if (ext === "csv" || ext === "tsv") return <FileCsvIcon size={14} />;
   if (ext === "json" || ext === "jsonl" || ext === "ndjson")
     return <FileJsonIcon size={14} />;
-  if (ext === "delta") return <BrandIcon src={deltaIconUrl} />;
+  if (ext === "delta") return <BrandIcon icon={DeltaIcon} />;
   return <FileIcon size={14} />;
 }
 

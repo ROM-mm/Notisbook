@@ -13,9 +13,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useKernel, useKernelStore, useNotebook } from "../../state/notebookContext";
 import { refreshKernelspecs } from "../../state/workspace";
-import sparkIconUrl from "../../../icons/spark.png";
-import glueIconUrl from "../../../icons/glue.png";
-import duckdbIconUrl from "../../../icons/duckdb.png";
+import { DuckdbIcon, GlueIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
 import menuStyles from "../shell/Menu.module.css";
 import { useKernelDescription } from "./KernelStatus";
 import styles from "./Kernel.module.css";
@@ -25,11 +23,11 @@ const SWITCH_BUSY =
 
 type Runtime = "spark" | "glue" | "duckdb" | "other";
 
-/** Ícone por runtime: PNG em `frontend/icons/`; `null` (runtime "other") fica sem ícone. */
-const RUNTIME_ICON_URL: Record<Runtime, string | null> = {
-  spark: sparkIconUrl,
-  glue: glueIconUrl,
-  duckdb: duckdbIconUrl,
+/** Ícone por runtime (`shell/techIcons`); `null` (runtime "other") fica sem ícone. */
+const RUNTIME_ICON: Record<Runtime, TechIcon | null> = {
+  spark: SparkIcon,
+  glue: GlueIcon,
+  duckdb: DuckdbIcon,
   other: null,
 };
 
@@ -57,8 +55,8 @@ function runtimeOf(displayName: string, name: string | null): { runtime: Runtime
 
 /** Ícone do runtime; sem ícone, `spacer` mantém a coluna vazia (alinhamento da lista). */
 function RuntimeIcon({ runtime, spacer = false }: { runtime: Runtime; spacer?: boolean }) {
-  const url = RUNTIME_ICON_URL[runtime];
-  if (url) return <img className={styles.runtimeIcon} src={url} alt="" aria-hidden="true" />;
+  const Icon = RUNTIME_ICON[runtime];
+  if (Icon) return <Icon className={styles.runtimeIcon} size={14} />;
   return spacer ? <span className={styles.runtimeIcon} aria-hidden="true" /> : null;
 }
 

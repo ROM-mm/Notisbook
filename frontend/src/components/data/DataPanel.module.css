@@ -223,12 +223,10 @@
   color: var(--color-text-muted);
 }
 
+/* Ícone de tecnologia (SVG); tamanho pelos atributos `width`/`height`, cor herdada. */
 .brandIcon {
   display: block;
-  width: var(--brand-size, 14px);
-  height: var(--brand-size, 14px);
   flex: none;
-  object-fit: contain;
 }
 
 .treeName {

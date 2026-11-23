@@ -1,19 +1,9 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 
+import type { TechIcon } from "../shell/techIcons";
 import styles from "./DataPanel.module.css";
 
-/** Logo de marca colorido (catálogo ou formato de tabela); `size` em px (padrão 14) via `--brand-size`. */
-export function BrandIcon({ src, size = 14 }: { src: string; size?: number }): ReactNode {
-  return (
-    <img
-      className={styles.brandIcon}
-      style={{ "--brand-size": `${size}px` } as CSSProperties}
-      src={src}
-      alt=""
-      aria-hidden="true"
-      width={size}
-      height={size}
-      draggable={false}
-    />
-  );
+/** Ícone de tecnologia (catálogo ou formato de tabela) em `currentColor`; `size` em px (padrão 14). */
+export function BrandIcon({ icon: Icon, size = 14 }: { icon: TechIcon; size?: number }): ReactNode {
+  return <Icon className={styles.brandIcon} size={size} />;
 }

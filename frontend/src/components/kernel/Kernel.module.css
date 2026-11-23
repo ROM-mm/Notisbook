@@ -87,7 +87,6 @@
   flex: none;
   width: 14px;
   height: 14px;
-  object-fit: contain;
   color: var(--color-text-muted);
 }
 

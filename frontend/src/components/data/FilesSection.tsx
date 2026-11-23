@@ -14,7 +14,7 @@ import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspac
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { FolderIcon } from "../shell/icons";
-import s3IconUrl from "../../../icons/s3.png";
+import { S3Icon } from "../shell/techIcons";
 import { CardTitle } from "./CardTitle";
 import { FileTree } from "./FileTree";
 import { NotislakeConnectionDialog } from "./NotislakeConnectionDialog";
@@ -167,7 +167,7 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
         aria-expanded={menu !== null}
         onClick={openMenu}
       >
-        <img className={styles.brandIcon} src={s3IconUrl} alt="" />
+        <S3Icon className={styles.brandIcon} size={14} />
         <span className={styles.connectionName}>s3a://{bucket ?? DEFAULT_BUCKET}</span>
       </button>
       <div className={styles.notislakeBody}>{body}</div>

@@ -40,11 +40,7 @@ import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
-import deltaIconUrl from "../../../icons/delta.png";
-import hudiIconUrl from "../../../icons/hudi.png";
-import icebergIconUrl from "../../../icons/iceberg.png";
-import parquetIconUrl from "../../../icons/parquet.png";
-import sparkIconUrl from "../../../icons/spark.png";
+import { DeltaIcon, HudiIcon, IcebergIcon, ParquetIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
 
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
 const REFRESH_DEBOUNCE_MS = 1500;
@@ -72,13 +68,18 @@ function orderSchemas<T extends { name: string }>(databases: T[]): T[] {
 const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg", hudi: "Hudi" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
 const CATALOG_ICONS: Record<string, ReactNode> = {
-  spark_catalog: <BrandIcon src={sparkIconUrl} />,
-  iceberg: <BrandIcon src={icebergIconUrl} />,
-  hudi: <BrandIcon src={hudiIconUrl} />,
+  spark_catalog: <BrandIcon icon={SparkIcon} />,
+  iceberg: <BrandIcon icon={IcebergIcon} />,
+  hudi: <BrandIcon icon={HudiIcon} />,
 };
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
-/** Logo do formato da tabela (delta.png, hudi.png, iceberg.png, parquet.png); formato desconhecido cai no ícone de tabela. */
-const FORMAT_ICONS: Record<string, string> = { delta: deltaIconUrl, hudi: hudiIconUrl, iceberg: icebergIconUrl, parquet: parquetIconUrl };
+/** Ícone do formato da tabela (delta, hudi, iceberg, parquet); formato desconhecido cai no ícone de tabela. */
+const FORMAT_ICONS: Record<string, TechIcon> = {
+  delta: DeltaIcon,
+  hudi: HudiIcon,
+  iceberg: IcebergIcon,
+  parquet: ParquetIcon,
+};
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
   iceberg_catalog_unreadable: "Iceberg tables unavailable: catalog could not be read.",
@@ -118,7 +119,7 @@ const isStatus = (i: Item): i is StatusRow => "status" in i;
 
 function tableIcon(t: CatalogTable): ReactNode {
   const format = t.format.toLowerCase();
-  if (Object.hasOwn(FORMAT_ICONS, format)) return <BrandIcon src={FORMAT_ICONS[format] as string} />;
+  if (Object.hasOwn(FORMAT_ICONS, format)) return <BrandIcon icon={FORMAT_ICONS[format] as TechIcon} />;
   return t.table_type.toUpperCase() === "EXTERNAL" ? <ExternalTableIcon size={14} /> : <TableIcon size={14} />;
 }
 
