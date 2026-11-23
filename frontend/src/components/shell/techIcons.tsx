@@ -48,9 +48,7 @@ export const SparkIcon = (p: IconProps) => (
   <TechSvg {...p}>
     <polygon
       points="20.01,1.83 20.35,13.28 29.48,16.09 20.70,19.85 21.20,30.34 14.55,22.21 5.90,24.98 10.41,17.09 4.26,9.18 13.99,11.57"
-      fill="currentColor"
       stroke="none"
-      strokeLinejoin="round"
     />
   </TechSvg>
 );
@@ -100,7 +98,7 @@ export const HudiIcon = (p: IconProps) => {
       </defs>
       <polygon points="13.00,5.00 23.00,26.00 3.00,26.00" {...stroke2} mask={`url(#${id}-m-hudi)`} />
       <g clipPath={`url(#${id}-c-hudi)`}>
-        <path d="M0 13H32M0 16H32M0 19H32M0 22H32M0 25H32M0 28H32" stroke="currentColor" strokeWidth="1.6" fill="none" />
+        <path d={LINES_13_31} stroke="currentColor" strokeWidth="1.6" fill="none" />
       </g>
       <polygon points={HUDI_FRONT} {...stroke2} />
       <path d="M3.5 21A11 11 0 0 1 8 7.5" {...stroke2} />
@@ -190,7 +188,6 @@ export const GlueIcon = (p: IconProps) => {
             </clipPath>
           </defs>
           <g clipPath={`url(#${id}-c-glue-${key})`}>
-            <rect x={stripeX} y="0" width="32" height="32" fill="none" />
             <path d={glueStripes(stripeX)} stroke="currentColor" strokeWidth="1.2" />
           </g>
           <polygon points={points} fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />

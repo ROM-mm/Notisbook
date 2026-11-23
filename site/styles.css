@@ -148,7 +148,7 @@ body {
 }
 a { color: inherit; }
 img { max-width: 100%; display: block; }
-.ico { fill: currentColor; flex: none; display: block; }
+.ico { fill: currentColor; flex: none; display: block; width: 1em; height: 1em; }
 code, pre, kbd { font-family: var(--font-mono); font-synthesis-style: none; }
 :focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
 .sr-only {
@@ -308,7 +308,7 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 }
 .tree li > span:hover { background: var(--color-bg-hover); }
 .tree .sel > span { background: var(--color-accent-subtle); }
-.tree .ico { width: 15px; height: 15px; flex: none; }
+.tree .ico { width: 15px; height: 15px; }
 .tree .caret { color: var(--color-text-subtle); width: 10px; display: inline-block; }
 .fold {
   width: 14px; height: 11px; border: 1px solid var(--color-text-muted); flex: none; position: relative;

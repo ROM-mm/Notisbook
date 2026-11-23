@@ -133,10 +133,9 @@ function buildRows(
 }
 
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
-  const name = node.name.endsWith("/") ? node.name.slice(0, -1) : node.name;
-  const ext = extension(name);
+  const ext = extension(node.name);
   if (node.isDir) {
-    if (name === "_delta_log" || ext === "delta") return <BrandIcon icon={DeltaIcon} />;
+    if (node.name === "_delta_log" || ext === "delta") return <BrandIcon icon={DeltaIcon} />;
     return <FolderIcon size={14} />;
   }
   return fileFormatIcon(ext) ?? <FileIcon size={14} />;

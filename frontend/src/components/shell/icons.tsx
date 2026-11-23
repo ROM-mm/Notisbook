@@ -192,21 +192,11 @@ export const SymlinkIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const FileParquetIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M14 3v4a1 1 0 0 0 1 1h4" />
-    <path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" />
-    <path d="M9 17l0 -5" />
-    <path d="M12 17l0 -1" />
-    <path d="M15 17l0 -3" />
-  </Svg>
-);
-
 const FILE_SHEET = "M7 4Q7 3 8 3H20L26 9V28Q26 29 25 29H8Q7 29 7 28ZM20 3V9H26";
 
 const FileSheetSvg = ({ children, ...p }: IconProps & { children: ReactNode }) => (
   <Svg viewBox="0 0 32 32" strokeLinecap="butt" strokeLinejoin="miter" {...p}>
-    <path d={FILE_SHEET} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d={FILE_SHEET} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     {children}
   </Svg>
 );
