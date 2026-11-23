@@ -182,7 +182,7 @@
 }
 
 .job[data-status="running"] {
-  background: var(--color-bg-hover);
+  background: var(--color-bg-active);
 }
 
 .job > :not(.jobHead) {
