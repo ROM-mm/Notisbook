@@ -14,6 +14,7 @@ import { createEntry, listDir } from "../api/contents";
 import { getRootGeneration, setRootGeneration } from "../api/http";
 import { listKernelspecs } from "../api/kernels";
 import { getNotebooksRoot, type NotebooksRoot } from "../api/notebooksRoot";
+import { listSamples } from "../api/samples";
 import { joinPath, NOTEBOOK_EXT, uniqueName } from "../lib/paths";
 import { createKernelStore, type KernelStore } from "./kernel";
 import { createNotebookStore, type NotebookStore } from "./notebook";
@@ -50,6 +51,16 @@ export function isOpenUnder(path: string): boolean {
 export async function refreshKernelspecs(): Promise<void> {
   const specs = await listKernelspecs();
   for (const entry of entries.values()) entry.kernel.setState({ kernelspecs: specs });
+}
+
+/**
+ * Caminhos dos exemplos da raiz atual (`GET /api/samples`); erro vira lista vazia, para
+ * nunca derrubar o carregamento da raiz.
+ */
+function fetchSamplePaths(): Promise<string[]> {
+  return listSamples()
+    .then((list) => list.map((s) => s.path))
+    .catch((): string[] => []);
 }
 
 /** Carrega o notebook e, se carregou, abre a sessão do kernel. */
@@ -181,10 +192,18 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const root = await getNotebooksRoot();
     if (getRootGeneration() === null) setRootGeneration(root.generation);
     useRecent.getState().setRoot(root.path);
+    // Depois do setRoot (que zera os exemplos); resposta de raiz que já mudou é descartada.
+    void fetchSamplePaths().then((paths) => {
+      if (useRecent.getState().root === root.path) useRecent.getState().setSamplePaths(paths);
+    });
     set({ root });
   },
   applyRoot: (root) => {
     useRecent.getState().setRoot(root.path);
+    // Depois do setRoot (que zera os exemplos); resposta de raiz que já mudou é descartada.
+    void fetchSamplePaths().then((paths) => {
+      if (useRecent.getState().root === root.path) useRecent.getState().setSamplePaths(paths);
+    });
     set({ root });
   },
   setShortcutsOpen: (open) => set({ shortcutsOpen: open }),

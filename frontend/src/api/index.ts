@@ -5,5 +5,6 @@ export * from "./http";
 export * from "./kernels";
 export * from "./nbformat";
 export * from "./notislake";
+export * from "./samples";
 export * from "./spark";
 export * from "./types";

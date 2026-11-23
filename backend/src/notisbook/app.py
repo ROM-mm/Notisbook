@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from .api import appearance, catalog, contents, docker, duckdb_runtime, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, sessions, spark, system
+from .api import appearance, catalog, contents, docker, duckdb_runtime, export, files, iceberg_rest, jobs, lifecycle, notebooks_root, notislake as notislake_api, runtime_catalog, samples, sessions, spark, system
 from .config import Settings
 from .jobs import JobRegistry
 from .kernels.service import KernelService
@@ -78,6 +78,7 @@ def create_app(
     app.include_router(export.router)
     app.include_router(files.router)
     app.include_router(notebooks_root.router)
+    app.include_router(samples.router)
     app.include_router(sessions.router)
     app.include_router(catalog.router)
     app.include_router(runtime_catalog.router)

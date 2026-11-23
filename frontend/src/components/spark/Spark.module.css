@@ -692,3 +692,22 @@
 .dockerFacts .tag {
   margin-left: var(--space-2);
 }
+
+/* Seção alvo de `/settings?runtime=<k>`: contorno fino que desvanece ao sair do destaque. */
+.target {
+  scroll-margin-top: var(--space-4);
+  outline: 1px solid transparent;
+  outline-offset: 2px;
+  transition: outline-color 600ms ease-out;
+}
+
+.targetActive {
+  outline-color: var(--color-focus-ring);
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .target {
+    transition: none;
+  }
+}

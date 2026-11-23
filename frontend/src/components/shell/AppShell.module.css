@@ -111,15 +111,14 @@
   color: var(--color-text-muted);
 }
 
-/* Início (fora do AppShell): ocupa a janela e centraliza o conteúdo nos dois eixos */
+/* Início (fora do AppShell): ocupa a janela; marca no topo e seções empilhadas e centralizadas */
 .home {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-4);
+  gap: var(--space-6);
   min-height: 100%;
-  padding: var(--space-8);
+  padding: calc(var(--space-16) + var(--space-8)) var(--space-8) var(--space-10);
   color: var(--color-text-muted);
   text-align: center;
 }
@@ -167,8 +166,8 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  width: min(360px, 100%);
-  margin: var(--space-2) 0 0;
+  width: 100%;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -213,6 +212,184 @@
   font-size: var(--font-size-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Seções da home (Get started, Examples, Your notebooks): mesma largura, cabeçalho sublinhado */
+.homeSection {
+  width: min(760px, 100%);
+  text-align: left;
+}
+
+.homeSectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.homeSectionHead h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.homeSectionHead span {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+/* Get started: dois passos lado a lado, só sem runtime instalado */
+.homeSetup {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 1px solid var(--color-border);
+}
+
+.homeStep {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.homeStep + .homeStep {
+  border-left: 1px solid var(--color-border);
+}
+
+.homeStep h4 {
+  margin: 0 0 2px;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.homeStep p {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+.homeStepNumber {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  background: var(--color-accent);
+  color: var(--on-accent);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.homeBtnSm {
+  height: 26px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-sm);
+}
+
+/* Examples: um card por exemplo, todos numa linha */
+.homeExamples {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  border: 1px solid var(--color-border);
+}
+
+.homeExample {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.homeExample + .homeExample {
+  border-left: 1px solid var(--color-border);
+}
+
+.homeExample:hover,
+.homeExample:focus-visible {
+  background: var(--color-bg-hover);
+}
+
+.homeExampleEngine {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.homeExampleName {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.homeExampleNeed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.homeExampleGo {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.homeExample:hover .homeExampleGo,
+.homeExample:focus-visible .homeExampleGo {
+  color: var(--color-text);
+  text-decoration: underline;
+}
+
+/* Status do runtime do exemplo: cheio = instalado, vazado = ausente */
+.homeDot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+}
+
+.homeDotOk {
+  background: var(--color-success);
+}
+
+.homeDotOff {
+  border: 1px solid var(--color-text-subtle);
+  background: transparent;
+}
+
+.homeRuntimeChip {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+}
+
+.homeEmpty {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  border: 1px dashed var(--color-text-subtle);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+  text-align: center;
 }
 
 .homeBrowse {

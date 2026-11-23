@@ -219,3 +219,15 @@ export interface DockerRuntimeDetails extends DockerRuntime {
   python: string | null;
   packages: PackageItem[];
 }
+
+/** Exemplo empacotado presente na raiz atual (`GET /api/samples`). */
+export interface Sample {
+  /** Nome do exemplo, sem extensão (ex.: `delta`). */
+  name: string;
+  /** Caminho relativo à raiz atual (ex.: `delta.ipynb`). */
+  path: string;
+  /** Kernel que o notebook abre (`metadata.kernelspec.name`). */
+  kernel_name: string;
+  runtime_kind: "local" | "docker" | "duckdb";
+  display_name: string;
+}
