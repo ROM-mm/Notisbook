@@ -7,6 +7,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-23
+
+A Home screen that separates the bundled examples from your own notebooks and guides a first run to a runtime, a
+cleanup script for build and release leftovers, and a landing page that presents Spark and DuckDB side by side.
+
+### Added
+
+- **Examples row and first-run setup on Home.** The Home screen shows the bundled sample notebooks in their own row,
+  with the kernel and runtime each one needs, and keeps them out of "Your notebooks". While no runtime is installed
+  it shows a "Get started" block; afterwards it offers "New notebook" and "Runtimes". Opening an example whose
+  runtime is missing takes you straight to that runtime's section in Settings › Runtimes.
+- **Runtime deep links.** `/settings?runtime=local`, `/settings?runtime=docker` and `/settings?runtime=duckdb` open
+  Settings › Runtimes scrolled to that runtime's section and highlight it once the panels above have loaded.
+- **Cleanup script.** `python3 scripts/clean.py` lists build and release leftovers with their sizes and asks before
+  deleting: frontend builds, lint, type and test caches, `__pycache__`, copied MinIO tarballs and artifacts of
+  versions older than the current one. `--deep` adds `node_modules`, `backend/.venv` and a separate question for
+  `uv cache clean`, which can be skipped with `--skip-uv`; `--dry-run` only lists and `--yes` skips the question.
+  Git-tracked paths and the MinIO source tree in `backend/dist/notislake` are never touched.
+
+### Changed
+
+- **Engine-agnostic landing page.** The landing page presents Spark (local and AWS Glue) and DuckDB side by side,
+  with a DuckDB example tab, a new Metadata section mocking the Catalog info, Table info and Notislake panels, and
+  colors synced with the app's light and dark themes, in English and Portuguese.
+- **Stacked Home rows on small windows.** The examples and setup rows stack vertically on windows up to 640px wide.
+
+### Fixed
+
+- **Side panels when opening a notebook.** Opening a notebook from Home (a sample, a recent notebook or Browse) or
+  creating a new one shows the Catalog, Notislake and Notebooks panels with focus mode off.
+- **AWS Glue 5.0 install.** The Docker runtime no longer sends a hidden local folder as `connections_dir`, which made
+  the Glue 5.0 install fail with "connections_dir: Pasta não encontrada".
+- **"Your notebooks" flicker.** The Home cards and the recents list come from a single samples request per root, so
+  "Your notebooks" no longer flickers while two requests race.
+
 ## [0.7.0] - 2026-11-23
 
 A DuckDB runtime next to Spark, info panels for tables and catalogs in the Catalog, a monochrome theme with
