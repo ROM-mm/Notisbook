@@ -97,7 +97,6 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
           </>
         ) : null}
         <main className={styles.content}>{children}</main>
-        {/* Table info do Catalog: encaixado ao lado do conteúdo; some com o Catalog (lateral esquerda) fechado ou em modo foco. */}
         {showLeft ? <TableInfoPanel /> : null}
         {showRight ? (
           <>

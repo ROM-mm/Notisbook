@@ -114,7 +114,12 @@ export const useCatalog = create<CatalogState>((set, get) => {
       })
       .catch((err: unknown) => {
         if (req !== infoSeq) return;
-        set({ info: { query, loading: false, error: friendlyError(err), data: null } });
+        // Falha passageira (ex.: 503) ao reler a mesma tabela mantém os dados exibidos e só mostra o aviso;
+        // outra tabela, ou 404 (tabela excluída), descarta os dados.
+        const prev = get().info;
+        const gone = err instanceof ApiError && err.status === 404;
+        const keep = !gone && sameTable(prev?.query, query) ? (prev?.data ?? null) : null;
+        set({ info: { query, loading: false, error: friendlyError(err), data: keep } });
       });
   }
 

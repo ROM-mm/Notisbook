@@ -79,9 +79,9 @@ export interface TableHistoryEntry {
 }
 
 export interface TableStats {
-  total_records: string | number | null;
-  total_files_size: string | number | null;
-  total_data_files: string | number | null;
+  total_records: number | null;
+  total_files_size: number | null;
+  total_data_files: number | null;
 }
 
 /** Metadados de uma tabela sem kernel; `history`/`properties`/`stats` só existem no Iceberg. */

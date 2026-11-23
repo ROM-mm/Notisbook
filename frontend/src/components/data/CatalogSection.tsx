@@ -40,7 +40,6 @@ import { BrandIcon } from "./BrandIcon";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
-import infoStyles from "./TableInfoPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 import { HudiIcon, IcebergIcon, SparkIcon } from "../shell/techIcons";
 import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
@@ -506,7 +505,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
               else refs.current.delete(item.key);
             }}
             role="treeitem"
-            className={`${styles.treeRow} ${styles.treeGuides} ${item.unavailable ? styles.treeUnavailable : ""} ${infoOpen ? infoStyles.openRow : ""}`}
+            className={`${styles.treeRow} ${styles.treeGuides} ${item.unavailable ? styles.treeUnavailable : ""} ${infoOpen ? styles.openRow : ""}`}
             style={indent}
             aria-level={item.level}
             aria-posinset={item.pos}

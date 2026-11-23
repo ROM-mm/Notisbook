@@ -2,6 +2,7 @@
 
 import asyncio
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -79,40 +80,52 @@ def _store_opener(request: Request) -> iceberg_jdbc.StoreOpener:
     return lambda: objectstore.resolve_from_app(home, supervisor)
 
 
-def _read_columns(
-    home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
-) -> list[dict[str, Any]] | None:
+def _dispatch[T](
+    home: Path,
+    catalog: str,
+    *,
+    spark: Callable[[sqlite3.Connection], T],
+    hudi: Callable[[sqlite3.Connection], T],
+    iceberg: Callable[[sqlite3.Connection], T],
+) -> T | None:
+    """Abre o catálogo só leitura e delega ao leitor do `catalog`; `None` se o db não existe ou o catálogo é desconhecido."""
     conn = _open(home)
     if conn is None:
         return None
     try:
         if catalog == registry.SPARK_CATALOG:
-            return registry.read_columns(conn, database, table)
+            return spark(conn)
         if catalog == registry.HUDI_CATALOG:
-            return registry.read_columns(conn, database, table, hudi_only=True)
+            return hudi(conn)
         if catalog == iceberg_jdbc.ICEBERG_CATALOG:
-            return iceberg_jdbc.read_columns(conn, database, table, open_store)
+            return iceberg(conn)
         return None
     finally:
         conn.close()
+
+
+def _read_columns(
+    home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
+) -> list[dict[str, Any]] | None:
+    return _dispatch(
+        home,
+        catalog,
+        spark=lambda conn: registry.read_columns(conn, database, table),
+        hudi=lambda conn: registry.read_columns(conn, database, table, hudi_only=True),
+        iceberg=lambda conn: iceberg_jdbc.read_columns(conn, database, table, open_store),
+    )
 
 
 def _read_table_info(
     home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
 ) -> dict[str, Any] | None:
-    conn = _open(home)
-    if conn is None:
-        return None
-    try:
-        if catalog == registry.SPARK_CATALOG:
-            return registry.read_table_info(conn, database, table)
-        if catalog == registry.HUDI_CATALOG:
-            return registry.read_table_info(conn, database, table, hudi_only=True)
-        if catalog == iceberg_jdbc.ICEBERG_CATALOG:
-            return iceberg_jdbc.read_table_info(conn, database, table, open_store)
-        return None
-    finally:
-        conn.close()
+    return _dispatch(
+        home,
+        catalog,
+        spark=lambda conn: registry.read_table_info(conn, database, table),
+        hudi=lambda conn: registry.read_table_info(conn, database, table, hudi_only=True),
+        iceberg=lambda conn: iceberg_jdbc.read_table_info(conn, database, table, open_store),
+    )
 
 
 @router.get("")

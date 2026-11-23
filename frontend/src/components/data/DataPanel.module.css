@@ -283,6 +283,12 @@
   color: var(--color-warning);
 }
 
+/* Linha da árvore do Catalog cuja tabela está aberta no painel Table info. */
+.openRow {
+  background-color: var(--color-selection);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}
+
 /* Linha atenuada (ex.: `landing/` na raiz do Notislake). */
 .treeMuted,
 .treeMuted .treeIcon {

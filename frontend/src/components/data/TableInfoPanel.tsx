@@ -6,7 +6,7 @@
  */
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ColumnsQuery, TableHistoryEntry, TableInfo, TableVersion } from "../../api/catalog";
-import { TABLE_INFO_PANEL_ID, tableRef, useCatalog, type InfoState } from "../../state/catalog";
+import { TABLE_INFO_PANEL_ID, tableRef, useCatalog } from "../../state/catalog";
 import { formatSize } from "../files/format";
 import { CloseIcon, TableIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
@@ -37,15 +37,8 @@ function formatDate(value: string | number | null): string {
   return Number.isNaN(d.getTime()) ? String(value) : dateFormat.format(d);
 }
 
-function toNumber(value: string | number | null): number | null {
-  if (value === null || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
-}
-
-function formatCount(value: string | number | null): string {
-  const n = toNumber(value);
-  return n === null ? (value === null || value === "" ? DASH : String(value)) : numberFormat.format(n);
+function formatCount(value: number | null): string {
+  return value === null ? DASH : numberFormat.format(value);
 }
 
 function formatVersion(version: TableVersion | null): string {
@@ -66,7 +59,7 @@ function dropSentence(info: TableInfo): ReactNode {
   switch (info.drop_behavior) {
     case "deletes_files":
       return (
-        <>Managed table: the catalog owns the data. DROP TABLE deletes the files{where ? <> at {where}</> : null}.</>
+        <>Managed table: the catalog owns the data. DROP TABLE deletes the files{where ? <> at {where}</> : null}, unless another table shares that location.</>
       );
     case "registry_only":
       return (
@@ -101,7 +94,7 @@ function Overview({ info }: { info: TableInfo }) {
     ["Current version", formatVersion(info.version)],
   ];
   if (info.stats) {
-    const size = toNumber(info.stats.total_files_size);
+    const size = info.stats.total_files_size;
     facts.push(
       ["Rows", formatCount(info.stats.total_records)],
       ["Size", size === null ? DASH : formatSize(size)],
@@ -246,18 +239,16 @@ function focusTreeRow(query: ColumnsQuery) {
   }
 }
 
-function PanelBody({ state, tab }: { state: InfoState; tab: TabId }) {
-  const { data } = state;
-  if (!data) return null;
+function PanelBody({ info, tab }: { info: TableInfo; tab: TabId }) {
   switch (tab) {
     case "overview":
-      return <Overview info={data} />;
+      return <Overview info={info} />;
     case "columns":
-      return <Columns info={data} />;
+      return <Columns info={info} />;
     case "history":
-      return <History info={data} />;
+      return <History info={info} />;
     case "properties":
-      return <Properties info={data} />;
+      return <Properties info={info} />;
   }
 }
 
@@ -265,6 +256,13 @@ export function TableInfoPanel() {
   const state = useCatalog((s) => s.info);
   const [tab, setTab] = useState<TabId>("overview");
   const tabRefs = useRef(new Map<TabId, HTMLButtonElement>());
+  // Trocar de tabela (ou fechar o painel) volta para Overview; releituras da mesma tabela mantêm a aba.
+  const ref = state ? tableRef(state.query) : null;
+  const [tabFor, setTabFor] = useState(ref);
+  if (tabFor !== ref) {
+    setTabFor(ref);
+    setTab("overview");
+  }
 
   if (!state) return null;
   const { query, data, loading, error } = state;
@@ -300,7 +298,6 @@ export function TableInfoPanel() {
   return (
     <aside
       id={TABLE_INFO_PANEL_ID}
-      role="complementary"
       aria-label="Table info"
       aria-busy={loading}
       className={styles.panel}
@@ -331,6 +328,11 @@ export function TableInfoPanel() {
             <span className={styles.badge}>{tableFormatLabel(data.format)}</span>
             {data.available === false ? <span className={`${styles.badge} ${styles.warn}`}>files missing</span> : null}
           </div>
+          {error ? (
+            <p className={`${styles.notice} ${styles.error}`} role="alert">
+              {error}
+            </p>
+          ) : null}
           {metadataError ? (
             <p className={styles.notice} role="status">
               {metadataError}
@@ -366,7 +368,7 @@ export function TableInfoPanel() {
             aria-labelledby={`${TABLE_INFO_PANEL_ID}-tab-${tab}`}
             tabIndex={0}
           >
-            <PanelBody state={state} tab={tab} />
+            <PanelBody info={data} tab={tab} />
           </div>
         </>
       ) : (
