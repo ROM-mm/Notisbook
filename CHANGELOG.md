@@ -18,8 +18,8 @@ before it is published.
   through the release's own `install.sh`. It says "already up to date" when there is nothing newer, refuses to go back
   to an older version so `catalog.db` is never opened by a version that predates it, and only runs `install.sh` when
   its checksum is listed in the release's `SHA256SUMS`.
-- **`notisbook uninstall`.** Lists what will be removed and what will be kept, with sizes, and asks you to type
-  `uninstall` to confirm (`--yes` skips the question). It removes the app, the bundled MinIO package, the Spark and
+- **`notisbook uninstall`.** Lists what will be removed and what will be kept, with sizes, and asks
+  `Proceed with the uninstall? [y/N]` (only `y` or `yes` confirms; `--yes` skips the question). It removes the app, the bundled MinIO package, the Spark and
   DuckDB environments, the Jupyter kernels and the AWS Glue container of this data folder, and keeps your data:
   the Notislake lake (`minio/data`), its credentials, `catalog.db`, the warehouse folders, your notebooks and your
   preferences, so a later reinstall picks up where you left off. Docker images are left in place.
