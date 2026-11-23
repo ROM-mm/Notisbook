@@ -211,17 +211,23 @@ export function AppearancePage() {
     }
   };
 
-  // Teclas de função, ⌘S/Ctrl+S e Esc só agem com o foco dentro da tela; quem já tratou o evento (campo) o marca
-  // com preventDefault. Só F3 sai da tela: a tecla do DevTools no Windows/Linux não é interceptada.
+  // F5 e ⌘S/Ctrl+S aplicam de qualquer ponto enquanto a tela está montada: o navegador nunca recarrega nem abre
+  // "Salvar página" (as edições pendentes se perderiam). F1, F3, F4 e Esc só agem com o foco dentro da tela; quem já
+  // tratou o evento (campo) o marca com preventDefault. Só F3 sai da tela: a tecla do DevTools no Windows/Linux não
+  // é interceptada.
   useEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.defaultPrevented || !rootRef.current?.contains(e.target as Node)) return;
+      if (e.defaultPrevented) return;
       const save = e.key.toLowerCase() === "s" && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
-      if (save) doApply();
-      else if (e.key === "F1") showHelp();
+      if (save || e.key === "F5") {
+        e.preventDefault();
+        doApply();
+        return;
+      }
+      if (!rootRef.current?.contains(e.target as Node)) return;
+      if (e.key === "F1") showHelp();
       else if (e.key === "F3") leave();
       else if (e.key === "F4") openList(lastField.current);
-      else if (e.key === "F5") doApply();
       else if (e.key === "Escape") discardPending();
       else return;
       e.preventDefault();
