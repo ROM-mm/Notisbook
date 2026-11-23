@@ -2,8 +2,8 @@
 
 Uso: uv run --project backend python scripts/build_release.py [--checksums-only]
 Etapas: build do frontend, cópia para `_frontend/`, `uv build`, conferência
-do `index.html`, constraints do uv.lock, gate de wheel binária (macOS arm64 e
-x86_64), SHA256SUMS e sha256 da wheel e do sdist.
+do `index.html`, constraints do uv.lock, gate de wheel binária (macOS arm64),
+SHA256SUMS e sha256 da wheel e do sdist.
 `--checksums-only` só regenera o SHA256SUMS, exigindo os tarballs do MinIO.
 """
 
@@ -18,10 +18,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import tomllib
 import zipfile
 from pathlib import Path
-
-import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend"
@@ -33,7 +32,7 @@ MINIO_DIST = DIST / "notislake"
 MINIO_MANIFEST = BACKEND / "src" / "notisbook" / "notislake" / "minio_manifest.json"
 SUMS_NAME = "SHA256SUMS"
 GATE_PYTHON = "3.12"
-GATE_PLATFORMS = ("aarch64-apple-darwin", "x86_64-apple-darwin")
+GATE_PLATFORMS = ("aarch64-apple-darwin",)
 PIN_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;]+)")
 
 

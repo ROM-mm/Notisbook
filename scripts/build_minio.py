@@ -29,7 +29,7 @@ MINIO_REPO = "https://github.com/minio/minio.git"
 MC_REPO = "https://github.com/minio/mc.git"
 MINIO_TAG = "RELEASE.2025-10-15T17-29-55Z"
 MC_TAG = "RELEASE.2025-08-13T08-35-41Z"
-ARCHES = ("arm64", "amd64")
+ARCHES = ("arm64",)
 
 # Roda dentro do container. O resultado sai como tar em stdout (sem bind mount, que
 # depende dos diretórios compartilhados da VM do Docker); logs vão para stderr.

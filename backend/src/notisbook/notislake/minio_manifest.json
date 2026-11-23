@@ -1,15 +1,5 @@
 {
   "archs": {
-    "darwin-amd64": {
-      "mc": {
-        "sha256": "9c55aef5aaeca751b502a5f8f0abd4d018e053b1566123c5e07b3e37fc746298"
-      },
-      "minio": {
-        "sha256": "9f35577eb13c66895e3d02a1811d5411a8a6c9dbc015131511a5610507792b81"
-      },
-      "sha256": "b1329a9c4035da694fb142a4c9fb7fb5a72b214eddd2bbb05aad2f4f08eced1d",
-      "tarball": "notislake-minio-RELEASE.2025-10-15T17-29-55Z-darwin-amd64.tar.gz"
-    },
     "darwin-arm64": {
       "mc": {
         "sha256": "d42ffd2749c9bc69756867c2f7a07ef4be7842ed781da14254650657a71b8dc9"

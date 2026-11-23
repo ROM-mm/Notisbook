@@ -6,10 +6,12 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from ...platform_support import is_apple_silicon
+
 MANIFEST_PATH = Path(__file__).with_name("extensions.json")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _NAME = re.compile(r"[a-z][a-z0-9_]*")
-_PLATFORMS = {("Darwin", "arm64"): "osx_arm64", ("Darwin", "x86_64"): "osx_amd64"}
+_ARM64_KEY = "osx_arm64"
 
 
 class ManifestError(Exception):
@@ -45,11 +47,10 @@ class Manifest:
 
 
 def platform_key() -> str:
-    """Plataforma DuckDB do host (osx_arm64/osx_amd64); levanta UnsupportedPlatform nas demais."""
-    key = _PLATFORMS.get((platform.system(), platform.machine()))
-    if key is None:
-        raise UnsupportedPlatform(f"{platform.system()} {platform.machine()}")
-    return key
+    """Plataforma DuckDB do host (osx_arm64, inclusive sob Rosetta); levanta UnsupportedPlatform nas demais."""
+    if is_apple_silicon():
+        return _ARM64_KEY
+    raise UnsupportedPlatform(f"{platform.system()} {platform.machine()}")
 
 
 def load_manifest(path: Path = MANIFEST_PATH) -> Manifest:

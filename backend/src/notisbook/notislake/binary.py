@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
 from ..config import default_home
+from ..platform_support import is_apple_silicon
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ _INSTALL_MODE = 0o755
 _CHUNK = 1024 * 1024
 # Folga sobre os ~110 MB do maior binário; barra tarball que declara tamanho absurdo.
 _MAX_MEMBER_BYTES = 1024 * 1024 * 1024
-_ARCH_BY_MACHINE = {"arm64": "darwin-arm64", "aarch64": "darwin-arm64", "x86_64": "darwin-amd64", "amd64": "darwin-amd64"}
+_ARM64_ARCH = "darwin-arm64"
 
 
 class BinaryError(Exception):
@@ -108,8 +109,13 @@ def _load_manifest() -> dict:
     return manifest
 
 
+def _host_arch() -> str | None:
+    """Arquitetura do manifesto para este host; só Apple silicon (nativo ou sob Rosetta) é suportado."""
+    return _ARM64_ARCH if is_apple_silicon() else None
+
+
 def _arch_entry(manifest: dict) -> dict:
-    arch = _ARCH_BY_MACHINE.get(platform.machine().lower()) if platform.system() == "Darwin" else None
+    arch = _host_arch()
     entry = manifest["archs"].get(arch) if arch else None
     if not isinstance(entry, dict):
         raise UnsupportedPlatformError(f"sem binário notislake para '{platform.system()}/{platform.machine()}'")

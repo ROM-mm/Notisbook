@@ -1,5 +1,5 @@
 #!/bin/sh
-# Notisbook installer (macOS, Apple silicon and Intel).
+# Notisbook installer (macOS, Apple silicon).
 #
 #   curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh
 #
@@ -30,7 +30,7 @@ need() { command -v "$1" >/dev/null 2>&1 || err "needs \`$1\`; install it and re
 
 usage() {
   cat <<'EOF'
-Notisbook installer (macOS, Apple silicon and Intel).
+Notisbook installer (macOS, Apple silicon).
 
   curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh
 
@@ -91,7 +91,7 @@ detect_arch() {
   fi
   case "$machine" in
     arm64 | aarch64) echo "arm64" ;;
-    x86_64) echo "amd64" ;;
+    x86_64) err "Notisbook supports Apple silicon only; this is an Intel Mac" ;;
     *) err "unsupported CPU architecture: $machine" ;;
   esac
 }
