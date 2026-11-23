@@ -215,12 +215,67 @@ def read_columns(conn: sqlite3.Connection, database: str, table: str, hudi_only:
     ).fetchone()
     if row is None:
         return None
+    return _columns_or_empty(row[0], row[1])
+
+
+def _columns_or_empty(columns_json: str, partition_cols: str) -> list[dict[str, Any]]:
     try:
-        partitions = {str(p) for p in json.loads(row[1])}
-        return _decode_columns(row[0], partitions)
+        partitions = {str(p) for p in json.loads(partition_cols)}
+        return _decode_columns(columns_json, partitions)
     except (ValueError, KeyError, TypeError):
         # Registro com JSON ilegível: a tabela existe, só não há colunas para mostrar.
         return []
+
+
+def _partition_names(partition_cols: str) -> list[str]:
+    try:
+        items = json.loads(partition_cols)
+    except ValueError:
+        return []
+    return [str(p) for p in items] if isinstance(items, list) else []
+
+
+def read_table_info(conn: sqlite3.Connection, database: str, table: str, hudi_only: bool = False) -> dict[str, Any] | None:
+    """Metadados de uma tabela Delta/Parquet/Hudi só do registro `nb_tables` (sem ler `_delta_log`/`.hoodie`).
+
+    `hudi_only` serve ao nó de exibição `hudi`. `None` se a tabela não existir. Nomes sem distinção de caixa.
+    """
+    row = conn.execute(
+        "SELECT namespace, table_name, format, location, table_type, columns_json, partition_cols, description, "
+        "created_at, updated_at, delta_version, hudi_instant FROM nb_tables "
+        "WHERE catalog_name = ? AND namespace = ? COLLATE NOCASE AND table_name = ? COLLATE NOCASE "
+        "AND (? = 0 OR format = 'hudi')",
+        (SPARK_CATALOG, database, table, int(hudi_only)),
+    ).fetchone()
+    if row is None:
+        return None
+    namespace, name, fmt, location, table_type, columns_json, partition_cols, description, created, updated, dv, hi = row
+    version: dict[str, Any] | None = None
+    if fmt == "delta":
+        version = {"kind": "delta_version", "value": dv}
+    elif fmt == "hudi":
+        version = {"kind": "hudi_instant", "value": hi}
+    return {
+        "catalog": HUDI_CATALOG if hudi_only else SPARK_CATALOG,
+        "database": namespace,
+        "table": name,
+        "format": fmt,
+        "table_type": table_type,
+        # O DROP de uma MANAGED apaga a pasta s3a (`apply_plan` -> `deletions`) salvo se outra tabela a usa (`files_kept`).
+        "drop_behavior": "deletes_files" if table_type == "MANAGED" else "registry_only",
+        "location": location,
+        "available": is_available(location),
+        "description": description,
+        "created_at": created,
+        "updated_at": updated,
+        "partition_columns": _partition_names(partition_cols),
+        "columns": _columns_or_empty(columns_json, partition_cols),
+        "version": version,
+        "history": None,
+        "properties": None,
+        "stats": None,
+        "metadata_error": None,
+    }
 
 
 # As funções abaixo são injetadas no kernel por `inspect.getsource` (hook local e HTTP): só usam

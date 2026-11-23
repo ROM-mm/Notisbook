@@ -1,0 +1,385 @@
+/**
+ * Painel Table info: encaixado à direita do conteúdo (não é modal), mostra os
+ * metadados de `/api/catalog/table` da tabela aberta pela árvore do Catalog.
+ * Só dados que não dependem do kernel; `history`/`properties`/`stats` só no Iceberg.
+ * Esc fecha apenas com o foco dentro do painel; ao fechar, o foco volta à linha da tabela.
+ */
+import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import type { ColumnsQuery, TableHistoryEntry, TableInfo, TableVersion } from "../../api/catalog";
+import { TABLE_INFO_PANEL_ID, tableRef, useCatalog, type InfoState } from "../../state/catalog";
+import { formatSize } from "../files/format";
+import { CloseIcon, TableIcon } from "../shell/icons";
+import { BrandIcon } from "./BrandIcon";
+import styles from "./TableInfoPanel.module.css";
+import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
+
+const METADATA_ERRORS: Record<string, string> = {
+  unavailable: "Iceberg metadata unavailable — showing catalog registration only.",
+  store_unavailable: "Notislake storage unavailable — showing catalog registration only.",
+};
+
+const TABS = [
+  { id: "overview", label: "Overview" },
+  { id: "columns", label: "Columns" },
+  { id: "history", label: "History" },
+  { id: "properties", label: "Properties" },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
+const dateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
+const numberFormat = new Intl.NumberFormat("en-US");
+const DASH = "—";
+
+/** ISO (ou epoch ms) → data legível; texto não reconhecido é exibido como veio. */
+function formatDate(value: string | number | null): string {
+  if (value === null || value === "") return DASH;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : dateFormat.format(d);
+}
+
+function toNumber(value: string | number | null): number | null {
+  if (value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function formatCount(value: string | number | null): string {
+  const n = toNumber(value);
+  return n === null ? (value === null || value === "" ? DASH : String(value)) : numberFormat.format(n);
+}
+
+function formatVersion(version: TableVersion | null): string {
+  if (!version || version.value === null || version.value === "") return DASH;
+  if (version.kind === "delta_version") return `version ${version.value}`;
+  if (version.kind === "hudi_instant") return `instant ${version.value}`;
+  return `snapshot ${version.value}`;
+}
+
+function TableFormatIcon({ format, size }: { format: string; size: number }) {
+  const icon = tableFormatIcon(format);
+  return icon ? <BrandIcon icon={icon} size={size} /> : <TableIcon size={size} />;
+}
+
+/** Frase do DROP a partir de `drop_behavior` (semântica decidida pelo backend por formato). */
+function dropSentence(info: TableInfo): ReactNode {
+  const where = info.location ? <code className={styles.mono}>{info.location}</code> : null;
+  switch (info.drop_behavior) {
+    case "deletes_files":
+      return (
+        <>Managed table: the catalog owns the data. DROP TABLE deletes the files{where ? <> at {where}</> : null}.</>
+      );
+    case "registry_only":
+      return (
+        <>
+          External table: the catalog only points to the files. DROP TABLE removes the registration; files stay
+          {where ? <> at {where}</> : " in place"}.
+        </>
+      );
+    case "registry_only_unless_purge":
+      return (
+        <>
+          {info.table_type === "MANAGED" ? "Managed" : "External"} Iceberg table: DROP TABLE removes the registration
+          only; files are deleted only with DROP TABLE … PURGE.
+        </>
+      );
+    default:
+      return null;
+  }
+}
+
+function Overview({ info }: { info: TableInfo }) {
+  const facts: [string, ReactNode][] = [
+    ["Full name", `${info.catalog}.${info.database}.${info.table}`],
+    ["Type", info.table_type],
+    ["Format", tableFormatLabel(info.format)],
+    ["Location", info.location ?? DASH],
+    ["Comment", info.description || DASH],
+    ["Partitions", info.partition_columns.length > 0 ? info.partition_columns.join(", ") : "None"],
+    ["Columns", String(info.columns.length)],
+    ["Registered at", formatDate(info.created_at)],
+    ["Updated at", formatDate(info.updated_at)],
+    ["Current version", formatVersion(info.version)],
+  ];
+  if (info.stats) {
+    const size = toNumber(info.stats.total_files_size);
+    facts.push(
+      ["Rows", formatCount(info.stats.total_records)],
+      ["Size", size === null ? DASH : formatSize(size)],
+      ["Data files", formatCount(info.stats.total_data_files)],
+    );
+  }
+  return (
+    <dl className={styles.facts}>
+      {facts.map(([label, value]) => (
+        <div key={label} className={styles.fact}>
+          <dt>{label}</dt>
+          <dd className={value === DASH ? styles.na : undefined}>{value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function Columns({ info }: { info: TableInfo }) {
+  if (info.columns.length === 0) return <p className={styles.empty}>No columns registered.</p>;
+  return (
+    <table className={styles.grid}>
+      <thead>
+        <tr>
+          <th scope="col">#</th>
+          <th scope="col">Name</th>
+          <th scope="col">Type</th>
+          <th scope="col">Nullable</th>
+          <th scope="col">Comment</th>
+        </tr>
+      </thead>
+      <tbody>
+        {info.columns.map((c, i) => (
+          <tr key={c.name}>
+            <td className={styles.num}>{i + 1}</td>
+            <td>
+              {c.name}
+              {c.is_partition ? <span className={styles.flag}>partition</span> : null}
+            </td>
+            <td>{c.data_type}</td>
+            <td>{c.nullable ? "yes" : "no"}</td>
+            <td className={c.description ? undefined : styles.na}>{c.description || DASH}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function historyDetail(h: TableHistoryEntry): string {
+  const keys = ["added-records", "deleted-records", "added-data-files"] as const;
+  return keys
+    .filter((k) => h.summary[k] !== undefined)
+    .map((k) => `${k.replace(/-/g, " ")}: ${h.summary[k]}`)
+    .join(" · ");
+}
+
+function History({ info }: { info: TableInfo }) {
+  if (info.history === null) {
+    if (info.format === "parquet") return <p className={styles.empty}>Parquet has no versions.</p>;
+    if (info.format === "iceberg") {
+      return <p className={styles.empty}>Snapshot history unavailable without the Iceberg metadata.</p>;
+    }
+    return (
+      <div className={styles.empty}>
+        <p>
+          {tableFormatLabel(info.format)} history needs the kernel; only the current version is known from the catalog.
+        </p>
+        <p>
+          Current version: <span className={styles.mono}>{formatVersion(info.version)}</span>
+        </p>
+      </div>
+    );
+  }
+  if (info.history.length === 0) return <p className={styles.empty}>No snapshots yet.</p>;
+  const current = info.version?.value != null ? String(info.version.value) : null;
+  return (
+    <table className={styles.grid}>
+      <thead>
+        <tr>
+          <th scope="col">Snapshot</th>
+          <th scope="col">When</th>
+          <th scope="col">Operation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {info.history.map((h, i) => {
+          const detail = historyDetail(h);
+          const isCurrent = current !== null && h.id === current;
+          return (
+            <tr key={h.id ?? `row-${i}`} className={isCurrent ? styles.current : undefined} aria-current={isCurrent || undefined}>
+              <td className={styles.mono} title={h.parent_id ? `parent ${h.parent_id}` : undefined}>
+                {h.id ?? DASH}
+                {isCurrent ? <span className={styles.flag}>current</span> : null}
+              </td>
+              <td>{formatDate(h.timestamp_ms)}</td>
+              <td>
+                {h.operation ?? DASH}
+                {detail ? <div className={styles.sub}>{detail}</div> : null}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function Properties({ info }: { info: TableInfo }) {
+  if (info.properties === null) return <p className={styles.empty}>No properties available without the kernel.</p>;
+  const entries = Object.entries(info.properties).sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return <p className={styles.empty}>No properties.</p>;
+  return (
+    <table className={styles.grid}>
+      <thead>
+        <tr>
+          <th scope="col">Key</th>
+          <th scope="col">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {entries.map(([k, v]) => (
+          <tr key={k}>
+            <td className={styles.mono}>{k}</td>
+            <td className={styles.mono}>{v}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Devolve o foco à linha da tabela na árvore do Catalog (se ainda estiver visível). */
+function focusTreeRow(query: ColumnsQuery) {
+  const ref = tableRef(query);
+  const rows = document.querySelectorAll<HTMLElement>('[role="treeitem"][data-table-ref]');
+  for (const el of rows) {
+    if (el.dataset.tableRef === ref) {
+      el.focus();
+      return;
+    }
+  }
+}
+
+function PanelBody({ state, tab }: { state: InfoState; tab: TabId }) {
+  const { data } = state;
+  if (!data) return null;
+  switch (tab) {
+    case "overview":
+      return <Overview info={data} />;
+    case "columns":
+      return <Columns info={data} />;
+    case "history":
+      return <History info={data} />;
+    case "properties":
+      return <Properties info={data} />;
+  }
+}
+
+export function TableInfoPanel() {
+  const state = useCatalog((s) => s.info);
+  const [tab, setTab] = useState<TabId>("overview");
+  const tabRefs = useRef(new Map<TabId, HTMLButtonElement>());
+
+  if (!state) return null;
+  const { query, data, loading, error } = state;
+  const format = data?.format ?? "";
+
+  function close() {
+    useCatalog.getState().closeInfo();
+    focusTreeRow(query);
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLElement>) {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    e.preventDefault();
+    close();
+  }
+
+  function onTabKeyDown(e: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number;
+    if (e.key === "ArrowRight") next = (index + 1) % TABS.length;
+    else if (e.key === "ArrowLeft") next = (index - 1 + TABS.length) % TABS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = TABS.length - 1;
+    else return;
+    e.preventDefault();
+    const id = TABS[next]?.id;
+    if (!id) return;
+    setTab(id);
+    tabRefs.current.get(id)?.focus();
+  }
+
+  const metadataError = data?.metadata_error ? METADATA_ERRORS[data.metadata_error] : null;
+
+  return (
+    <aside
+      id={TABLE_INFO_PANEL_ID}
+      role="complementary"
+      aria-label="Table info"
+      aria-busy={loading}
+      className={styles.panel}
+      onKeyDown={onKeyDown}
+      data-testid="table-info-panel"
+    >
+      <header className={styles.head}>
+        <span className={styles.headIcon}>
+          <TableFormatIcon format={format} size={18} />
+        </span>
+        <div className={styles.headText}>
+          <h2 className={styles.title} title={query.table}>
+            {data?.table ?? query.table}
+          </h2>
+          <span className={styles.path}>{`${query.catalog}.${query.database}.${query.table}`}</span>
+        </div>
+        <button type="button" className={styles.close} onClick={close} aria-label="Close" title="Close (Esc)">
+          <CloseIcon size={14} />
+        </button>
+      </header>
+
+      {data ? (
+        <>
+          <div className={styles.badges}>
+            <span className={`${styles.badge} ${data.table_type === "MANAGED" ? styles.managed : styles.external}`}>
+              {data.table_type}
+            </span>
+            <span className={styles.badge}>{tableFormatLabel(data.format)}</span>
+            {data.available === false ? <span className={`${styles.badge} ${styles.warn}`}>files missing</span> : null}
+          </div>
+          {metadataError ? (
+            <p className={styles.notice} role="status">
+              {metadataError}
+            </p>
+          ) : null}
+          <p className={styles.callout}>{dropSentence(data)}</p>
+          <div className={styles.tabs} role="tablist" aria-label="Table info sections">
+            {TABS.map((t, i) => (
+              <button
+                key={t.id}
+                ref={(el) => {
+                  if (el) tabRefs.current.set(t.id, el);
+                  else tabRefs.current.delete(t.id);
+                }}
+                type="button"
+                role="tab"
+                id={`${TABLE_INFO_PANEL_ID}-tab-${t.id}`}
+                aria-selected={tab === t.id}
+                aria-controls={`${TABLE_INFO_PANEL_ID}-panel`}
+                tabIndex={tab === t.id ? 0 : -1}
+                className={`${styles.tab} ${tab === t.id ? styles.tabOn : ""}`}
+                onClick={() => setTab(t.id)}
+                onKeyDown={(e) => onTabKeyDown(e, i)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div
+            className={styles.body}
+            role="tabpanel"
+            id={`${TABLE_INFO_PANEL_ID}-panel`}
+            aria-labelledby={`${TABLE_INFO_PANEL_ID}-tab-${tab}`}
+            tabIndex={0}
+          >
+            <PanelBody state={state} tab={tab} />
+          </div>
+        </>
+      ) : (
+        <div className={styles.body}>
+          {error ? (
+            <p className={`${styles.empty} ${styles.error}`} role="alert">
+              {error}
+            </p>
+          ) : loading ? (
+            <p className={styles.empty}>Loading…</p>
+          ) : null}
+        </div>
+      )}
+    </aside>
+  );
+}

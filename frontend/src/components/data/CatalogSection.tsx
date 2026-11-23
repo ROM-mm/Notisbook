@@ -4,6 +4,7 @@
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
  * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
+ * Linha de tabela: clique (ou Enter) abre o painel Table info; o chevron (ou Space) só expande as colunas.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -19,7 +20,7 @@ import {
   type SchemaDeletion,
   type SchemaPreview,
 } from "../../api/catalog";
-import { schemaKey, useCatalog, type ColumnsState } from "../../state/catalog";
+import { sameTable, schemaKey, TABLE_INFO_PANEL_ID, tableRef, useCatalog, type ColumnsState } from "../../state/catalog";
 import { activeNotebookPath, useRouter } from "../../state/router";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
 import {
@@ -39,8 +40,10 @@ import { BrandIcon } from "./BrandIcon";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
+import infoStyles from "./TableInfoPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
-import { DeltaIcon, HudiIcon, IcebergIcon, ParquetIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
+import { HudiIcon, IcebergIcon, SparkIcon } from "../shell/techIcons";
+import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
 
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
 const REFRESH_DEBOUNCE_MS = 1500;
@@ -65,7 +68,6 @@ function orderSchemas<T extends { name: string }>(databases: T[]): T[] {
     .map((x) => x.d);
 }
 
-const FORMAT_LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg", hudi: "Hudi" };
 /** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
 const CATALOG_ICONS: Record<string, ReactNode> = {
   spark_catalog: <BrandIcon icon={SparkIcon} />,
@@ -73,13 +75,6 @@ const CATALOG_ICONS: Record<string, ReactNode> = {
   hudi: <BrandIcon icon={HudiIcon} />,
 };
 const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
-/** Ícone do formato da tabela (delta, hudi, iceberg, parquet); formato desconhecido cai no ícone de tabela. */
-const FORMAT_ICONS: Record<string, TechIcon> = {
-  delta: DeltaIcon,
-  hudi: HudiIcon,
-  iceberg: IcebergIcon,
-  parquet: ParquetIcon,
-};
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
   iceberg_catalog_unreadable: "Iceberg tables unavailable: catalog could not be read.",
@@ -118,21 +113,21 @@ const isStatus = (i: Item): i is StatusRow => "status" in i;
 
 
 function tableIcon(t: CatalogTable): ReactNode {
-  const format = t.format.toLowerCase();
-  if (Object.hasOwn(FORMAT_ICONS, format)) return <BrandIcon icon={FORMAT_ICONS[format] as TechIcon} />;
+  const icon = tableFormatIcon(t.format);
+  if (icon) return <BrandIcon icon={icon} />;
   return t.table_type.toUpperCase() === "EXTERNAL" ? <ExternalTableIcon size={14} /> : <TableIcon size={14} />;
 }
 
 function tableDetail(t: CatalogTable): string {
-  const parts = [FORMAT_LABELS[t.format] ?? t.format, t.table_type.toUpperCase()];
-  if (!t.available) parts.push("unavailable");
+  const parts = [tableFormatLabel(t.format), t.table_type.toUpperCase()];
+  if (t.available === false) parts.push("unavailable");
   return parts.join(" · ");
 }
 
 function tableTitle(t: CatalogTable): string {
   const lines = [t.description ? `${t.name} · ${t.description}` : t.name];
   if (t.location) lines.push(t.location);
-  if (!t.available) lines.push("Files not found at this location.");
+  if (t.available === false) lines.push("Files not found at this location.");
   return lines.join("\n");
 }
 
@@ -187,7 +182,7 @@ function tableRows(
       icon: tableIcon(t),
       expandable: true,
       open: Boolean(s.expanded[key]),
-      unavailable: !t.available,
+      unavailable: t.available === false,
       table: { catalog, database, table: t.name },
     });
     if (s.expanded[key]) columnItems(key, level + 1, s.columns[key], out);
@@ -374,8 +369,9 @@ interface MenuState {
 }
 
 function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: string) => void }) {
-  const { toggle: storeToggle, expand: storeExpand, collapse } = useCatalog.getState();
+  const { toggle: storeToggle, expand: storeExpand, collapse, openInfo } = useCatalog.getState();
   const toggle = (row: Row) => storeToggle(row.key, row.table);
+  const infoQuery = useCatalog((s) => s.info?.query ?? null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -472,6 +468,9 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
         openMenuAtRow(row);
         break;
       case "Enter":
+        if (row.kind === "table" && row.table) openInfo(row.table);
+        else if (row.expandable) toggle(row);
+        break;
       case " ":
         if (row.expandable) toggle(row);
         break;
@@ -497,6 +496,8 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
         }
         const index = nav.indexOf(item);
         const open = item.expandable && item.open;
+        const isTable = item.kind === "table" && item.table !== undefined;
+        const infoOpen = isTable && sameTable(item.table, infoQuery);
         return (
           <div
             key={item.key}
@@ -505,24 +506,42 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
               else refs.current.delete(item.key);
             }}
             role="treeitem"
-            className={`${styles.treeRow} ${styles.treeGuides} ${item.unavailable ? styles.treeUnavailable : ""}`}
+            className={`${styles.treeRow} ${styles.treeGuides} ${item.unavailable ? styles.treeUnavailable : ""} ${infoOpen ? infoStyles.openRow : ""}`}
             style={indent}
             aria-level={item.level}
             aria-posinset={item.pos}
             aria-setsize={item.size}
             aria-expanded={item.expandable ? open : undefined}
             aria-selected={item.key === focusKey}
+            aria-controls={isTable && infoQuery ? TABLE_INFO_PANEL_ID : undefined}
+            data-table-ref={isTable && item.table ? tableRef(item.table) : undefined}
             title={item.title ?? item.label}
             tabIndex={item.key === activeKey ? 0 : -1}
             onFocus={() => setFocusKey(item.key)}
             onKeyDown={(e) => onKeyDown(e, item, index)}
             onContextMenu={(e) => onContextMenu(e, item)}
-            onClick={() => {
+            onClick={(e) => {
               setFocusKey(item.key);
-              if (item.expandable) toggle(item);
+              if (isTable && item.table) {
+                e.currentTarget.focus();
+                openInfo(item.table);
+              } else if (item.expandable) toggle(item);
             }}
           >
-            <span className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`} aria-hidden="true">
+            <span
+              className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
+              aria-hidden="true"
+              onClick={
+                isTable
+                  ? (e) => {
+                      // Chevron da tabela só expande/recolhe as colunas; o resto da linha abre o Table info.
+                      e.stopPropagation();
+                      setFocusKey(item.key);
+                      toggle(item);
+                    }
+                  : undefined
+              }
+            >
               {item.expandable ? <ChevronRightIcon size={12} /> : null}
             </span>
             <span className={styles.treeIcon}>{item.icon}</span>

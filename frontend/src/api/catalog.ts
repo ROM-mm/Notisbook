@@ -10,8 +10,8 @@ export interface CatalogTable {
   table_type: string;
   is_temporary: boolean;
   location: string | null;
-  /** false quando os arquivos da tabela não existem mais no disco. */
-  available: boolean;
+  /** false quando os arquivos não existem mais no disco; null quando não verificável (ex.: s3a). */
+  available: boolean | null;
   description: string | null;
 }
 
@@ -55,6 +55,60 @@ export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
 /** 404 tabela inexistente, 409 metadados ilegíveis, 503 `catalog.db` indisponível. */
 export function getColumns(q: ColumnsQuery, signal?: AbortSignal): Promise<CatalogColumn[]> {
   return request<CatalogColumn[]>("/api/catalog/columns", {
+    query: { catalog: q.catalog, database: q.database, table: q.table },
+    signal,
+  });
+}
+
+export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg";
+export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge";
+export type TableMetadataError = "unavailable" | "store_unavailable";
+
+export interface TableVersion {
+  kind: "delta_version" | "hudi_instant" | "iceberg_snapshot";
+  value: string | number | null;
+}
+
+/** Snapshot Iceberg; ids são texto (long de 64 bits perderia precisão como number). */
+export interface TableHistoryEntry {
+  id: string | null;
+  timestamp_ms: number | null;
+  operation: string | null;
+  parent_id: string | null;
+  summary: Record<string, string>;
+}
+
+export interface TableStats {
+  total_records: string | number | null;
+  total_files_size: string | number | null;
+  total_data_files: string | number | null;
+}
+
+/** Metadados de uma tabela sem kernel; `history`/`properties`/`stats` só existem no Iceberg. */
+export interface TableInfo {
+  catalog: string;
+  database: string;
+  table: string;
+  format: TableFormat;
+  table_type: "MANAGED" | "EXTERNAL";
+  drop_behavior: DropBehavior;
+  location: string | null;
+  available: boolean | null;
+  description: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  partition_columns: string[];
+  columns: CatalogColumn[];
+  version: TableVersion | null;
+  history: TableHistoryEntry[] | null;
+  properties: Record<string, string> | null;
+  stats: TableStats | null;
+  metadata_error: TableMetadataError | null;
+}
+
+/** 404 tabela inexistente, 409 schema Iceberg não suportado, 503 `catalog.db` indisponível. */
+export function getTableInfo(q: ColumnsQuery, signal?: AbortSignal): Promise<TableInfo> {
+  return request<TableInfo>("/api/catalog/table", {
     query: { catalog: q.catalog, database: q.database, table: q.table },
     signal,
   });

@@ -8,6 +8,8 @@
  * Pontos de extensão:
  * - `entry`: aba ativa (ou null), repassada à barra superior
  *   (seletor de ambiente em `components/kernel/KernelSelector.tsx`).
+ * - Table info (`components/data/TableInfoPanel.tsx`): painel encaixado entre o
+ *   conteúdo e a lateral direita, visível só com a lateral esquerda aberta.
  * - Laterais: `Explorer` empilha os cartões de uma lateral; a composição e a
  *   ordem vêm de `state/layout.ts` (LEFT_CARDS/RIGHT_CARDS) e os cartões
  *   concretos são mapeados em `Explorer.tsx`.
@@ -15,6 +17,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DEFAULT_RIGHT_PANEL_WIDTH, DEFAULT_SIDE_PANEL_WIDTH, useLayout } from "../../state/layout";
 import { type NotebookEntry, useWorkspace } from "../../state/workspace";
+import { TableInfoPanel } from "../data/TableInfoPanel";
 import styles from "./AppShell.module.css";
 import { Banner } from "./Banner";
 import { Explorer } from "./Explorer";
@@ -94,6 +97,8 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
           </>
         ) : null}
         <main className={styles.content}>{children}</main>
+        {/* Table info do Catalog: encaixado ao lado do conteúdo; some com o Catalog (lateral esquerda) fechado ou em modo foco. */}
+        {showLeft ? <TableInfoPanel /> : null}
         {showRight ? (
           <>
             <ResizeHandle

@@ -12,6 +12,7 @@ import os
 import sqlite3
 import zlib
 from collections.abc import Callable, Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -106,13 +107,16 @@ def table_prefix(location: str | None) -> str | None:
         return None
 
 
-def _node(row: tuple[Any, ...]) -> dict[str, Any]:
-    namespace, name, metadata_location = row[0], row[1], row[2] or ""
+def _shown_location(metadata_location: str) -> str | None:
     folder = _table_dir(metadata_location)
     if folder is not None:
-        shown: str | None = folder.as_uri()
-    else:
-        shown = table_prefix(metadata_location) or metadata_location or None
+        return folder.as_uri()
+    return table_prefix(metadata_location) or metadata_location or None
+
+
+def _node(row: tuple[Any, ...]) -> dict[str, Any]:
+    namespace, name, metadata_location = row[0], row[1], row[2] or ""
+    shown = _shown_location(metadata_location)
     return {
         "name": name,
         "namespace": namespace.split("."),
@@ -410,6 +414,137 @@ def read_columns(
     if not row[0]:
         raise IcebergMetadataError("table has no metadata location")
     return _columns_from_metadata(read_metadata(row[0], open_store))
+
+
+_HISTORY_LIMIT = 50
+_STATS_KEYS = (("total_records", "total-records"), ("total_files_size", "total-files-size"), ("total_data_files", "total-data-files"))
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snapshots(meta: dict[str, Any]) -> list[dict[str, Any]]:
+    raw = meta.get("snapshots")
+    return [s for s in raw if isinstance(s, dict)] if isinstance(raw, list) else []
+
+
+def _iso_from_ms(value: Any) -> str | None:
+    ms = _int_or_none(value)
+    if ms is None:
+        return None
+    try:
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc).isoformat(timespec="seconds")
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _id_text(value: Any) -> str | None:
+    """Id de snapshot como texto: são `long` de 64 bits e perderiam precisão como número no JSON do navegador."""
+    number = _int_or_none(value)
+    return None if number is None else str(number)
+
+
+def _history(snapshots: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Últimos snapshots por `timestamp-ms`, do mais recente para o mais antigo."""
+    ordered = sorted(snapshots, key=lambda s: _int_or_none(s.get("timestamp-ms")) or 0, reverse=True)
+    entries = []
+    for snap in ordered[:_HISTORY_LIMIT]:
+        summary = snap.get("summary")
+        summary = summary if isinstance(summary, dict) else {}
+        entries.append(
+            {
+                "id": _id_text(snap.get("snapshot-id")),
+                "timestamp_ms": _int_or_none(snap.get("timestamp-ms")),
+                "operation": str(summary["operation"]) if summary.get("operation") is not None else None,
+                "parent_id": _id_text(snap.get("parent-snapshot-id")),
+                "summary": {str(k): str(v) for k, v in summary.items() if k != "operation"},
+            }
+        )
+    return entries
+
+
+def _current_snapshot(meta: dict[str, Any], snapshots: list[dict[str, Any]]) -> dict[str, Any] | None:
+    wanted = _int_or_none(meta.get("current-snapshot-id"))
+    if wanted is None or wanted < 0:
+        return None
+    return next((s for s in snapshots if _int_or_none(s.get("snapshot-id")) == wanted), None)
+
+
+def _table_info_from_metadata(meta: dict[str, Any]) -> dict[str, Any]:
+    """Campos do envelope que vêm do `metadata.json`. Levanta `IcebergMetadataError` se o schema não for legível."""
+    columns = _columns_from_metadata(meta)
+    raw_props = meta.get("properties")
+    properties = {str(k): str(v) for k, v in raw_props.items()} if isinstance(raw_props, dict) else {}
+    snapshots = _snapshots(meta)
+    current = _current_snapshot(meta, snapshots)
+    summary = current.get("summary") if current else None
+    summary = summary if isinstance(summary, dict) else {}
+    current_id = _id_text(current.get("snapshot-id")) if current else None
+    return {
+        "description": properties.get("comment"),
+        "updated_at": _iso_from_ms(meta.get("last-updated-ms")),
+        "partition_columns": [c["name"] for c in columns if c["is_partition"]],
+        "columns": columns,
+        "version": {"kind": "iceberg_snapshot", "value": current_id},
+        "history": _history(snapshots),
+        "properties": properties,
+        "stats": {key: _int_or_none(summary.get(source)) for key, source in _STATS_KEYS},
+    }
+
+
+def read_table_info(
+    conn: sqlite3.Connection, database: str, table: str, open_store: StoreOpener | None = None
+) -> dict[str, Any] | None:
+    """Metadados de uma tabela Iceberg (envelope de `registry.read_table_info`); `None` se a tabela não existir.
+
+    Falha no `metadata.json` não propaga: os campos do SQLite ficam e `metadata_error` vira `unavailable`
+    ou `store_unavailable`. Levanta `UnsupportedIcebergSchema`.
+    """
+    has_type = _check_schema(conn)
+    row = conn.execute(
+        "SELECT metadata_location FROM iceberg_tables "
+        f"WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? {_type_filter(has_type)}",
+        (ICEBERG_CATALOG, database, table),
+    ).fetchone()
+    if row is None:
+        return None
+    metadata_location = row[0] or ""
+    info: dict[str, Any] = {
+        "catalog": ICEBERG_CATALOG,
+        "database": database,
+        "table": table,
+        "format": "iceberg",
+        "table_type": _table_type(metadata_location, database, table),
+        # Iceberg 1.10.1: o DROP TABLE só apaga os arquivos com PURGE, também nas tabelas MANAGED.
+        "drop_behavior": "registry_only_unless_purge",
+        "location": _shown_location(metadata_location),
+        "available": is_available(metadata_location),
+        "description": None,
+        "created_at": None,
+        "updated_at": None,
+        "partition_columns": [],
+        "columns": [],
+        "version": None,
+        "history": None,
+        "properties": None,
+        "stats": None,
+        "metadata_error": None,
+    }
+    try:
+        if not metadata_location:
+            raise IcebergMetadataError("table has no metadata location")
+        info.update(_table_info_from_metadata(read_metadata(metadata_location, open_store)))
+    except MetadataStoreUnavailable:
+        info["metadata_error"] = "store_unavailable"
+    except IcebergMetadataError:
+        info["metadata_error"] = "unavailable"
+    return info
 
 
 def location_within_root(location: str, root: str) -> bool:

@@ -1,0 +1,274 @@
+/* Painel Table info, encaixado ao lado do conteúdo (ver AppShell). Largura fixa, sem redimensionamento. */
+
+.panel {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 400px;
+  max-width: 45vw;
+  min-height: 0;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-side);
+  color: var(--color-text);
+}
+
+/* Cabeçalho no padrão de dialog.module.css (.head/.title). */
+.head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-5);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.headIcon {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text);
+}
+
+.headText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path {
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.close {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.close:focus-visible,
+.tab:focus-visible,
+.body:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Selos */
+.badges {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-5) 0;
+}
+
+.badge {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  line-height: 20px;
+}
+
+.managed {
+  background: var(--color-accent);
+  color: var(--on-accent);
+}
+
+.external {
+  border-style: dashed;
+}
+
+.warn {
+  border-color: var(--color-warning);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+}
+
+.notice {
+  flex: none;
+  margin: var(--space-3) var(--space-5) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-warning);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+  font-size: var(--font-size-sm);
+}
+
+.callout {
+  flex: none;
+  margin: var(--space-3) var(--space-5) 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-border-strong);
+  background: var(--color-bg-hover);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Abas */
+.tabs {
+  display: flex;
+  flex: none;
+  margin: var(--space-3) var(--space-5) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  margin-bottom: -1px;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--color-text);
+}
+
+.tabOn {
+  border-color: var(--color-border);
+  background: var(--color-bg-side);
+  color: var(--color-text);
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-3) var(--space-5) var(--space-4);
+}
+
+/* Fatos: grade rótulo/valor como em Spark.module.css (.facts). */
+.facts {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.fact {
+  display: contents;
+}
+
+.facts dt {
+  color: var(--color-text-muted);
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.na {
+  color: var(--color-text-subtle);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+/* Tabelas no padrão de Spark.module.css (.pkgTable): cabeçalho fixo e linhas de 1px. */
+.grid {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+}
+
+.grid th {
+  position: sticky;
+  top: calc(-1 * var(--space-3));
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-side);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.grid td {
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--color-border);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.num {
+  color: var(--color-text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.current td {
+  background: var(--color-bg-hover);
+}
+
+.flag {
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.sub {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.empty p {
+  margin: 0 0 var(--space-2);
+}
+
+.error {
+  color: var(--color-danger);
+}
+
+/* Linha da árvore do Catalog cuja tabela está aberta no painel (aplicada em CatalogSection). */
+.openRow {
+  background-color: var(--color-selection);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
+}

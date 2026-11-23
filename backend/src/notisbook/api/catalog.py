@@ -97,6 +97,24 @@ def _read_columns(
         conn.close()
 
 
+def _read_table_info(
+    home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
+) -> dict[str, Any] | None:
+    conn = _open(home)
+    if conn is None:
+        return None
+    try:
+        if catalog == registry.SPARK_CATALOG:
+            return registry.read_table_info(conn, database, table)
+        if catalog == registry.HUDI_CATALOG:
+            return registry.read_table_info(conn, database, table, hudi_only=True)
+        if catalog == iceberg_jdbc.ICEBERG_CATALOG:
+            return iceberg_jdbc.read_table_info(conn, database, table, open_store)
+        return None
+    finally:
+        conn.close()
+
+
 @router.get("")
 async def get_catalog(home: Home) -> dict[str, Any]:
     try:
@@ -122,6 +140,23 @@ async def get_columns(request: Request, home: Home, catalog: Name, database: Nam
     if columns is None:
         raise HTTPException(404, "Table not found")
     return columns
+
+
+@router.get("/table")
+async def get_table_info(request: Request, home: Home, catalog: Name, database: Name, table: Name) -> dict[str, Any]:
+    """Metadados de uma tabela, só leitura. 404 se inexistente, 409 se o schema JDBC Iceberg não for suportado, 503 se o db falhar.
+
+    Falha só no `metadata.json` do Iceberg devolve 200 com `metadata_error` e os campos do registro.
+    """
+    try:
+        info = await asyncio.to_thread(_read_table_info, home, catalog, database, table, _store_opener(request))
+    except iceberg_jdbc.UnsupportedIcebergSchema as exc:
+        raise HTTPException(409, iceberg_jdbc.ERR_UNSUPPORTED) from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Catalog database unavailable") from exc
+    if info is None:
+        raise HTTPException(404, "Table not found")
+    return info
 
 
 class CreateSchemaBody(BaseModel):
