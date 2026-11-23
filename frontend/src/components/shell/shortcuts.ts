@@ -12,4 +12,5 @@ export const SHORTCUTS: [string, string][] = [
   ["⌘. / Ctrl+.", "Toggle focus mode"],
   ["⌘B / Ctrl+B", "Toggle left panel"],
   ["⌥⌘B / Ctrl+Alt+B", "Toggle right panel"],
+  ["⌘, / Ctrl+,", "Open Appearance settings"],
 ];
