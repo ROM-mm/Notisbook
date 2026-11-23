@@ -179,7 +179,7 @@
 /* Fatos: grade rótulo/valor como em Spark.module.css (.facts). */
 .facts {
   display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   gap: var(--space-1) var(--space-3);
   margin: 0;
   font-size: var(--font-size-sm);
@@ -191,6 +191,7 @@
 
 .facts dt {
   color: var(--color-text-muted);
+  white-space: nowrap;
 }
 
 .facts dd {
