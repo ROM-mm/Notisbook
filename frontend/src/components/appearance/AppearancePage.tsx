@@ -1,9 +1,10 @@
 /**
  * Settings › Appearance (rota `/settings/appearance`): escolha das fontes de Interface, Code cell e
- * Markdown, no mesmo padrão visual da tela Runtimes. Nada muda no app antes de Apply (F5, ⌘S ou o botão); a prévia ao vivo
- * só afeta o bloco Preview, que redeclara as variáveis de fonte no próprio contêiner.
+ * Markdown, no mesmo padrão visual da tela Runtimes. Nada muda no app antes de Apply (F5, ⌘S/Ctrl+S
+ * ou o botão); a prévia ao vivo só afeta o bloco Preview, que redeclara as variáveis de fonte no
+ * próprio contêiner.
  */
-import { type CSSProperties, Fragment, type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   BUNDLED_FONTS,
   DEFAULT_APPEARANCE,
@@ -12,10 +13,12 @@ import {
   fontFamilyValue,
   isValidFontName,
   MAX_FONT_NAME,
+  normalizeFontName,
   useAppearance,
 } from "../../state/appearance";
 import { fetchSystemFonts } from "../../api/appearance";
 import { openHome, previousEntryIsApp } from "../../state/router";
+import { isMac } from "../shell/platform";
 import styles from "./AppearancePage.module.css";
 
 const FIELDS: readonly { slot: FontSlot; label: string; caption: string }[] = [
@@ -24,13 +27,31 @@ const FIELDS: readonly { slot: FontSlot; label: string; caption: string }[] = [
   { slot: "markdown", label: "Markdown", caption: "cell text" },
 ];
 
+const SAVE_KEY = isMac() ? "⌘S" : "Ctrl+S";
+
 const HELP =
-  "Press F4 or click a field to pick a font, or type a font name. Code cell also sets outputs, tables and other monospaced text. F5 or ⌘S applies, Esc discards pending changes, F3/F12 exits.";
+  "Press F4 or click a field to pick a font, or type a font name. Code cell also sets outputs, tables and other " +
+  `monospaced text. F5 or ${SAVE_KEY} applies, Esc discards pending changes, F3 exits, F1 shows this help.`;
+
+const FONTS_TITLE_ID = "appearance-fonts-title";
+const PREVIEW_TITLE_ID = "appearance-preview-title";
 
 type FontGroup = "Bundled" | "System";
 type FontOption = { name: string; group: FontGroup };
+type OptionGroup = { group: FontGroup; items: { option: FontOption; index: number }[] };
 
 type Message = { kind: "info" | "ok" | "error"; text: string };
+
+/** Agrupa opções consecutivas do mesmo grupo, preservando o índice global (ids e aria-activedescendant). */
+function groupOptions(options: readonly FontOption[]): OptionGroup[] {
+  const groups: OptionGroup[] = [];
+  options.forEach((option, index) => {
+    const last = groups[groups.length - 1];
+    if (last && last.group === option.group) last.items.push({ option, index });
+    else groups.push({ group: option.group, items: [{ option, index }] });
+  });
+  return groups;
+}
 
 function leave(): void {
   if (previousEntryIsApp()) window.history.back();
@@ -42,6 +63,7 @@ export function AppearancePage() {
   const apply = useAppearance((s) => s.apply);
 
   const [pending, setPending] = useState<Appearance>({ ...current });
+  const lastCurrent = useRef(current);
   const [openSlot, setOpenSlot] = useState<FontSlot | null>(null);
   const [filter, setFilter] = useState<string | null>(null);
   const [active, setActive] = useState(-1);
@@ -58,6 +80,18 @@ export function AppearancePage() {
     fieldRefs.current[0]?.focus();
   }, []);
 
+  // Outra aba/janela aplicou fontes: slots sem edição pendente acompanham `current`; os editados ficam.
+  useEffect(() => {
+    const previous = lastCurrent.current;
+    lastCurrent.current = current;
+    if (previous === current) return;
+    setPending((p) => {
+      const next = { ...p };
+      for (const { slot } of FIELDS) if (p[slot] === previous[slot]) next[slot] = current[slot];
+      return FIELDS.some(({ slot }) => next[slot] !== p[slot]) ? next : p;
+    });
+  }, [current]);
+
   // Falha ou `unsupported` resultam em lista vazia: só as empacotadas e o nome livre.
   useEffect(() => {
     const controller = new AbortController();
@@ -71,7 +105,7 @@ export function AppearancePage() {
     ...BUNDLED_FONTS.map((name) => ({ name, group: "Bundled" as const })),
     ...systemFonts.filter((name) => !BUNDLED_FONTS.includes(name)).map((name) => ({ name, group: "System" as const })),
   ];
-  const needle = filter?.trim().toLowerCase() ?? "";
+  const needle = filter === null ? "" : normalizeFontName(filter).toLowerCase();
   const options = needle === "" ? allOptions : allOptions.filter((o) => o.name.toLowerCase().includes(needle));
 
   // Navegação por teclado mantém o item ativo visível; o hover do mouse não rola a lista.
@@ -98,7 +132,7 @@ export function AppearancePage() {
     focusField(index);
     restoreValue.current = pending[slot];
     setFilter(null);
-    const selected = allOptions.findIndex((o) => o.name === pending[slot].trim());
+    const selected = allOptions.findIndex((o) => o.name === normalizeFontName(pending[slot]));
     keepActiveVisible.current = true;
     setActive(selected);
     setOpenSlot(slot);
@@ -111,10 +145,9 @@ export function AppearancePage() {
     closeList();
   };
 
+  // Normalização e validação ficam no store; a tela só reflete o resultado.
   const doApply = () => {
-    const trimmed: Appearance = { ...DEFAULT_APPEARANCE };
-    for (const { slot } of FIELDS) trimmed[slot] = pending[slot].trim();
-    const result = apply(trimmed);
+    const result = apply(pending);
     if (!result.ok) {
       const index = FIELDS.findIndex((f) => f.slot === result.slot);
       closeList();
@@ -122,7 +155,7 @@ export function AppearancePage() {
       focusField(index);
       return;
     }
-    setPending(trimmed);
+    setPending(result.applied);
     closeList();
     setMessage({ kind: "ok", text: "Appearance applied." });
   };
@@ -178,17 +211,18 @@ export function AppearancePage() {
     }
   };
 
-  // Teclas de função e ⌘S valem em qualquer ponto da tela; quem já tratou o evento (campo) o marca com preventDefault.
+  // Teclas de função, ⌘S/Ctrl+S e Esc só agem com o foco dentro da tela; quem já tratou o evento (campo) o marca
+  // com preventDefault. Só F3 sai da tela: a tecla do DevTools no Windows/Linux não é interceptada.
   useEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.defaultPrevented) return;
+      if (e.defaultPrevented || !rootRef.current?.contains(e.target as Node)) return;
       const save = e.key.toLowerCase() === "s" && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey;
       if (save) doApply();
       else if (e.key === "F1") showHelp();
-      else if (e.key === "F3" || e.key === "F12") leave();
+      else if (e.key === "F3") leave();
       else if (e.key === "F4") openList(lastField.current);
       else if (e.key === "F5") doApply();
-      else if (e.key === "Escape" && rootRef.current?.contains(e.target as Node)) discardPending();
+      else if (e.key === "Escape") discardPending();
       else return;
       e.preventDefault();
     };
@@ -198,7 +232,7 @@ export function AppearancePage() {
 
   const previewSlot = (slot: FontSlot): string => {
     if (openSlot === slot && active >= 0 && options[active]) return options[active].name;
-    const typed = pending[slot].trim();
+    const typed = normalizeFontName(pending[slot]);
     return isValidFontName(typed) ? typed : current[slot];
   };
   const face = {
@@ -219,7 +253,7 @@ export function AppearancePage() {
   const messageClass = message.kind === "error" ? styles.messageError : message.kind === "ok" ? styles.messageOk : "";
 
   return (
-    <div className={styles.page} ref={rootRef} data-testid="appearance-page">
+    <div className={styles.page} ref={rootRef} tabIndex={-1} data-testid="appearance-page">
       <header className={styles.header}>
         <h2 className={styles.title}>Appearance</h2>
         <p className={styles.text}>
@@ -227,9 +261,11 @@ export function AppearancePage() {
         </p>
       </header>
 
-      <section className={styles.block} aria-label="Fonts">
+      <section className={styles.block} aria-labelledby={FONTS_TITLE_ID}>
         <div className={styles.blockHead}>
-          <h3 className={styles.blockTitle}>Fonts</h3>
+          <h3 className={styles.blockTitle} id={FONTS_TITLE_ID}>
+            Fonts
+          </h3>
           <button type="button" className="btn btn-ghost" onClick={doReset}>
             Reset to defaults
           </button>
@@ -238,7 +274,7 @@ export function AppearancePage() {
           {FIELDS.map(({ slot, label, caption }, index) => {
             const isOpen = openSlot === slot;
             const dirty = pending[slot] !== current[slot];
-            const invalid = !isValidFontName(pending[slot].trim());
+            const invalid = !isValidFontName(normalizeFontName(pending[slot]));
             const listId = `appearance-list-${slot}`;
             return (
               <div className={styles.field} key={slot}>
@@ -290,28 +326,32 @@ export function AppearancePage() {
                       {options.length === 0 ? (
                         <div className={styles.listEmpty}>No font matches; Enter keeps the typed name.</div>
                       ) : (
-                        options.map((option, i) => (
-                          <Fragment key={`${option.group}:${option.name}`}>
-                            {i === 0 || options[i - 1]?.group !== option.group ? (
-                              <div className={styles.groupLabel} role="presentation">
-                                {option.group}
+                        groupOptions(options).map(({ group, items }) => {
+                          const labelId = `${listId}-group-${group}`;
+                          return (
+                            <div key={group} role="group" aria-labelledby={labelId}>
+                              <div className={styles.groupLabel} role="presentation" id={labelId}>
+                                {group}
                               </div>
-                            ) : null}
-                            <div
-                              id={`${listId}-${i}`}
-                              role="option"
-                              title={option.name}
-                              aria-selected={i === active}
-                              className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
-                              style={{ fontFamily: fontFamilyValue(slot, option.name) }}
-                              onMouseDown={(e) => e.preventDefault()}
-                              onMouseEnter={() => setActive(i)}
-                              onClick={() => choose(slot, option.name)}
-                            >
-                              {option.name}
+                              {items.map(({ option, index: i }) => (
+                                <div
+                                  key={`${option.group}:${option.name}`}
+                                  id={`${listId}-${i}`}
+                                  role="option"
+                                  title={option.name}
+                                  aria-selected={i === active}
+                                  className={`${styles.option} ${i === active ? styles.optionActive : ""}`}
+                                  style={{ fontFamily: fontFamilyValue(slot, option.name) }}
+                                  onMouseDown={(e) => e.preventDefault()}
+                                  onMouseEnter={() => setActive(i)}
+                                  onClick={() => choose(slot, option.name)}
+                                >
+                                  {option.name}
+                                </div>
+                              ))}
                             </div>
-                          </Fragment>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   ) : null}
@@ -329,13 +369,20 @@ export function AppearancePage() {
         </div>
       </section>
 
-      <section className={styles.block} aria-label="Preview" style={previewVars} data-testid="appearance-preview">
+      <section
+        className={styles.block}
+        aria-labelledby={PREVIEW_TITLE_ID}
+        style={previewVars}
+        data-testid="appearance-preview"
+      >
         <div className={styles.blockHead}>
-          <h3 className={styles.blockTitle}>Preview</h3>
+          <h3 className={styles.blockTitle} id={PREVIEW_TITLE_ID}>
+            Preview
+          </h3>
         </div>
         <div className={styles.previewRow}>
           <span className={styles.fieldLabel}>Interface</span>
-          <p className={styles.previewInterface}>Interface: File Edit View Run Settings Help ─ New notebook</p>
+          <p className={styles.previewInterface}>File Edit View Run Settings Help ─ New notebook</p>
         </div>
         <div className={styles.previewRow}>
           <span className={styles.fieldLabel}>Code cell</span>
@@ -354,7 +401,7 @@ export function AppearancePage() {
       </p>
 
       <div className={styles.actions}>
-        <span className={styles.keys}>⌘S apply · Esc discard · F4 open list</span>
+        <span className={styles.keys}>{SAVE_KEY} apply · Esc discard · F4 open list · F1 help</span>
         <div className={styles.buttons}>
           <button type="button" className="btn" onClick={leave}>
             Cancel
