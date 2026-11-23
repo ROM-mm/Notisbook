@@ -175,7 +175,7 @@ def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     """
     has_type = _check_schema(conn)
     names = {r[0] for r in _namespace_names(conn)}
-    is_table = f"{_TABLE_FILTER}" if has_type else "1"
+    is_table = _TABLE_FILTER if has_type else "1"
     is_view = "iceberg_type = 'VIEW'" if has_type else "0"
     tables: dict[str, int] = {}
     views: dict[str, int] = {}
