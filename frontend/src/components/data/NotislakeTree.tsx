@@ -128,7 +128,6 @@ function buildRows(
   }
 }
 
-/** Pasta com o `FolderIcon`; objeto com o ícone de arquivo. */
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
   return node.isDir ? <FolderIcon size={14} /> : <FileIcon size={14} />;
 }
