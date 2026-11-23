@@ -7,6 +7,66 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-23
+
+A DuckDB runtime next to Spark, info panels for tables and catalogs in the Catalog, a monochrome theme with
+monochrome SVG icons, and an Appearance screen rebuilt on the Runtimes layout.
+
+### Added
+
+- **DuckDB runtime.** Settings › Runtimes has a DuckDB section that installs DuckDB 2.0.1 as a background job, shows
+  its status and extensions, and removes it. The extensions (httpfs, iceberg, avro, excel, sqlite_scanner,
+  postgres_scanner and spatial) are downloaded once and checked against SHA-256 hashes, so sessions load them
+  offline. A DuckDB session starts with an S3 secret for the local object store and the Notislake Iceberg REST
+  catalog attached, and the kernel selector shows the runtime with its own icon. A bundled DuckDB sample notebook
+  creates `notislake.bronze`, builds an Iceberg table, exports it to Parquet in `s3a://notislake/landing` and reads
+  it back with `read_parquet`.
+- **Table info panel.** Clicking a table name in the Catalog (or pressing Enter on it) opens a docked panel with
+  Overview, Columns, History and Properties. Delta, Parquet and Hudi tables are read from the catalog, Iceberg tables
+  from their `metadata.json` with snapshots and stats, and the panel says whether `DROP` deletes the files: managed
+  Delta, Parquet and Hudi tables do, Iceberg tables only drop the registration unless `PURGE` is used.
+- **Catalog info panel.** Clicking a catalog name opens a panel with Overview, Config and Namespaces, including exact
+  namespace and table counts and the local Spark configuration of that catalog. Sensitive keys, values and URI
+  credentials are masked by the server.
+- **File-format icons in the trees.** The file tree and the Notislake tree show icons for Parquet, Delta, ORC, Avro,
+  CSV, PSV, TSV, JSON and TXT files, and both use the same folder icon.
+- **Appearance in the shortcut list.** The keyboard shortcut list includes Cmd+, (Ctrl+, elsewhere) for Appearance.
+
+### Changed
+
+- **Monochrome theme.** Light mode is white with black lines and text, and dark mode uses `#2d2d2b`, `#4a4a47` and
+  `#f2f1ec`. The green and red status colors and the syntax colors are brighter in both themes while text keeps
+  WCAG AA contrast, scrollbars are hidden while scrolling still works, and the active cell has its own background.
+- **Monochrome SVG logos.** The runtime selector, Catalog, file tree and Notislake root draw Spark, Iceberg, Hudi,
+  S3, Delta, Parquet and Glue as monochrome SVG icons in the text color instead of PNG logos, and the landing page
+  uses the same icons.
+- **Cell languages follow the kernel.** The cell language menu only offers the languages the active kernel can run,
+  labeled Python, Spark SQL and DuckDB, and the HTML report uses the same labels.
+- **Panels sized to their content.** The Notebooks panel opens at 256px and widens to fit the longest name, up to
+  600px or half the window, until it is resized by hand; a double click on its edge hands sizing back. Table info
+  keeps identifiers and paths on one line and widens between 400px and 45% of the window.
+- **Appearance screen on the Runtimes layout.** Settings › Appearance now uses the centered Fonts and Preview blocks
+  of Runtimes, with font comboboxes grouped into Bundled and System, pending and invalid badges, and Cancel and
+  Apply buttons. The ISPF command line is gone, the keyboard shortcuts still work, and Reset to defaults only fills
+  the fields until Apply is pressed.
+- **Leaner Catalog rows.** Catalog tree rows no longer show the table format and MANAGED/EXTERNAL label, which moved
+  to the table info panel.
+
+### Fixed
+
+- **Unavailable cell languages on R and Julia kernels.** Running a cell in a language the kernel does not support
+  now returns an error output instead of sending Python code that broke non-Python kernels.
+- **Appearance shortcuts.** F1, F3, F4 and Esc only act while focus is inside the Appearance page and F12 is no
+  longer intercepted, while F5 and Cmd+S (Ctrl+S elsewhere) always apply instead of reloading the page or opening
+  the browser's save dialog.
+- **Kernel selector.** The technical kernel name stays visible when two runtimes share a display name, and messages
+  about a missing runtime point to Settings › Runtimes.
+- **Catalog info after deleting a schema.** The catalog info panel reloads once after a schema is deleted.
+- **Notebooks panel on window resize.** The Notebooks panel refits its width when the window is resized and once web
+  fonts finish loading.
+- **Light theme states.** The active state is distinct from hover in the light theme, and a running Spark job keeps
+  its highlighted background.
+
 ## [0.6.0] - 2026-11-22
 
 A Settings menu with an Appearance screen to pick the interface, code and markdown fonts, and "Runtimes" as the
