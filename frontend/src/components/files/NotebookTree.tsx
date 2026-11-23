@@ -3,7 +3,7 @@
  * Mostra pastas e notebooks; clicar em pasta expande/recolhe, em notebook abre a aba.
  * Foco por roving tabindex. Rename e rascunho de nova pasta usam `NameInput` inline.
  */
-import { type KeyboardEvent, type MouseEvent, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContentEntry } from "../../api";
 import { uniqueName } from "../../lib/paths";
 import { useLayout } from "../../state/layout";
@@ -95,8 +95,8 @@ export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStart
   const namesKey = nav.map((r) => `${r.key}:${r.entry.name}`).join("\n");
   const manual = useLayout((s) => s.rightPanelWidthManual);
   const treeRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    if (manual) return;
+  const growToFitNames = useCallback(() => {
+    if (useLayout.getState().rightPanelWidthManual) return;
     const names = treeRef.current?.querySelectorAll<HTMLElement>(`.${styles.treeName}`);
     if (!names) return;
     let overflow = 0;
@@ -107,7 +107,21 @@ export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStart
       const layout = useLayout.getState();
       layout.growRightPanelWidth(layout.rightPanelWidth + overflow);
     }
-  }, [namesKey, manual]);
+  }, []);
+  useLayoutEffect(() => {
+    if (manual) return;
+    growToFitNames();
+  }, [namesKey, manual, growToFitNames]);
+  // Remede uma vez após a Roboto carregar: antes dela o excedente sai subestimado.
+  useEffect(() => {
+    let active = true;
+    void document.fonts.ready.then(() => {
+      if (active) growToFitNames();
+    });
+    return () => {
+      active = false;
+    };
+  }, [growToFitNames]);
 
   const focusRow = (key: string | undefined) => {
     if (key) refs.current.get(key)?.focus();

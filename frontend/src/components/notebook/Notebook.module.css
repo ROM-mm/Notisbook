@@ -81,6 +81,7 @@
 .empty .addBar {
   width: 100%;
   max-width: 420px;
+  margin-block: 0;
   margin-left: 0;
   padding-left: 0;
 }
