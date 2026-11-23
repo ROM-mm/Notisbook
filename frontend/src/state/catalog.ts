@@ -56,7 +56,7 @@ interface CatalogState {
   toggle: (key: string, table?: ColumnsQuery) => void;
   expand: (key: string, table?: ColumnsQuery) => void;
   collapse: (key: string) => void;
-  /** Esquece a expansão e as colunas do schema excluído e de tudo sob ele (fecha o Table info dele e relê o Catalog info aberto do catálogo). */
+  /** Esquece a expansão e as colunas do schema excluído e de tudo sob ele (fecha o Table info dele). O chamador faz `refresh()` em seguida, que relê o Catalog info aberto. */
   forgetSchema: (catalog: string, schema: string) => void;
   info: InfoState | null;
   /** Abre (ou troca) a tabela do painel Table info; fecha o Catalog info, se aberto. */
@@ -263,8 +263,8 @@ export const useCatalog = create<CatalogState>((set, get) => {
       }
       const info = get().info;
       if (info?.kind === "table" && info.query.catalog === catalog && info.query.database === schema) get().closeInfo();
-      // Contagens e namespaces do catálogo mudaram: relê o Catalog info aberto dele (mantém os dados durante a leitura).
-      else if (info?.kind === "catalog" && info.name === catalog) loadCatalogInfo(catalog);
+      // O Catalog info aberto (contagens e namespaces mudaram) é relido uma vez só pelo `refresh()` que o chamador
+      // faz logo em seguida; reler aqui também duplicaria a requisição.
       set((s) => ({
         expanded: Object.fromEntries(Object.entries(s.expanded).filter(([k]) => !under(k))) as Record<string, true>,
         columns: Object.fromEntries(Object.entries(s.columns).filter(([k]) => !under(k))),

@@ -436,6 +436,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     } else {
       forgetSchema(catalog, schema);
     }
+    // Única releitura após a exclusão: árvore, colunas expandidas e o Catalog info aberto.
     refresh();
     setDeleting(null);
     setNotice(deletionNotice(schema, res));
