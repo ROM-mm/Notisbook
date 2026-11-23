@@ -14,6 +14,34 @@
 </script>
 </head>
 <body>
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="s-spark" viewBox="0 0 32 32"><polygon points="20.01,1.83 20.35,13.28 29.48,16.09 20.70,19.85 21.20,30.34 14.55,22.21 5.90,24.98 10.41,17.09 4.26,9.18 13.99,11.57" fill="currentColor" stroke="none" stroke-linejoin="round"/></symbol>
+    <symbol id="s-iceberg" viewBox="0 0 32 32"><defs><clipPath id="c-ice"><circle cx="16" cy="16" r="13.6"/></clipPath>
+<mask id="m-ice"><rect width="32" height="32" fill="#fff"/><polygon points="6.00,10.00 26.50,10.00 27.00,13.00 23.00,17.00 23.00,21.50 20.00,24.00 16.00,30.00 11.00,24.50 11.00,21.00 6.00,13.00" fill="#000" stroke="#000" stroke-width="4"/></mask></defs>
+<circle cx="16" cy="16" r="14.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<g clip-path="url(#c-ice)" mask="url(#m-ice)"><path d="M0 13H32M0 16H32M0 19H32M0 22H32M0 25H32M0 28H32M0 31H32" stroke="currentColor" stroke-width="1.6" fill="none"/></g>
+<line x1="1.5" y1="10" x2="30.5" y2="10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<polygon points="9,9.5 11,6.5 21,6 24,8 24.5,9.5" fill="currentColor" stroke="none"/>
+<polygon points="6.00,10.00 26.50,10.00 27.00,13.00 23.00,17.00 23.00,21.50 20.00,24.00 16.00,30.00 11.00,24.50 11.00,21.00 6.00,13.00" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M16 10V18L23 17M16 18L20 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></symbol>
+    <symbol id="s-hudi" viewBox="0 0 32 32"><defs><mask id="m-hudi"><rect width="32" height="32" fill="#fff"/><polygon points="19.00,10.00 29.50,30.00 8.50,30.00" fill="#000"/></mask>
+<clipPath id="c-hudi"><polygon points="19.00,10.00 29.50,30.00 8.50,30.00"/></clipPath></defs>
+<polygon points="13.00,5.00 23.00,26.00 3.00,26.00" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" mask="url(#m-hudi)"/>
+<g clip-path="url(#c-hudi)"><path d="M0 13H32M0 16H32M0 19H32M0 22H32M0 25H32M0 28H32" stroke="currentColor" stroke-width="1.6" fill="none"/></g>
+<polygon points="19.00,10.00 29.50,30.00 8.50,30.00" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M3.5 21A11 11 0 0 1 8 7.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4"/>
+<polygon points="6,3.5 12.5,6.8 6.8,11" fill="currentColor" stroke="none"/>
+<path d="M21.5 3.5A11 11 0 0 1 29.5 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4"/>
+<polygon points="25.5,15.5 32,15 29.3,21.5" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="s-s3" viewBox="0 0 32 32"><ellipse cx="16" cy="7" rx="13" ry="4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M3 7L6.5 27Q16 31.5 25.5 27L29 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="12" cy="17" r="1.9" fill="currentColor" stroke="none"/>
+<path d="M12 17L28.5 20.8Q31.2 21.6 30.2 23.8L26.3 25.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="s-delta" viewBox="0 0 32 32"><path d="M16 2L28.5 21H3.5ZM16 9.5L9.3 18.5H22.7Z" fill="currentColor" stroke="none" fill-rule="evenodd"/>
+<path d="M3 24.5H29M6.5 27.6H25.5M10.5 30.6H21.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="s-parquet" viewBox="0 0 32 32"><g transform="rotate(-45 16 16)" fill="currentColor" stroke="none"><rect x="5.40" y="5.40" width="21.20" height="3" rx="0.6"/><rect x="5.40" y="9.95" width="7.60" height="3" rx="0.6"/><rect x="14.60" y="9.95" width="12.00" height="3" rx="0.6"/><rect x="5.40" y="14.50" width="13.10" height="3" rx="0.6"/><rect x="20.10" y="14.50" width="6.50" height="3" rx="0.6"/><rect x="5.40" y="19.05" width="4.10" height="3" rx="0.6"/><rect x="11.10" y="19.05" width="15.50" height="3" rx="0.6"/><rect x="5.40" y="23.60" width="21.20" height="3" rx="0.6"/></g></symbol>
+    <symbol id="s-glue" viewBox="0 0 32 32"><defs><clipPath id="c-glue-a"><polygon points="1.50,7.00 8.50,7.00 8.50,14.00 1.50,14.00"/></clipPath></defs><g clip-path="url(#c-glue-a)"><rect x="5" y="0" width="32" height="32" fill="none"/><path d="M5 0.0H32M5 2.5H32M5 5.0H32M5 7.5H32M5 10.0H32M5 12.5H32M5 15.0H32M5 17.5H32M5 20.0H32M5 22.5H32M5 25.0H32M5 27.5H32M5 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="1.50,7.00 8.50,7.00 8.50,14.00 1.50,14.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="5" y1="7" x2="5" y2="14" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-b"><polygon points="11.50,1.00 20.50,1.00 20.50,14.00 11.50,14.00"/></clipPath></defs><g clip-path="url(#c-glue-b)"><rect x="16" y="0" width="32" height="32" fill="none"/><path d="M16 0.0H32M16 2.5H32M16 5.0H32M16 7.5H32M16 10.0H32M16 12.5H32M16 15.0H32M16 17.5H32M16 20.0H32M16 22.5H32M16 25.0H32M16 27.5H32M16 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="11.50,1.00 20.50,1.00 20.50,14.00 11.50,14.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="16" y1="1" x2="16" y2="14" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-c"><polygon points="23.50,9.00 30.50,9.00 30.50,14.00 23.50,14.00"/></clipPath></defs><g clip-path="url(#c-glue-c)"><rect x="27" y="0" width="32" height="32" fill="none"/><path d="M27 0.0H32M27 2.5H32M27 5.0H32M27 7.5H32M27 10.0H32M27 12.5H32M27 15.0H32M27 17.5H32M27 20.0H32M27 22.5H32M27 25.0H32M27 27.5H32M27 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="23.50,9.00 30.50,9.00 30.50,14.00 23.50,14.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="27" y1="9" x2="27" y2="14" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-d"><polygon points="1.50,17.00 30.50,17.00 30.50,22.00 16.00,26.50 1.50,22.00"/></clipPath></defs><g clip-path="url(#c-glue-d)"><rect x="16" y="0" width="32" height="32" fill="none"/><path d="M16 0.0H32M16 2.5H32M16 5.0H32M16 7.5H32M16 10.0H32M16 12.5H32M16 15.0H32M16 17.5H32M16 20.0H32M16 22.5H32M16 25.0H32M16 27.5H32M16 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="1.50,17.00 30.50,17.00 30.50,22.00 16.00,26.50 1.50,22.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="16" y1="17" x2="16" y2="26.5" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-e"><polygon points="12.50,27.50 19.50,27.50 19.50,31.00 12.50,31.00"/></clipPath></defs><g clip-path="url(#c-glue-e)"><rect x="16" y="0" width="32" height="32" fill="none"/><path d="M16 0.0H32M16 2.5H32M16 5.0H32M16 7.5H32M16 10.0H32M16 12.5H32M16 15.0H32M16 17.5H32M16 20.0H32M16 22.5H32M16 25.0H32M16 27.5H32M16 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="12.50,27.50 19.50,27.50 19.50,31.00 12.50,31.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="16" y1="27.5" x2="16" y2="31" stroke="currentColor" stroke-width="1.6"/></symbol>
+  </svg>
 <svg hidden aria-hidden="true"><symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0"/><path d="M4 6v6a8 3 0 0 0 16 0v-6"/><path d="M4 12v6a8 3 0 0 0 16 0v-6"/></symbol></svg>
 <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
 
@@ -70,12 +98,12 @@
 <span class="c" data-i18n="hero.termcomment"># opens http://127.0.0.1:8765/?token=&lt;token&gt; in your browser</span></pre>
       </div>
       <div class="stack-strip" aria-label="Supported technologies" data-i18n-aria="aria.stack">
-        <span class="chip"><img src="assets/icons/spark.png" alt="">Apache Spark</span>
-        <span class="chip"><img src="assets/icons/delta.png" alt="">Delta Lake</span>
-        <span class="chip"><img src="assets/icons/iceberg.png" alt="">Apache Iceberg</span>
-        <span class="chip"><img src="assets/icons/hudi.png" alt="">Apache Hudi</span>
-        <span class="chip"><img src="assets/icons/glue.png" alt="">AWS Glue</span>
-        <span class="chip"><img src="assets/icons/s3.png" alt="">S3A · MinIO</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-spark"/></svg>Apache Spark</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-delta"/></svg>Delta Lake</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-iceberg"/></svg>Apache Iceberg</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-hudi"/></svg>Apache Hudi</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-glue"/></svg>AWS Glue</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-s3"/></svg>S3A · MinIO</span>
       </div>
     </div>
 
@@ -85,29 +113,29 @@
         <img src="assets/favicon-dark.svg" alt="" width="18" height="18" class="mark-dark">
         <span class="wordmark">notisbook</span>
         <span class="nb-tab"><span class="sq" aria-hidden="true"></span>delta.ipynb</span>
-        <span class="kernel"><span class="sq" aria-hidden="true"></span><img src="assets/icons/spark.png" alt="Spark">3.5.9<span class="caret" aria-hidden="true">▾</span></span>
+        <span class="kernel"><span class="sq" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>3.5.9<span class="caret" aria-hidden="true">▾</span></span>
       </div>
       <div class="app-body">
         <aside class="app-side">
           <div class="side-title"><span>Catalog</span></div>
           <ul class="tree">
-            <li><span><span class="caret">▾</span><img src="assets/icons/spark.png" alt="Spark">spark_catalog</span>
+            <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark_catalog</span>
               <ul>
                 <li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
                   <ul>
-                    <li class="sel"><span><img src="assets/icons/delta.png" alt="Delta">delta_employees</span></li>
-                    <li><span><img src="assets/icons/hudi.png" alt="Hudi">hudi_employees</span></li>
-                    <li><span><img src="assets/icons/delta.png" alt="Delta">glue_employees</span></li>
+                    <li class="sel"><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>delta_employees</span></li>
+                    <li><span><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi_employees</span></li>
+                    <li><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>glue_employees</span></li>
                   </ul>
                 </li>
                 <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>silver</span></li>
                 <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>gold</span></li>
               </ul>
             </li>
-            <li><span><span class="caret">▾</span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg</span>
+            <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg</span>
               <ul>
                 <li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
-                  <ul><li><span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg_employees</span></li></ul>
+                  <ul><li><span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg_employees</span></li></ul>
                 </li>
               </ul>
             </li>
@@ -115,7 +143,7 @@
           <div class="side-sep"></div>
           <div class="side-title"><span>Notislake</span><span class="ok">● 127.0.0.1</span></div>
           <ul class="tree">
-            <li><span><span class="caret">▾</span><img src="assets/icons/s3.png" alt="S3">s3a://notislake</span>
+            <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="S3"><use href="#s-s3"/></svg>s3a://notislake</span>
               <ul>
                 <li><span><span class="fold" aria-hidden="true"></span>landing/</span></li>
                 <li><span><span class="fold" aria-hidden="true"></span>bronze/</span></li>
@@ -203,11 +231,11 @@
     </div>
 
     <div class="tablist" role="tablist" aria-label="Examples" data-i18n-aria="aria.examples">
-      <button class="tab" role="tab" id="tab-delta" aria-controls="panel-delta" aria-selected="true"><img src="assets/icons/delta.png" alt="">Spark + Delta</button>
-      <button class="tab" role="tab" id="tab-iceberg" aria-controls="panel-iceberg" aria-selected="false" tabindex="-1"><img src="assets/icons/iceberg.png" alt="">Iceberg</button>
-      <button class="tab" role="tab" id="tab-hudi" aria-controls="panel-hudi" aria-selected="false" tabindex="-1"><img src="assets/icons/hudi.png" alt="">Hudi</button>
-      <button class="tab" role="tab" id="tab-glue" aria-controls="panel-glue" aria-selected="false" tabindex="-1"><img src="assets/icons/glue.png" alt="">Glue 5.0</button>
-      <button class="tab" role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false" tabindex="-1"><img src="assets/icons/spark.png" alt="">Catalog</button>
+      <button class="tab" role="tab" id="tab-delta" aria-controls="panel-delta" aria-selected="true"><svg class="ico" aria-hidden="true"><use href="#s-delta"/></svg>Spark + Delta</button>
+      <button class="tab" role="tab" id="tab-iceberg" aria-controls="panel-iceberg" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-iceberg"/></svg>Iceberg</button>
+      <button class="tab" role="tab" id="tab-hudi" aria-controls="panel-hudi" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-hudi"/></svg>Hudi</button>
+      <button class="tab" role="tab" id="tab-glue" aria-controls="panel-glue" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-glue"/></svg>Glue 5.0</button>
+      <button class="tab" role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-spark"/></svg>Catalog</button>
     </div>
 
     <div class="tabpanel" role="tabpanel" id="panel-delta" aria-labelledby="tab-delta" tabindex="0">
@@ -291,7 +319,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
             </table></div>
           </div>
           <div class="out"><div class="out-head"><span>Catalog</span></div>
-<pre><img src="assets/icons/iceberg.png" alt="" width="14" height="14" style="display:inline;vertical-align:-2px"> iceberg
+<pre><svg class="ico" width="14" height="14" style="display:inline;vertical-align:-2px" aria-hidden="true"><use href="#s-iceberg"/></svg> iceberg
  └─ bronze
      └─ iceberg_employees</pre></div>
           <p class="note" data-i18n="ex.iceberg.note"><code>createOrReplace</code> lets the cell run again without errors.</p>
@@ -387,22 +415,22 @@ df.<span class="f">show</span>()</pre></div>
           <p class="col-label" data-i18n="ex.cat.tree">Catalog panel</p>
           <div class="out" style="padding:10px 0">
             <ul class="tree">
-              <li><span><span class="caret">▾</span><img src="assets/icons/spark.png" alt="Spark">spark_catalog</span>
+              <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark_catalog</span>
                 <ul>
                   <li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
                     <ul>
-                      <li><span><img src="assets/icons/delta.png" alt="Delta">delta_employees</span></li>
-                      <li><span><img src="assets/icons/hudi.png" alt="Hudi">hudi_employees</span></li>
-                      <li><span><img src="assets/icons/delta.png" alt="Delta">glue_employees</span></li>
+                      <li><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>delta_employees</span></li>
+                      <li><span><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi_employees</span></li>
+                      <li><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>glue_employees</span></li>
                     </ul>
                   </li>
                   <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>silver</span></li>
                   <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>gold</span></li>
                 </ul>
               </li>
-              <li><span><span class="caret">▾</span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg</span>
+              <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg</span>
                 <ul><li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
-                  <ul><li><span><img src="assets/icons/iceberg.png" alt="Iceberg">iceberg_employees</span></li></ul></li></ul>
+                  <ul><li><span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg_employees</span></li></ul></li></ul>
               </li>
             </ul>
           </div>
@@ -434,22 +462,22 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     </div>
     <div class="features">
       <article class="feature hl">
-        <div class="feature-icons"><img src="assets/icons/spark.png" alt="Spark"><img src="assets/icons/parquet.png" alt="Parquet"></div>
+        <div class="feature-icons"><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg><svg class="ico" role="img" aria-label="Parquet"><use href="#s-parquet"/></svg></div>
         <h3 data-i18n="ft.cat.t">Persistent catalog</h3>
         <p data-i18n="ft.cat.p">Delta, Parquet and Hudi tables created by notebooks are kept in <code>catalog.db</code> (SQLite) and listed without an open Spark session. Iceberg has its own <code>iceberg</code> catalog, also served over REST to the Glue container.</p>
       </article>
       <article class="feature hl">
-        <div class="feature-icons"><img src="assets/icons/delta.png" alt="Delta Lake"><img src="assets/icons/iceberg.png" alt="Apache Iceberg"><img src="assets/icons/hudi.png" alt="Apache Hudi"></div>
+        <div class="feature-icons"><svg class="ico" role="img" aria-label="Delta Lake"><use href="#s-delta"/></svg><svg class="ico" role="img" aria-label="Apache Iceberg"><use href="#s-iceberg"/></svg><svg class="ico" role="img" aria-label="Apache Hudi"><use href="#s-hudi"/></svg></div>
         <h3 data-i18n="ft.fmt.t">Delta, Iceberg and Hudi</h3>
         <p data-i18n="ft.fmt.p">A bundle matrix per Spark line (3.5 and 4.1) pins the Delta Lake, Iceberg, Hudi and Hadoop/S3A jars, each verified by sha256.</p>
       </article>
       <article class="feature hl">
-        <div class="feature-icons"><img src="assets/icons/glue.png" alt="AWS Glue"><span class="glyph">5.0</span></div>
+        <div class="feature-icons"><svg class="ico" role="img" aria-label="AWS Glue"><use href="#s-glue"/></svg><span class="glyph">5.0</span></div>
         <h3 data-i18n="ft.glue.t">AWS Glue runtime in Docker</h3>
         <p data-i18n="ft.glue.p">Optional kernel on the AWS Glue 5.0 image: Spark 3.5, Python 3.11, Java 17, with Delta and Iceberg, running in a persistent local container.</p>
       </article>
       <article class="feature">
-        <div class="feature-icons"><img src="assets/icons/s3.png" alt="S3"></div>
+        <div class="feature-icons"><svg class="ico" role="img" aria-label="S3"><use href="#s-s3"/></svg></div>
         <h3 data-i18n="ft.lake.t">notislake</h3>
         <p data-i18n="ft.lake.p">A local MinIO, started and supervised by Notisbook, serves the <code>notislake</code> bucket with <code>bronze</code>, <code>silver</code> and <code>gold</code> layers over <code>s3a://</code>. A manual S3 endpoint can be used instead.</p>
       </article>
