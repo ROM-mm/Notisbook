@@ -26,10 +26,11 @@ import {
   FileIcon,
   FileJsonIcon,
   FileParquetIcon,
+  FileTextIcon,
   FolderIcon,
   SymlinkIcon,
 } from "../shell/icons";
-import { DeltaIcon, ParquetIcon } from "../shell/techIcons";
+import { AvroIcon, DeltaIcon, ParquetIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
 import { extension } from "./fileExtension";
 import styles from "./DataPanel.module.css";
@@ -106,11 +107,12 @@ function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
   }
   if (entry.is_symlink) return <SymlinkIcon size={14} />;
   if (ext === "parquet") return <BrandIcon icon={ParquetIcon} />;
-  if (ext === "orc" || ext === "avro")
-    return <FileParquetIcon size={14} />;
-  if (ext === "csv" || ext === "tsv") return <FileCsvIcon size={14} />;
+  if (ext === "avro") return <BrandIcon icon={AvroIcon} />;
+  if (ext === "orc") return <FileParquetIcon size={14} />;
+  if (ext === "csv" || ext === "tsv" || ext === "psv") return <FileCsvIcon size={14} />;
   if (ext === "json" || ext === "jsonl" || ext === "ndjson")
     return <FileJsonIcon size={14} />;
+  if (ext === "txt") return <FileTextIcon size={14} />;
   if (ext === "delta") return <BrandIcon icon={DeltaIcon} />;
   return <FileIcon size={14} />;
 }
