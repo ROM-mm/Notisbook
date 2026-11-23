@@ -36,6 +36,22 @@ before it is published.
 - **`install.sh` is checksummed.** Every release now lists `install.sh` in `SHA256SUMS`, and `release.sh` checks that
   the listed checksum matches the script before publishing.
 
+### Fixed
+
+- **`--port` is refused with `update` and `uninstall`.** Any explicit `--port`, including the default value, is now
+  rejected when combined with a subcommand instead of being silently ignored.
+- **`notisbook update` reports disk errors.** A `SHA256SUMS` or `install.sh` that cannot be read, or a temporary
+  folder that cannot be created, now ends the update with a short error message instead of a Python traceback.
+- **Data folder comparison respects case.** `notisbook uninstall` compares data folder paths by identity
+  (`os.path.samefile`) instead of lowercasing them, so two folders that differ only in case are not mistaken for
+  each other on a case-sensitive volume.
+- **Clearer Intel Mac message.** `install.sh` now stops on an Intel Mac with "Notisbook supports Apple silicon only
+  (detected x86_64)".
+- **Sturdier `/clean` script.** `scripts/clean.py` no longer hangs on a slow `uv cache dir` or uv cache measurement
+  (both now time out), keeps the bundled MinIO tarballs in `backend/dist` when `backend/dist/notislake` is missing,
+  matches protected paths regardless of letter case, and shows the uv cache size as "≥ X" when part of it cannot be
+  read. The list of what it removes is unchanged.
+
 ## [0.9.0] - 2026-11-23
 
 Notisbook now supports Apple silicon Macs only: releases ship a single arm64 build of the bundled object store and
