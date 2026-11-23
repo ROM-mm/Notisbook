@@ -20,6 +20,8 @@ import {
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
+import { ParquetIcon } from "../shell/techIcons";
+import { BrandIcon } from "./BrandIcon";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 
@@ -129,7 +131,9 @@ function buildRows(
 }
 
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
-  return node.isDir ? <FolderIcon size={14} /> : <FileIcon size={14} />;
+  if (node.isDir) return <FolderIcon size={14} />;
+  if (node.name.toLowerCase().endsWith(".parquet")) return <BrandIcon icon={ParquetIcon} />;
+  return <FileIcon size={14} />;
 }
 
 export function NotislakeTree() {
