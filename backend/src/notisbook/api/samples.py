@@ -48,6 +48,12 @@ def _describe(name: str, rel: str) -> dict[str, str]:
 
 @router.get("")
 def list_samples(request: Request) -> list[dict[str, str]]:
+    """Lista os exemplos empacotados presentes na raiz, ordenados pelo nome.
+
+    O exemplo é identificado SOMENTE pelo nome do arquivo, nunca pelo conteúdo: executar e salvar
+    um exemplo grava saídas no .ipynb, e uma comparação por hash deixaria de reconhecê-lo.
+    Consequência: um notebook do usuário com o mesmo nome de um exemplo é tratado como exemplo.
+    """
     store: NotebookStore = request.app.state.store
     names = sorted(p.stem for p in SAMPLES_DIR.glob(f"*{NOTEBOOK_SUFFIX}"))
     return [_describe(n, f"{n}{NOTEBOOK_SUFFIX}") for n in names if _present_in_root(store, f"{n}{NOTEBOOK_SUFFIX}")]

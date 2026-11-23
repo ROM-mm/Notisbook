@@ -261,6 +261,18 @@
   border-left: 1px solid var(--color-border);
 }
 
+/* Janela estreita: passos empilhados; o divisor passa a ser horizontal (sem borda solta). */
+@media (max-width: 640px) {
+  .homeSetup {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .homeStep + .homeStep {
+    border-top: 1px solid var(--color-border);
+    border-left: 0;
+  }
+}
+
 .homeStep h4 {
   margin: 0 0 2px;
   color: var(--color-text);
@@ -316,6 +328,19 @@
 
 .homeExample + .homeExample {
   border-left: 1px solid var(--color-border);
+}
+
+/* Janela estreita: um card por linha; o divisor passa a ser horizontal (sem borda dupla ou solta). */
+@media (max-width: 640px) {
+  .homeExamples {
+    grid-auto-flow: row;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .homeExample + .homeExample {
+    border-top: 1px solid var(--color-border);
+    border-left: 0;
+  }
 }
 
 .homeExample:hover,

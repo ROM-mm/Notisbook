@@ -11,7 +11,7 @@
  * - "appearance" → components/appearance/AppearancePage (fontes; ⌘, abre de qualquer tela)
  */
 import { lazy, Suspense, useEffect, useState } from "react";
-import { bootstrapAuth, errorMessage, type Kernelspec, listKernelspecs, listSamples, type Sample } from "./api";
+import { bootstrapAuth, errorMessage, type Kernelspec, listKernelspecs, type Sample } from "./api";
 import { isMac } from "./components/shell/platform";
 import { AppShell } from "./components/shell/AppShell";
 import shellStyles from "./components/shell/AppShell.module.css";
@@ -98,20 +98,14 @@ function engineLabel(sample: Sample): string {
 }
 
 /**
- * Exemplos (só para os cards; `samplePaths` dos recentes é preenchido pelo workspace junto
- * com a raiz) e kernelspecs da raiz atual; relê quando a raiz muda. Falha nos kernelspecs
- * liga `specsFailed` (status dos runtimes desconhecido).
+ * Kernelspecs instalados, buscados uma vez na montagem da Home (não dependem da raiz).
+ * Falha liga `specsFailed` (status dos runtimes desconhecido).
  */
-function useHomeData(root: string | null): { samples: Loaded<Sample>; specs: Loaded<Kernelspec>; specsFailed: boolean } {
-  const [samples, setSamples] = useState<Loaded<Sample>>(null);
+function useKernelspecs(): { specs: Loaded<Kernelspec>; specsFailed: boolean } {
   const [specs, setSpecs] = useState<Loaded<Kernelspec>>(null);
   const [specsFailed, setSpecsFailed] = useState(false);
   useEffect(() => {
     const ctrl = new AbortController();
-    setSamples(null);
-    listSamples(ctrl.signal)
-      .then(setSamples)
-      .catch(() => !ctrl.signal.aborted && setSamples([]));
     listKernelspecs(ctrl.signal)
       .then((list) => {
         setSpecsFailed(false);
@@ -123,8 +117,8 @@ function useHomeData(root: string | null): { samples: Loaded<Sample>; specs: Loa
         setSpecs([]);
       });
     return () => ctrl.abort();
-  }, [root]);
-  return { samples, specs, specsFailed };
+  }, []);
+  return { specs, specsFailed };
 }
 
 /** `embedded`: dentro do `<main>` do AppShell (evita `<main>` aninhado). */
@@ -134,7 +128,9 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
   const recentRoot = useRecent((s) => s.root);
   const samplePaths = useRecent((s) => s.samplePaths);
   const [error, setError] = useState<string | null>(null);
-  const { samples, specs, specsFailed } = useHomeData(recentRoot);
+  // Exemplos vêm do workspace, a mesma busca que preenche `samplePaths` (sem corrida com o filtro).
+  const samples = useWorkspace((s) => s.samples);
+  const { specs, specsFailed } = useKernelspecs();
 
   // Só decide o layout com as duas respostas em mãos (sem piscar o "Get started").
   const ready = samples !== null && specs !== null;
@@ -221,7 +217,6 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
                   <span className={shellStyles.homeExampleEngine}>{engineLabel(sample)}</span>
                   <span className={shellStyles.homeExampleName}>{sample.name}</span>
                   <span className={shellStyles.homeExampleNeed}>
-                    {/* Kernelspecs falharam: status desconhecido, ponto neutro (sem preenchimento nem borda). */}
                     <i
                       role="img"
                       className={

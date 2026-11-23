@@ -15,6 +15,7 @@ import { getRootGeneration, setRootGeneration } from "../api/http";
 import { listKernelspecs } from "../api/kernels";
 import { getNotebooksRoot, type NotebooksRoot } from "../api/notebooksRoot";
 import { listSamples } from "../api/samples";
+import type { Sample } from "../api/types";
 import { joinPath, NOTEBOOK_EXT, uniqueName } from "../lib/paths";
 import { createKernelStore, type KernelStore } from "./kernel";
 import { createNotebookStore, type NotebookStore } from "./notebook";
@@ -54,13 +55,36 @@ export async function refreshKernelspecs(): Promise<void> {
 }
 
 /**
- * Caminhos dos exemplos da raiz atual (`GET /api/samples`); erro vira lista vazia, para
- * nunca derrubar o carregamento da raiz.
+ * Única busca de exemplos por raiz (`GET /api/samples`): alimenta os cards da Home
+ * (`samples`) e o filtro dos recentes (`samplePaths`) no mesmo instante, então
+ * "Your notebooks" nunca aparece com um exemplo antes de o filtro chegar. Erro vira
+ * lista vazia, para nunca derrubar o carregamento da raiz. Chamar depois do `setRoot`
+ * (que zera os exemplos dos recentes); resposta de raiz que já mudou é descartada,
+ * assim como resposta superada por uma busca mais nova (chegada fora de ordem).
  */
-function fetchSamplePaths(): Promise<string[]> {
-  return listSamples()
-    .then((list) => list.map((s) => s.path))
-    .catch((): string[] => []);
+let samplesSeq = 0;
+
+function loadSamples(rootPath: string, reset = true): void {
+  const seq = ++samplesSeq;
+  if (reset) useWorkspace.setState({ samples: null });
+  void listSamples()
+    .catch((): Sample[] => [])
+    .then((list) => {
+      if (seq !== samplesSeq) return;
+      if (useRecent.getState().root !== rootPath) return;
+      useRecent.getState().setSamplePaths(list.map((s) => s.path));
+      useWorkspace.setState({ samples: list });
+    });
+}
+
+/**
+ * Rebusca os exemplos da raiz atual depois de apagar/renomear no FileBrowser, para a
+ * Home não manter card de exemplo que já não existe. Mantém a lista atual até a
+ * resposta chegar (sem piscar o estado de carregamento). No-op sem raiz.
+ */
+export function reloadSamples(): void {
+  const rootPath = useRecent.getState().root;
+  if (rootPath !== null) loadSamples(rootPath, false);
 }
 
 /** Carrega o notebook e, se carregou, abre a sessão do kernel. */
@@ -93,6 +117,8 @@ interface WorkspaceState {
   focusMode: boolean;
   /** Raiz dos notebooks (null até carregar; só carrega depois de `bootstrapAuth()`). */
   root: NotebooksRoot | null;
+  /** Exemplos da raiz atual (`GET /api/samples`); `null` enquanto carregam, `[]` em erro. */
+  samples: Sample[] | null;
   shortcutsOpen: boolean;
   aboutOpen: boolean;
 
@@ -125,6 +151,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
   browsing: false,
   focusMode: false,
   root: null,
+  samples: null,
   shortcutsOpen: false,
   aboutOpen: false,
 
@@ -192,18 +219,12 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     const root = await getNotebooksRoot();
     if (getRootGeneration() === null) setRootGeneration(root.generation);
     useRecent.getState().setRoot(root.path);
-    // Depois do setRoot (que zera os exemplos); resposta de raiz que já mudou é descartada.
-    void fetchSamplePaths().then((paths) => {
-      if (useRecent.getState().root === root.path) useRecent.getState().setSamplePaths(paths);
-    });
+    loadSamples(root.path);
     set({ root });
   },
   applyRoot: (root) => {
     useRecent.getState().setRoot(root.path);
-    // Depois do setRoot (que zera os exemplos); resposta de raiz que já mudou é descartada.
-    void fetchSamplePaths().then((paths) => {
-      if (useRecent.getState().root === root.path) useRecent.getState().setSamplePaths(paths);
-    });
+    loadSamples(root.path);
     set({ root });
   },
   setShortcutsOpen: (open) => set({ shortcutsOpen: open }),

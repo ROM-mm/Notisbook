@@ -14,7 +14,7 @@ import { dirname, joinPath, NOTEBOOK_EXT } from "../../lib/paths";
 import { useLayout } from "../../state/layout";
 import { selectTargetDir, useNotebookTree } from "../../state/notebookTree";
 import { useRecent } from "../../state/recent";
-import { closeAllTabs, isOpenUnder, useWorkspace } from "../../state/workspace";
+import { closeAllTabs, isOpenUnder, reloadSamples, useWorkspace } from "../../state/workspace";
 import { FolderIcon, PlusIcon, RefreshIcon } from "../shell/icons";
 import { CardTitle } from "../data/CardTitle";
 import { DirectoryPicker } from "../data/DirectoryPicker";
@@ -214,6 +214,7 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
     const target = joinPath(parent, name);
     await renameEntry(entry.path, target);
     useRecent.getState().rename(entry.path, target);
+    reloadSamples();
     const tree = useNotebookTree.getState();
     tree.forget(entry.path);
     setDraft(null);
@@ -241,6 +242,7 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
     try {
       await deleteEntry(entry.path);
       useRecent.getState().removeUnder(entry.path);
+      reloadSamples();
       tree.forget(entry.path);
       showNotice(`“${entry.name}” deleted.`);
     } catch (err) {
