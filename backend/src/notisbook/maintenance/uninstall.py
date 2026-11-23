@@ -31,8 +31,6 @@ DOCKER_TIMEOUT_S = 60.0
 LEGACY_ENV_GLOB = f"{spark_kernelspec.LEGACY_PREFIX}*"
 # Presença de qualquer um prova que a pasta é uma home do Notisbook (pastas como `envs/` e `run/` são genéricas).
 HOME_MARKERS = ("catalog.db", "preferences.json", "minio/credentials.json", "notislake-connection.json")
-# Guarda o flock do backend; só pode sumir depois de o lock ser liberado.
-RUN_LOCK_DIR = "run"
 # Dados que nunca são tocados (relativos à pasta de dados), só listados para o operador.
 KEEP_NAMES = (
     "minio/data",
@@ -93,13 +91,18 @@ def _home_skip_reason(home: Path) -> str | None:
     return None
 
 
+def _lock_dir(home: Path) -> Path:
+    """Pasta do flock do backend (a do `lock_path` do supervisor); só pode sumir depois de o lock ser liberado."""
+    return lock_path(home).parent
+
+
 def _remove_paths(home: Path) -> list[Path]:
     """Pastas de software desta home que existem agora (a ordem é a da remoção); vazio se `home` não for validada."""
     if _home_skip_reason(home) is not None:
         return []
     minio = home / "minio"
     candidates = [home / spark_kernelspec.ENVS_DIR, *sorted(home.glob(LEGACY_ENV_GLOB)), minio / "bin", minio / "logs"]
-    candidates += [home / lifecycle.RUN_DIR, minio / RUN_LOCK_DIR]
+    candidates += [home / lifecycle.RUN_DIR, _lock_dir(home)]
     return [p for p in candidates if p.exists() or p.is_symlink()]
 
 
@@ -121,7 +124,10 @@ def _rm(path: Path) -> None:
 
 def _same_path(a: str, b: Path) -> bool:
     try:
-        return str(Path(a).resolve()).casefold() == str(b.resolve()).casefold()
+        left, right = Path(a).resolve(), b.resolve()
+        if left.exists() and right.exists():
+            return os.path.samefile(left, right)
+        return left == right
     except OSError:
         return False
 
@@ -287,7 +293,7 @@ def _clean_home(home: Path) -> list[str]:
     reason = _home_skip_reason(home)
     if reason is not None:
         print(f"Notisbook: skipped removing folders inside {home}: {reason}.", file=sys.stderr)
-    lock_dir = home / "minio" / RUN_LOCK_DIR
+    lock_dir = _lock_dir(home)
     _clean_paths([p for p in _remove_paths(home) if p != lock_dir], failures)
     _clean_dist(failures)
     return failures
@@ -327,7 +333,7 @@ def run(*, assume_yes: bool) -> int:
     failures = _clean_home(home)
     if lock_fd is not None:
         os.close(lock_fd)
-    _clean_paths([p for p in _remove_paths(home) if p == home / "minio" / RUN_LOCK_DIR], failures)
+    _clean_paths([p for p in _remove_paths(home) if p == _lock_dir(home)], failures)
     if failures:
         print("Notisbook: some items could not be removed; the tool was kept so you can retry:", file=sys.stderr)
         for failure in failures:

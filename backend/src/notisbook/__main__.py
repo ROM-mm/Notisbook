@@ -51,7 +51,7 @@ CHECK_MINIO_TIMEOUT_S = 30
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="notisbook")
     parser.add_argument("--version", action="version", version=__version__)
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--root", type=Path, default=None)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument(
@@ -72,13 +72,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.command and _server_flags_set(args):
         parser.error(f"server options cannot be combined with the '{args.command}' command")
+    if args.port is None:
+        args.port = DEFAULT_PORT
     return args
 
 
 def _server_flags_set(args: argparse.Namespace) -> bool:
-    """True se alguma flag do modo servidor difere do default (argparse aceitaria `--port 1 update` em silêncio)."""
+    """True se alguma flag do modo servidor foi passada (argparse aceitaria `--port 1 update` em silêncio)."""
     return (
-        args.port != DEFAULT_PORT
+        args.port is not None
         or args.root is not None
         or args.no_browser
         or args.check_notislake

@@ -119,7 +119,11 @@ def _check_order(target: str, installed: str) -> int | None:
 
 
 def _listed_sha(sums: Path, name: str) -> str | None:
-    for line in sums.read_text(encoding="utf-8", errors="replace").splitlines():
+    try:
+        text = sums.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise UpdateError(f"could not read {SUMS_NAME} ({exc.strerror or exc})") from None
+    for line in text.splitlines():
         parts = line.split()
         if len(parts) == 2 and parts[1].lstrip("*") == name:
             return parts[0].lower()
@@ -131,7 +135,11 @@ def _verify_script(workdir: Path) -> None:
     expected = _listed_sha(sums, SCRIPT_NAME)
     if expected is None:
         raise UpdateError(f"{SCRIPT_NAME} is not listed in {SUMS_NAME}; refusing to run an unverified script")
-    if hashlib.sha256(script.read_bytes()).hexdigest() != expected:
+    try:
+        digest = hashlib.sha256(script.read_bytes()).hexdigest()
+    except OSError as exc:
+        raise UpdateError(f"could not read {SCRIPT_NAME} ({exc.strerror or exc})") from None
+    if digest != expected:
         raise UpdateError(f"{SCRIPT_NAME} does not match {SUMS_NAME}; the download is corrupt or was tampered with")
 
 
@@ -174,7 +182,10 @@ def run(target_version: str | None) -> int:
         if done is not None:
             return done
         print(f"Updating Notisbook {env.version} -> {target}...", flush=True)
-        workdir = Path(tempfile.mkdtemp(prefix="notisbook-update-"))
+        try:
+            workdir = Path(tempfile.mkdtemp(prefix="notisbook-update-"))
+        except OSError as exc:
+            raise UpdateError(f"could not create a temporary folder ({exc.strerror or exc})") from None
         _fetch_files(target, source, workdir)
     except UpdateError as exc:
         print(f"Notisbook: update failed: {exc}", file=sys.stderr)
