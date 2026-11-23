@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useStore } from "zustand";
 import { basename } from "../../lib/paths";
 import { getNotislakeLocalCredentials } from "../../api/notislake";
-import { useFiles } from "../../state/files";
+import { LOCAL_FOLDERS_ENABLED, useFiles } from "../../state/files";
 import { isNotislakeTreeAvailable, useNotislake } from "../../state/notislake";
 import { activeNotebookPath, useRouter } from "../../state/router";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
@@ -27,9 +27,6 @@ const REFRESH_DEBOUNCE_MS = 1500;
 
 /** Bucket exibido na raiz enquanto a primeira listagem não informa o nome real. */
 const DEFAULT_BUCKET = "notislake";
-
-/** Interruptor único: false esconde a raiz de pasta local; a pasta salva em useFiles fica preservada. */
-const LOCAL_FOLDERS_ENABLED = false;
 
 /** Relê a árvore na transição busy → idle do kernel do notebook ativo (célula pode ter criado ou excluído tabelas). */
 function IdleRefresh({ entry }: { entry: NotebookEntry }) {

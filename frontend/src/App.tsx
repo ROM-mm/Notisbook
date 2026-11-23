@@ -146,8 +146,10 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
   const openSample = (sample: Sample) => {
     setError(null);
     // Status desconhecido (erro nos kernelspecs): abre; o kernel reporta o que faltar.
-    if (specsFailed || installed.has(sample.kernel_name)) openNotebook(sample.path);
-    else openSettings(sample.runtime_kind);
+    if (specsFailed || installed.has(sample.kernel_name)) {
+      useWorkspace.getState().showPanels();
+      openNotebook(sample.path);
+    } else openSettings(sample.runtime_kind);
   };
 
   return (
@@ -272,6 +274,7 @@ function Home({ dir, embedded = false }: { dir: string; embedded?: boolean }) {
                       title={fullPath}
                       onClick={() => {
                         setError(null);
+                        useWorkspace.getState().showPanels();
                         openNotebook(path);
                       }}
                     >

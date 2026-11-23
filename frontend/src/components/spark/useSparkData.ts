@@ -8,7 +8,8 @@
  *   instalações já em andamento (`installing`) são reconectadas ao abrir a página.
  * - Ao terminar uma instalação ou remoção, recarrega listas e os kernelspecs
  *   das abas abertas (seletor de ambiente da barra de abas).
- * - Runtimes Docker: lidos com a pasta Connections atual (localStorage, `state/files`) para o
+ * - Runtimes Docker: lidos com a pasta Connections atual (localStorage, `state/files`; nula enquanto
+ *   `LOCAL_FOLDERS_ENABLED` for false) para o
  *   backend apontar montagens defasadas; seus jobs seguem o mesmo mecanismo das instalações Local.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,7 +20,7 @@ import { getJob, getPrereqs, getSparkCatalog, getSparkVersions, installSparkVers
 import type { DockerRuntimes, Prereqs, SessionInfo, SparkCatalog, SparkVersions } from "../../api/types";
 import type { JobEvent } from "../../ws/protocol";
 import { JobStream } from "../../ws/jobs";
-import { useFiles } from "../../state/files";
+import { LOCAL_FOLDERS_ENABLED, useFiles } from "../../state/files";
 import { refreshKernelspecs } from "../../state/workspace";
 
 export type JobStatus = "running" | "succeeded" | "failed" | "lost";
@@ -64,7 +65,8 @@ export function useSparkData() {
   const [prereqs, reloadPrereqs] = useLoadable<Prereqs>(getPrereqs);
   const [catalog, reloadCatalog] = useLoadable<SparkCatalog>(getSparkCatalog);
   const [versions, reloadVersions] = useLoadable<SparkVersions>(getSparkVersions);
-  const connectionsDir = useFiles((s) => s.root);
+  // Pasta local desligada: o valor salvo não vai ao runtime (o backend trata ausência como "sem pasta").
+  const connectionsDir = useFiles((s) => (LOCAL_FOLDERS_ENABLED ? s.root : null));
   const fetchDocker = useCallback((signal?: AbortSignal) => listDockerRuntimes(connectionsDir, signal), [connectionsDir]);
   const [docker, reloadDocker] = useLoadable<DockerRuntimes>(fetchDocker);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);

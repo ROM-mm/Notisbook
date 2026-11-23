@@ -8,6 +8,9 @@ import { errorMessage } from "../api/http";
 
 const ROOT_KEY = "notisbook.files.root";
 
+/** Interruptor único: false esconde a raiz de pasta local e não a envia aos runtimes; a pasta salva fica preservada. */
+export const LOCAL_FOLDERS_ENABLED = false;
+
 export interface DirState {
   entries: FsEntry[];
   nextOffset: number | null;

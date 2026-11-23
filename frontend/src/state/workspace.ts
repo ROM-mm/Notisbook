@@ -107,9 +107,9 @@ async function start(entry: NotebookEntry): Promise<void> {
 interface WorkspaceState {
   /** Paths dos notebooks abertos, na ordem das abas. */
   tabs: string[];
-  /** Lateral esquerda (Catalog) aberta; começa fechada. */
+  /** Lateral esquerda (Catalog, Notislake) aberta; começa aberta. */
   leftOpen: boolean;
-  /** Lateral direita (Notebooks, Connections) aberta; começa fechada. */
+  /** Lateral direita (Notebooks) aberta; começa aberta. */
   rightOpen: boolean;
   /** "Browse notebooks…" da Home: mostra o AppShell sem notebook aberto. Só em memória. */
   browsing: boolean;
@@ -133,6 +133,8 @@ interface WorkspaceState {
   setLeftOpen: (open: boolean) => void;
   toggleRight: () => void;
   setRightOpen: (open: boolean) => void;
+  /** Abre as duas laterais e sai do modo foco (entrada num notebook vinda da Home). */
+  showPanels: () => void;
   /** Abre o AppShell com o painel Notebooks, sem notebook aberto; com `dir`, expande a árvore até ele. */
   startBrowsing: (dir?: string) => void;
   toggleFocusMode: () => void;
@@ -146,8 +148,8 @@ interface WorkspaceState {
 
 export const useWorkspace = create<WorkspaceState>((set, get) => ({
   tabs: [],
-  leftOpen: false,
-  rightOpen: false,
+  leftOpen: true,
+  rightOpen: true,
   browsing: false,
   focusMode: false,
   root: null,
@@ -208,9 +210,10 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     ),
   setRightOpen: (open) =>
     set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false, browsing: false }),
+  showPanels: () => set({ leftOpen: true, rightOpen: true, focusMode: false }),
   startBrowsing: (dir) => {
     if (dir) useNotebookTree.getState().expandTo(dir);
-    set({ browsing: true, rightOpen: true, focusMode: false });
+    set({ browsing: true, leftOpen: true, rightOpen: true, focusMode: false });
   },
   // Ligar o foco encerra o Browse: sem abas, o centro ficaria vazio com as laterais ocultas.
   toggleFocusMode: () => set((s) => (s.focusMode ? { focusMode: false } : { focusMode: true, browsing: false })),
@@ -258,7 +261,7 @@ export async function createUntitledNotebook(dir: string): Promise<string> {
   const tree = useNotebookTree.getState();
   if (dir === "" || tree.dirs[dir]?.status === "loading") void tree.reload(dir);
   tree.expandTo(dir);
-  useWorkspace.getState().setRightOpen(true);
+  useWorkspace.getState().showPanels();
   openNotebook(path);
   return path;
 }
