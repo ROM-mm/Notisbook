@@ -38,11 +38,11 @@
 }
 
 .messageOk {
-  color: var(--color-success-subtle);
+  color: var(--color-success-text);
 }
 
 .messageError {
-  color: var(--color-danger-subtle);
+  color: var(--color-danger);
   text-decoration: underline;
 }
 

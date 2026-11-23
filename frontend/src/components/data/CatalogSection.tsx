@@ -42,7 +42,7 @@ import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 import { HudiIcon, IcebergIcon, SparkIcon } from "../shell/techIcons";
-import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
+import { tableFormatIcon } from "./tableFormat";
 
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
 const REFRESH_DEBOUNCE_MS = 1500;
@@ -117,10 +117,8 @@ function tableIcon(t: CatalogTable): ReactNode {
   return t.table_type.toUpperCase() === "EXTERNAL" ? <ExternalTableIcon size={14} /> : <TableIcon size={14} />;
 }
 
-function tableDetail(t: CatalogTable): string {
-  const parts = [tableFormatLabel(t.format), t.table_type.toUpperCase()];
-  if (t.available === false) parts.push("unavailable");
-  return parts.join(" · ");
+function tableDetail(t: CatalogTable): string | undefined {
+  return t.available === false ? "unavailable" : undefined;
 }
 
 function tableTitle(t: CatalogTable): string {

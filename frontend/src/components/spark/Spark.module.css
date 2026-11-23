@@ -214,7 +214,7 @@
 }
 
 .js_succeeded {
-  color: var(--color-success);
+  color: var(--color-success-text);
 }
 
 .js_failed,
@@ -672,7 +672,7 @@
 }
 
 .step_done .stepMark {
-  color: var(--color-success);
+  color: var(--color-success-text);
 }
 
 .step_failed {

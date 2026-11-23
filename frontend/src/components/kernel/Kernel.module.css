@@ -168,7 +168,7 @@
 }
 
 .toolBtnPrimary:not(:disabled) {
-  color: var(--color-success);
+  color: var(--color-success-text);
 }
 
 .toolBtnStop:not(:disabled) {

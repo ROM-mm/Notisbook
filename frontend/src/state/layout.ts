@@ -5,7 +5,7 @@
 import { create } from "zustand";
 
 export const DEFAULT_SIDE_PANEL_WIDTH = 288;
-export const DEFAULT_RIGHT_PANEL_WIDTH = 320;
+export const DEFAULT_RIGHT_PANEL_WIDTH = 256;
 
 export const SIDE_PANEL_MIN = 200;
 export const SIDE_PANEL_MAX = 600;
@@ -29,11 +29,17 @@ const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(mi
 interface LayoutState {
   sidePanelWidth: number;
   rightPanelWidth: number;
+  /** Verdadeiro após arraste manual: o ajuste automático ao conteúdo deixa de agir. */
+  rightPanelWidthManual: boolean;
   /** Pesos de flex-grow dos cartões; só a proporção entre os abertos da mesma lateral importa. */
   cardWeights: Record<PanelCard, number>;
   cardCollapsed: Record<PanelCard, boolean>;
   setSidePanelWidth: (w: number) => void;
   setRightPanelWidth: (w: number) => void;
+  /** Volta ao padrão e devolve o controle ao ajuste automático. */
+  resetRightPanelWidth: () => void;
+  /** Ajuste automático: só alarga (até SIDE_PANEL_MAX) e só sem arraste manual. */
+  growRightPanelWidth: (w: number) => void;
   setCardWeights: (weights: Partial<Record<PanelCard, number>>) => void;
   resetCardWeights: () => void;
   toggleCard: (card: PanelCard) => void;
@@ -43,10 +49,23 @@ interface LayoutState {
 export const useLayout = create<LayoutState>()((set) => ({
   sidePanelWidth: DEFAULT_SIDE_PANEL_WIDTH,
   rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
+  rightPanelWidthManual: false,
   cardWeights: { ...DEFAULT_CARD_WEIGHTS },
   cardCollapsed: { catalog: false, notebooks: false, files: false },
   setSidePanelWidth: (w) => set({ sidePanelWidth: clamp(w, SIDE_PANEL_MIN, SIDE_PANEL_MAX) }),
-  setRightPanelWidth: (w) => set({ rightPanelWidth: clamp(w, SIDE_PANEL_MIN, SIDE_PANEL_MAX) }),
+  setRightPanelWidth: (w) =>
+    set((s) => {
+      const next = clamp(w, SIDE_PANEL_MIN, SIDE_PANEL_MAX);
+      // Largura inalterada (ex.: clique na alça sem arrastar) não conta como ajuste manual.
+      return next === s.rightPanelWidth ? s : { rightPanelWidth: next, rightPanelWidthManual: true };
+    }),
+  resetRightPanelWidth: () => set({ rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH, rightPanelWidthManual: false }),
+  growRightPanelWidth: (w) =>
+    set((s) => {
+      // Mesmo teto do arraste manual (AppShell): metade da janela.
+      const next = clamp(w, SIDE_PANEL_MIN, Math.min(SIDE_PANEL_MAX, window.innerWidth / 2));
+      return s.rightPanelWidthManual || next <= s.rightPanelWidth ? s : { rightPanelWidth: next };
+    }),
   setCardWeights: (weights) => set((s) => ({ cardWeights: { ...s.cardWeights, ...weights } })),
   resetCardWeights: () => set({ cardWeights: { ...DEFAULT_CARD_WEIGHTS } }),
   toggleCard: (card) => set((s) => ({ cardCollapsed: { ...s.cardCollapsed, [card]: !s.cardCollapsed[card] } })),

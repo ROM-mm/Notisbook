@@ -3,9 +3,10 @@
  * Mostra pastas e notebooks; clicar em pasta expande/recolhe, em notebook abre a aba.
  * Foco por roving tabindex. Rename e rascunho de nova pasta usam `NameInput` inline.
  */
-import { type KeyboardEvent, type MouseEvent, useCallback, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContentEntry } from "../../api";
 import { uniqueName } from "../../lib/paths";
+import { useLayout } from "../../state/layout";
 import { type DirState, useNotebookTree } from "../../state/notebookTree";
 import { activeNotebookPath, openNotebook, useRouter } from "../../state/router";
 import { useWorkspace } from "../../state/workspace";
@@ -87,6 +88,26 @@ export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStart
   const nav = rows.filter((r): r is Extract<Row, { kind: "entry" }> => r.kind === "entry");
   const activeKey = nav.some((r) => r.key === focusKey) ? focusKey : (nav[0]?.key ?? null);
   const rootEmpty = dirs[""]?.status === "ready" && rows.length === 0;
+
+  // Alarga o painel até caber o nome mais longo (só alarga; respeita o arraste manual).
+  // O excedente é medido no DOM: scrollWidth - clientWidth dos nomes truncados.
+  // `manual` entra nas dependências para remedir quando o duplo clique zera a flag.
+  const namesKey = nav.map((r) => `${r.key}:${r.entry.name}`).join("\n");
+  const manual = useLayout((s) => s.rightPanelWidthManual);
+  const treeRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (manual) return;
+    const names = treeRef.current?.querySelectorAll<HTMLElement>(`.${styles.treeName}`);
+    if (!names) return;
+    let overflow = 0;
+    names.forEach((el) => {
+      overflow = Math.max(overflow, el.scrollWidth - el.clientWidth);
+    });
+    if (overflow > 0) {
+      const layout = useLayout.getState();
+      layout.growRightPanelWidth(layout.rightPanelWidth + overflow);
+    }
+  }, [namesKey, manual]);
 
   const focusRow = (key: string | undefined) => {
     if (key) refs.current.get(key)?.focus();
@@ -176,6 +197,7 @@ export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStart
   return (
     <>
       <div
+        ref={treeRef}
         className={styles.tree}
         role="tree"
         aria-label={`Notebooks in ${root?.name ?? "root"}`}

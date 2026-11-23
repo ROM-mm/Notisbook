@@ -1,4 +1,4 @@
-/** Barra fina entre células para inserir code/markdown (sempre visível). */
+/** Barra fina entre células para inserir code/markdown. */
 import { type EditableCellType, type InsertWhere, type NotebookStore } from "../../state/notebook";
 import { useNotebookStore } from "../../state/notebookContext";
 import styles from "./Notebook.module.css";
@@ -7,8 +7,6 @@ export interface AddCellBarProps {
   where: InsertWhere;
   /** Célula de referência; null = início/fim do notebook. */
   refId: string | null;
-  /** Sempre visível (ex.: notebook vazio ou fim da lista). */
-  persistent?: boolean;
 }
 
 export function insertAndEdit(
@@ -22,10 +20,10 @@ export function insertAndEdit(
   nb.selectCell(id, "edit");
 }
 
-export function AddCellBar({ where, refId, persistent = false }: AddCellBarProps) {
+export function AddCellBar({ where, refId }: AddCellBarProps) {
   const store = useNotebookStore();
   return (
-    <div className={persistent ? `${styles.addBar} ${styles.addBarPersistent}` : styles.addBar}>
+    <div className={styles.addBar}>
       <span className={styles.addLine} aria-hidden="true" />
       <button
         type="button"

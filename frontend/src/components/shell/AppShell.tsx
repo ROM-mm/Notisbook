@@ -15,7 +15,7 @@
  *   concretos são mapeados em `Explorer.tsx`.
  */
 import { useEffect, useRef, type ReactNode } from "react";
-import { DEFAULT_RIGHT_PANEL_WIDTH, DEFAULT_SIDE_PANEL_WIDTH, useLayout } from "../../state/layout";
+import { DEFAULT_SIDE_PANEL_WIDTH, useLayout } from "../../state/layout";
 import { type NotebookEntry, useWorkspace } from "../../state/workspace";
 import { TableInfoPanel } from "../data/TableInfoPanel";
 import styles from "./AppShell.module.css";
@@ -53,6 +53,7 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
   const rightWidth = useLayout((s) => s.rightPanelWidth);
   const setLeftWidth = useLayout((s) => s.setSidePanelWidth);
   const setRightWidth = useLayout((s) => s.setRightPanelWidth);
+  const resetRightWidth = useLayout((s) => s.resetRightPanelWidth);
   const baseWidth = useRef(0);
   const showLeft = !focusMode && leftOpen;
   const showRight = !focusMode && rightOpen;
@@ -107,7 +108,7 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
                 baseWidth.current = useLayout.getState().rightPanelWidth;
               }}
               onDrag={(d) => setRightWidth(Math.min(baseWidth.current - d, window.innerWidth / 2))}
-              onReset={() => setRightWidth(DEFAULT_RIGHT_PANEL_WIDTH)}
+              onReset={resetRightWidth}
             />
             <SidePanel side="right" label="Right panel" width={rightWidth}>
               <Explorer side="right" />

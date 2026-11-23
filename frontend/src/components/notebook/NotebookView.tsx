@@ -209,7 +209,7 @@ export function NotebookView({ onRunCell, renderOutputs, renderFooter, banner }:
         {cells.length === 0 ? (
           <div className={styles.empty}>
             <p>This notebook is empty.</p>
-            <AddCellBar where="below" refId={null} persistent />
+            <AddCellBar where="below" refId={null} />
           </div>
         ) : (
           <>
@@ -238,7 +238,7 @@ export function NotebookView({ onRunCell, renderOutputs, renderFooter, banner }:
                     }
                     footer={renderFooter ? renderFooter(cell) : null}
                   />
-                  <AddCellBar where="below" refId={cell.id} persistent={i === cells.length - 1} />
+                  <AddCellBar where="below" refId={cell.id} />
                 </div>
               );
             })}

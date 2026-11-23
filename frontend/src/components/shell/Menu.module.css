@@ -106,7 +106,7 @@
 .danger:hover:not(:disabled),
 .danger:focus-visible:not(:disabled) {
   background: var(--color-danger-subtle);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .check {

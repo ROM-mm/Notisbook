@@ -351,7 +351,7 @@ dialog .confirmDanger:global(.btn),
 dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   border-color: var(--color-danger);
   background: var(--color-danger-subtle);
-  color: var(--color-danger);
+  color: var(--color-danger-text);
 }
 
 .catalogNotice {
