@@ -3,9 +3,9 @@
 Uso: python3 scripts/clean.py [--deep] [--skip-uv] [--yes] [--dry-run]
 Padrão: remove o que é regenerável e barato (frontend/dist, _frontend/, caches,
 __pycache__, tarballs do MinIO copiados e artefatos de versões antigas em
-backend/dist). `--deep` soma o regenerável caro (backend/dist/notislake, node_modules,
-backend/.venv) e a etapa `uv cache clean`, que apaga o cache inteiro do uv (global: o
+backend/dist). `--deep` soma o regenerável caro (node_modules, backend/.venv) e a etapa `uv cache clean`, que apaga o cache inteiro do uv (global: o
 próximo `uv run`/`./start.sh` baixa tudo de novo).
+backend/dist/notislake (fonte dos tarballs MinIO) é protegido: nunca é alvo.
 Sempre lista alvos e tamanhos antes de apagar. Caminhos rastreados pelo git, ou
 que contenham arquivos rastreados, nunca são tocados. Nunca usa `git clean`.
 """
@@ -30,6 +30,8 @@ DIST = BACKEND / "dist"
 # Áreas do operador: fora do alcance do script, inclusive na busca de __pycache__.
 # `.venv` aqui é só o da raiz (comparado ao 1º componente); backend/.venv segue alvo do --deep.
 PROTECTED_TOP = frozenset({".git", ".claude", ".idea", ".venv", "docs", "todo", "site"})
+# Protegido em qualquer modo: nem o caminho, nem o que está dentro, nem os pais dele viram alvo.
+PROTECTED_PATHS = (("backend", "dist", "notislake"),)
 WALK_SKIP = PROTECTED_TOP | {".venv", "venv", "node_modules"}
 CACHE_DIRS = (".mypy_cache", ".ruff_cache", ".pytest_cache")
 
@@ -114,6 +116,16 @@ def is_tracked(path: Path, tracked: tuple[set[str], set[str]]) -> bool:
     return rel in tracked[0] or rel in tracked[1]
 
 
+def is_inside_protected(parts: tuple[str, ...]) -> bool:
+    """True se `parts` (relativo à raiz) é um caminho protegido ou está dentro dele."""
+    return any(parts[: len(prot)] == prot for prot in PROTECTED_PATHS)
+
+
+def is_protected_path(parts: tuple[str, ...]) -> bool:
+    """Como `is_inside_protected`, mas também True para os pais (evita rmtree num ancestral)."""
+    return is_inside_protected(parts) or any(prot[: len(parts)] == parts for prot in PROTECTED_PATHS)
+
+
 def is_allowed(path: Path) -> bool:
     """Dentro do repo, fora das áreas protegidas e sem symlink nos diretórios-pai.
 
@@ -127,6 +139,8 @@ def is_allowed(path: Path) -> bool:
     except (ValueError, OSError, RuntimeError):
         return False
     if not parts or resolved_parts[0] in PROTECTED_TOP or parts[0] in PROTECTED_TOP:
+        return False
+    if is_protected_path(parts) or is_protected_path(resolved_parts):
         return False
     return not any((ROOT.joinpath(*parts[:i])).is_symlink() for i in range(1, len(parts)))
 
@@ -146,7 +160,11 @@ def find_pycache() -> list[Path]:
     for current, dirs, _files in os.walk(ROOT):
         if "__pycache__" in dirs:
             found.append(Path(current) / "__pycache__")
-        dirs[:] = [d for d in dirs if d not in WALK_SKIP and d != "__pycache__"]
+        rel = Path(current).relative_to(ROOT).parts
+        dirs[:] = [
+            d for d in dirs
+            if d not in WALK_SKIP and d != "__pycache__" and not is_inside_protected((*rel, d))
+        ]
     return sorted(found)
 
 
@@ -222,7 +240,6 @@ def default_targets(version: str) -> list[Target]:
 
 def deep_path_targets() -> list[Target]:
     groups: list[tuple[str, list[Path]]] = [
-        ("backend/dist/notislake (fonte dos tarballs MinIO)", [DIST / "notislake"]),
         ("frontend/node_modules", [FRONTEND / "node_modules"]),
         ("backend/.venv", [BACKEND / ".venv"]),
     ]
@@ -298,7 +315,7 @@ def parse_args() -> argparse.Namespace:
             "quando --yes é passado junto com --deep. uv ausente é ignorado com aviso."
         ),
     )
-    parser.add_argument("--deep", action="store_true", help="inclui o regenerável caro (node_modules, backend/.venv, notislake) e o `uv cache clean`")
+    parser.add_argument("--deep", action="store_true", help="inclui o regenerável caro (node_modules, backend/.venv) e o `uv cache clean`")
     parser.add_argument("--skip-uv", action="store_true", help="com --deep, não oferece nem roda o `uv cache clean`")
     parser.add_argument("--yes", action="store_true", help="não pede confirmação")
     parser.add_argument("--dry-run", action="store_true", help="só lista; não apaga nem pergunta")
