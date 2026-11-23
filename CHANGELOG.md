@@ -7,6 +7,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-23
+
+Notisbook now supports Apple silicon Macs only: releases ship a single arm64 build of the bundled object store and
+Intel Macs are refused at install time.
+
+### Changed
+
+- **Apple silicon only (breaking).** Releases no longer build or publish the Intel (`darwin-amd64`) MinIO tarball,
+  the wheel gate only checks `aarch64-apple-darwin`, and the DuckDB runtime only downloads `osx_arm64` extensions.
+  `install.sh` stops on an Intel Mac with "Notisbook supports Apple silicon only" before installing `uv`. Intel Macs
+  are no longer supported.
+- **Rosetta keeps working.** A Python process running under Rosetta on an Apple silicon Mac is detected through
+  `sysctl.proc_translated` and still uses the arm64 MinIO binaries and DuckDB extensions, so existing installs that
+  run an x86_64 Python keep starting.
+
 ## [0.8.0] - 2026-11-23
 
 A Home screen that separates the bundled examples from your own notebooks and guides a first run to a runtime, a
