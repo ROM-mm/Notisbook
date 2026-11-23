@@ -49,7 +49,7 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, HUDI_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
@@ -59,7 +59,6 @@ import { tableFormatIcon } from "./tableFormat";
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
 const REFRESH_DEBOUNCE_MS = 1500;
 const NOTICE_MS = 8000;
-const SPARK_CATALOG = "spark_catalog";
 const DEFAULT_SCHEMA = "default";
 /** Camadas exibidas primeiro, nesta ordem (sem caixa); os demais schemas seguem na ordem recebida. */
 const LAYER_ORDER = ["bronze", "silver", "gold"];

@@ -4,11 +4,14 @@
  */
 import { HudiIcon, IcebergIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
 
+/** Nome real do catálogo de sessão do Spark (usado em chaves, API e requisições). */
+export const SPARK_CATALOG = "spark_catalog";
+
 /** Nó só de exibição das tabelas Hudi: os schemas são do `spark_catalog`. */
 export const HUDI_CATALOG = "hudi";
 
-const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
-const CATALOG_ICONS: Record<string, TechIcon> = { spark_catalog: SparkIcon, iceberg: IcebergIcon, hudi: HudiIcon };
+const CATALOG_LABELS: Record<string, string> = { [SPARK_CATALOG]: "spark" };
+const CATALOG_ICONS: Record<string, TechIcon> = { [SPARK_CATALOG]: SparkIcon, iceberg: IcebergIcon, [HUDI_CATALOG]: HudiIcon };
 
 /** Rótulo exibido do catálogo (`spark_catalog` → "spark"); os demais aparecem pelo nome real. */
 export function catalogLabel(name: string): string {

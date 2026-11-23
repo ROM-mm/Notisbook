@@ -9,7 +9,7 @@ import type { CatalogInfo, CatalogInfoStatus, CatalogKind } from "../../api/cata
 import { CATALOG_INFO_PANEL_ID, useCatalog } from "../../state/catalog";
 import { DatabaseIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, HUDI_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import { tableFormatLabel } from "./tableFormat";
@@ -52,7 +52,7 @@ function CatalogIcon({ name, size }: { name: string; size: number }) {
 
 /** Caminho do cabeçalho: chave de config do catálogo, ou o catálogo real por trás do nó `hudi`. */
 function catalogPath(name: string): string {
-  return name === HUDI_CATALOG ? "spark_catalog · Hudi tables" : `spark.sql.catalog.${name}`;
+  return name === HUDI_CATALOG ? `${SPARK_CATALOG} · Hudi tables` : `spark.sql.catalog.${name}`;
 }
 
 function formatsText(formats: Record<string, number>): string {
@@ -85,7 +85,7 @@ function Overview({ info }: { info: CatalogInfo }) {
     <>
       {info.kind === "display_group" ? (
         <p className={styles.note}>
-          Display group — not a Spark catalog; tables live in <span className={styles.mono}>{info.backing_catalog ?? "spark_catalog"}</span>.
+          Display group — not a Spark catalog; tables live in <span className={styles.mono}>{info.backing_catalog ?? SPARK_CATALOG}</span>.
         </p>
       ) : null}
       <Facts facts={facts} />
@@ -97,7 +97,7 @@ function Overview({ info }: { info: CatalogInfo }) {
 function Config({ info }: { info: CatalogInfo }) {
   const inherited = info.kind === "display_group" ? (
     <p className={styles.note}>
-      Inherited from <span className={styles.mono}>{info.backing_catalog ?? "spark_catalog"}</span>.
+      Inherited from <span className={styles.mono}>{info.backing_catalog ?? SPARK_CATALOG}</span>.
     </p>
   ) : null;
   if (info.config.length === 0) {
