@@ -164,7 +164,7 @@ export function KernelSelector() {
       </span>
       {open ? (
         <div ref={listRef} className={`${menuStyles.list} ${styles.selectorList}`} role="listbox" aria-label="Runtimes" data-testid="kernel-selector-list">
-          {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No runtimes installed.</div> : null}
+          {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No runtimes installed. Install one in Settings › Runtimes.</div> : null}
           {kernelspecs.map((k) => {
             const current = k.name === kernelName;
             const ambiguous = duplicatedNames.has(k.display_name);
