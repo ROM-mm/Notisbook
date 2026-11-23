@@ -22,17 +22,14 @@ import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import {
   ChevronRightIcon,
-  FileCsvIcon,
   FileIcon,
-  FileJsonIcon,
-  FileParquetIcon,
-  FileTextIcon,
   FolderIcon,
   SymlinkIcon,
 } from "../shell/icons";
-import { AvroIcon, DeltaIcon, ParquetIcon } from "../shell/techIcons";
+import { DeltaIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
 import { extension } from "./fileExtension";
+import { fileFormatIcon } from "./fileFormatIcon";
 import styles from "./DataPanel.module.css";
 
 type Row =
@@ -106,15 +103,7 @@ function EntryIcon({ entry }: { entry: FsEntry }): ReactNode {
     return <FolderIcon size={14} />;
   }
   if (entry.is_symlink) return <SymlinkIcon size={14} />;
-  if (ext === "parquet") return <BrandIcon icon={ParquetIcon} />;
-  if (ext === "avro") return <BrandIcon icon={AvroIcon} />;
-  if (ext === "orc") return <FileParquetIcon size={14} />;
-  if (ext === "csv" || ext === "tsv" || ext === "psv") return <FileCsvIcon size={14} />;
-  if (ext === "json" || ext === "jsonl" || ext === "ndjson")
-    return <FileJsonIcon size={14} />;
-  if (ext === "txt") return <FileTextIcon size={14} />;
-  if (ext === "delta") return <BrandIcon icon={DeltaIcon} />;
-  return <FileIcon size={14} />;
+  return fileFormatIcon(ext) ?? <FileIcon size={14} />;
 }
 
 function buildRows(

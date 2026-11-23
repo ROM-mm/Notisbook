@@ -19,17 +19,11 @@ import {
 } from "../../state/notislake";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
-import {
-  ChevronRightIcon,
-  FileCsvIcon,
-  FileIcon,
-  FileJsonIcon,
-  FileTextIcon,
-  FolderIcon,
-} from "../shell/icons";
-import { AvroIcon, DeltaIcon, ParquetIcon } from "../shell/techIcons";
+import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
+import { DeltaIcon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
 import { extension } from "./fileExtension";
+import { fileFormatIcon } from "./fileFormatIcon";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 
@@ -145,13 +139,7 @@ function NodeIcon({ node }: { node: TreeNode }): ReactNode {
     if (name === "_delta_log" || ext === "delta") return <BrandIcon icon={DeltaIcon} />;
     return <FolderIcon size={14} />;
   }
-  if (ext === "parquet") return <BrandIcon icon={ParquetIcon} />;
-  if (ext === "avro") return <BrandIcon icon={AvroIcon} />;
-  if (ext === "csv" || ext === "tsv" || ext === "psv") return <FileCsvIcon size={14} />;
-  if (ext === "json" || ext === "jsonl" || ext === "ndjson") return <FileJsonIcon size={14} />;
-  if (ext === "txt") return <FileTextIcon size={14} />;
-  if (ext === "delta") return <BrandIcon icon={DeltaIcon} />;
-  return <FileIcon size={14} />;
+  return fileFormatIcon(ext) ?? <FileIcon size={14} />;
 }
 
 export function NotislakeTree() {
