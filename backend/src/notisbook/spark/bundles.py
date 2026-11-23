@@ -239,6 +239,36 @@ def render_s3a_defaults(home: Path) -> list[str]:
     ]
 
 
+_CATALOG_PREFIX = "spark.sql.catalog."
+
+
+def catalog_conf(home: Path) -> list[tuple[str, str]]:
+    """Catalog settings of the local Spark profile as `(key, value)`, in `spark-defaults.conf` order.
+
+    Single source for the `spark.sql.catalog.*` lines written by `render_spark_defaults` and for the
+    Catalog info panel. `spark.sql.warehouse.dir` is listed for display; the file gets it from
+    `render_s3a_defaults`. Raises UnsupportedHome when `home` cannot go into the JDBC URL.
+    """
+    from ..notislake.locations import ROOT_URI
+
+    return [
+        ("spark.sql.warehouse.dir", safety_warehouse_uri(home)),
+        (f"{_CATALOG_PREFIX}spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"),
+        (f"{_CATALOG_PREFIX}iceberg", "org.apache.iceberg.spark.SparkCatalog"),
+        (f"{_CATALOG_PREFIX}iceberg.type", "jdbc"),
+        (f"{_CATALOG_PREFIX}iceberg.uri", catalog_uri(home)),
+        (f"{_CATALOG_PREFIX}iceberg.warehouse", ROOT_URI),
+        # Tables live in the shared bucket: Iceberg must not garbage-collect files on its own.
+        (f"{_CATALOG_PREFIX}iceberg.table-default.gc.enabled", "false"),
+        (f"{_CATALOG_PREFIX}iceberg.jdbc.schema-version", "V1"),
+        # Data files go through Hadoop's FileSystem (local and `s3a://`); the default S3FileIO would need the SDK's own wiring.
+        (f"{_CATALOG_PREFIX}iceberg.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO"),
+        # The backend creates the Iceberg tables; the catalog's own init pins a read snapshot in its
+        # pooled SQLite connection and breaks the next commit after any external write (BUSY_SNAPSHOT).
+        (f"{_CATALOG_PREFIX}iceberg.jdbc.init-catalog-tables", "false"),
+    ]
+
+
 def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> str:
     """Content of `spark-defaults.conf`; with a bundle it also wires the three formats, the safety warehouse and the S3A bucket root for Iceberg.
 
@@ -248,8 +278,6 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
     Delta's, since `SparkSessionCatalog` and `DeltaCatalog` cannot share the session catalog slot.
     Raises UnsupportedHome when `home` cannot go into the JDBC URL.
     """
-    from ..notislake.locations import ROOT_URI
-
     lines = render_base_defaults()
     if bundle is None:
         return "\n".join(lines) + "\n"
@@ -262,19 +290,8 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
         f"spark.jars {jars}",
         *([f"spark.driver.extraClassPath {driver_jars}"] if driver_jars else []),
         f"spark.sql.extensions {extensions}",
-        "spark.sql.catalog.spark_catalog org.apache.spark.sql.delta.catalog.DeltaCatalog",
-        "spark.sql.catalog.iceberg org.apache.iceberg.spark.SparkCatalog",
-        "spark.sql.catalog.iceberg.type jdbc",
-        f"spark.sql.catalog.iceberg.uri {catalog_uri(home)}",
-        f"spark.sql.catalog.iceberg.warehouse {ROOT_URI}",
-        # Tables live in the shared bucket: Iceberg must not garbage-collect files on its own.
-        "spark.sql.catalog.iceberg.table-default.gc.enabled false",
-        "spark.sql.catalog.iceberg.jdbc.schema-version V1",
-        # Data files go through Hadoop's FileSystem (local and `s3a://`); the default S3FileIO would need the SDK's own wiring.
-        "spark.sql.catalog.iceberg.io-impl org.apache.iceberg.hadoop.HadoopFileIO",
-        # The backend creates the Iceberg tables; the catalog's own init pins a read snapshot in its
-        # pooled SQLite connection and breaks the next commit after any external write (BUSY_SNAPSHOT).
-        "spark.sql.catalog.iceberg.jdbc.init-catalog-tables false",
+        # The warehouse line was already emitted by `render_s3a_defaults`; only the catalog lines go here.
+        *(f"{key} {value}" for key, value in catalog_conf(home) if key.startswith(_CATALOG_PREFIX)),
         "spark.serializer org.apache.spark.serializer.KryoSerializer",
         "spark.kryo.registrator org.apache.spark.HoodieSparkKryoRegistrar",
     ]

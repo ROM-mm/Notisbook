@@ -5,6 +5,8 @@
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
  * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
  * Linha de tabela: clique (ou Enter) abre o painel Table info; o chevron (ou Space) só expande as colunas.
+ * Linha de catálogo: clique (ou Enter) abre o painel Catalog info e expande o nó se recolhido (nunca recolhe);
+ * o chevron (ou Space/setas) segue expandindo/recolhendo. Um painel lateral por vez.
  */
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -20,7 +22,17 @@ import {
   type SchemaDeletion,
   type SchemaPreview,
 } from "../../api/catalog";
-import { sameTable, schemaKey, TABLE_INFO_PANEL_ID, tableRef, useCatalog, type ColumnsState } from "../../state/catalog";
+import {
+  CATALOG_INFO_PANEL_ID,
+  openCatalogName,
+  openTableQuery,
+  sameTable,
+  schemaKey,
+  TABLE_INFO_PANEL_ID,
+  tableRef,
+  useCatalog,
+  type ColumnsState,
+} from "../../state/catalog";
 import { activeNotebookPath, useRouter } from "../../state/router";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
 import {
@@ -37,19 +49,17 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { BrandIcon } from "./BrandIcon";
+import { catalogIcon, catalogLabel, HUDI_CATALOG } from "./catalogLabels";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
-import { HudiIcon, IcebergIcon, SparkIcon } from "../shell/techIcons";
 import { tableFormatIcon } from "./tableFormat";
 
 /** Espera depois de o kernel voltar a idle antes de reler o catálogo (evita varrer a cada célula). */
 const REFRESH_DEBOUNCE_MS = 1500;
 const NOTICE_MS = 8000;
 const SPARK_CATALOG = "spark_catalog";
-/** Nó só de exibição das tabelas Hudi: os schemas são do `spark_catalog` (criar/excluir age sobre o namespace inteiro). */
-const HUDI_CATALOG = "hudi";
 const DEFAULT_SCHEMA = "default";
 /** Camadas exibidas primeiro, nesta ordem (sem caixa); os demais schemas seguem na ordem recebida. */
 const LAYER_ORDER = ["bronze", "silver", "gold"];
@@ -67,13 +77,6 @@ function orderSchemas<T extends { name: string }>(databases: T[]): T[] {
     .map((x) => x.d);
 }
 
-/** Rótulos só de exibição; o nome real (`spark_catalog`) segue em chaves, API e requisições. */
-const CATALOG_ICONS: Record<string, ReactNode> = {
-  spark_catalog: <BrandIcon icon={SparkIcon} />,
-  iceberg: <BrandIcon icon={IcebergIcon} />,
-  hudi: <BrandIcon icon={HudiIcon} />,
-};
-const CATALOG_LABELS: Record<string, string> = { spark_catalog: "spark" };
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
   iceberg_catalog_unreadable: "Iceberg tables unavailable: catalog could not be read.",
@@ -110,6 +113,12 @@ type Item = Row | StatusRow;
 
 const isStatus = (i: Item): i is StatusRow => "status" in i;
 
+
+/** Ícone da linha de catálogo na árvore: marca da tecnologia, ou pasta quando não há uma. */
+function catalogRowIcon(name: string): ReactNode {
+  const icon = catalogIcon(name);
+  return icon ? <BrandIcon icon={icon} /> : <FolderIcon size={14} />;
+}
 
 function tableIcon(t: CatalogTable): ReactNode {
   const icon = tableFormatIcon(t.format);
@@ -205,9 +214,9 @@ function buildItems(
       level: 1,
       pos: ci + 1,
       size: catalogs.length,
-      label: CATALOG_LABELS[c.name] ?? c.name,
+      label: catalogLabel(c.name),
       detail: c.error ? "error" : undefined,
-      icon: (Object.hasOwn(CATALOG_ICONS, c.name) ? CATALOG_ICONS[c.name] : null) ?? <FolderIcon size={14} />,
+      icon: catalogRowIcon(c.name),
       expandable: true,
       open: cOpen,
     });
@@ -366,9 +375,16 @@ interface MenuState {
 }
 
 function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: string) => void }) {
-  const { toggle: storeToggle, expand: storeExpand, collapse, openInfo } = useCatalog.getState();
+  const { toggle: storeToggle, expand: storeExpand, collapse, openInfo, openCatalogInfo } = useCatalog.getState();
   const toggle = (row: Row) => storeToggle(row.key, row.table);
-  const infoQuery = useCatalog((s) => s.info?.query ?? null);
+  const infoQuery = useCatalog((s) => openTableQuery(s.info));
+  const infoCatalog = useCatalog((s) => openCatalogName(s.info));
+  /** Variante suave: abre o Catalog info e expande o nó se recolhido; nunca recolhe. */
+  const openCatalog = (row: Row) => {
+    if (!row.catalog) return;
+    openCatalogInfo(row.catalog);
+    if (!row.open) storeExpand(row.key);
+  };
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<MenuState | null>(null);
@@ -466,6 +482,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
         break;
       case "Enter":
         if (row.kind === "table" && row.table) openInfo(row.table);
+        else if (row.kind === "catalog" && row.catalog) openCatalog(row);
         else if (row.expandable) toggle(row);
         break;
       case " ":
@@ -494,7 +511,8 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
         const index = nav.indexOf(item);
         const open = item.expandable && item.open;
         const isTable = item.kind === "table" && item.table !== undefined;
-        const infoOpen = isTable && sameTable(item.table, infoQuery);
+        const isCatalog = item.kind === "catalog" && item.catalog !== undefined;
+        const infoOpen = (isTable && sameTable(item.table, infoQuery)) || (isCatalog && item.catalog === infoCatalog);
         return (
           <div
             key={item.key}
@@ -510,8 +528,9 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
             aria-setsize={item.size}
             aria-expanded={item.expandable ? open : undefined}
             aria-selected={item.key === focusKey}
-            aria-controls={isTable && infoQuery ? TABLE_INFO_PANEL_ID : undefined}
+            aria-controls={isTable && infoQuery ? TABLE_INFO_PANEL_ID : isCatalog && infoCatalog ? CATALOG_INFO_PANEL_ID : undefined}
             data-table-ref={isTable && item.table ? tableRef(item.table) : undefined}
+            data-catalog-ref={isCatalog ? item.catalog : undefined}
             title={item.title ?? item.label}
             tabIndex={item.key === activeKey ? 0 : -1}
             onFocus={() => setFocusKey(item.key)}
@@ -522,6 +541,9 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
               if (isTable && item.table) {
                 e.currentTarget.focus();
                 openInfo(item.table);
+              } else if (isCatalog) {
+                e.currentTarget.focus();
+                openCatalog(item);
               } else if (item.expandable) toggle(item);
             }}
           >
@@ -529,9 +551,9 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
               className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
               aria-hidden="true"
               onClick={
-                isTable
+                isTable || isCatalog
                   ? (e) => {
-                      // Chevron da tabela só expande/recolhe as colunas; o resto da linha abre o Table info.
+                      // Chevron da tabela/catálogo só expande/recolhe; o resto da linha abre o Table info/Catalog info.
                       e.stopPropagation();
                       setFocusKey(item.key);
                       toggle(item);
@@ -687,7 +709,7 @@ export function CatalogSection({ testId, collapsed, onToggle }: { testId?: strin
       {createIn ? (
         <CreateSchemaDialog
           catalog={createIn}
-          catalogLabel={CATALOG_LABELS[createIn] ?? createIn}
+          catalogLabel={catalogLabel(createIn)}
           existing={existingSchemas(data?.catalogs, createIn)}
           onCreated={() => onCreated(createIn)}
           onClose={() => setCreateIn(null)}

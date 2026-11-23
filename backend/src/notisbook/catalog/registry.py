@@ -188,6 +188,31 @@ def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False)
     return databases, used
 
 
+def catalog_summary(conn: sqlite3.Connection, hudi: bool = False) -> dict[str, Any]:
+    """Contagens exatas do nó (sem `MAX_TABLES`/`MAX_TOTAL_TABLES`): por namespace e por formato.
+
+    Os namespaces vêm de `_display_names`; `spark_catalog` conta o que não é Hudi e `hudi`, só o Hudi.
+    O `spark_catalog` não tem views no registro.
+    """
+    fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
+    per_namespace: dict[str, int] = {}
+    formats: dict[str, int] = {}
+    for namespace, fmt, count in conn.execute(
+        f"SELECT namespace, format, COUNT(*) FROM nb_tables WHERE catalog_name = ? AND {fmt_filter} GROUP BY namespace, format",
+        (SPARK_CATALOG,),
+    ):
+        per_namespace[namespace] = per_namespace.get(namespace, 0) + int(count)
+        formats[fmt] = formats.get(fmt, 0) + int(count)
+    names = _display_names(conn, hudi)
+    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, locations.layer_rank(n), n))
+    return {
+        "namespaces": [{"name": ns, "tables": per_namespace.get(ns, 0), "views": 0} for ns in ordered],
+        "tables": sum(per_namespace.get(ns, 0) for ns in names),
+        "views": 0,
+        "formats": formats,
+    }
+
+
 def _decode_columns(raw: str, partitions: set[str]) -> list[dict[str, Any]]:
     items = json.loads(raw)
     if not isinstance(items, list):

@@ -114,6 +114,47 @@ export function getTableInfo(q: ColumnsQuery, signal?: AbortSignal): Promise<Tab
   });
 }
 
+/** `session` = spark_catalog, `named` = iceberg, `display_group` = nó `hudi` (exibição dentro do spark_catalog). */
+export type CatalogKind = "session" | "named" | "display_group";
+export type CatalogInfoStatus = "ok" | "empty" | "unsupported_iceberg_catalog_schema" | "iceberg_catalog_unreadable";
+
+export interface CatalogConfigEntry {
+  key: string;
+  /** Já mascarado no backend quando `redacted`. */
+  value: string;
+  redacted: boolean;
+}
+
+export interface CatalogNamespaceSummary {
+  name: string;
+  tables: number;
+  views: number;
+}
+
+/** Painel Catalog info: contagens do `catalog.db` e a config do perfil Spark local (sem kernel). */
+export interface CatalogInfo {
+  name: string;
+  kind: CatalogKind;
+  backing_catalog: string | null;
+  status: CatalogInfoStatus;
+  profile: string;
+  implementation: string | null;
+  type: string | null;
+  warehouse: string | null;
+  uri: string | null;
+  file_io: string | null;
+  counts: { namespaces: number; tables: number; views: number };
+  formats: Record<string, number>;
+  namespaces: CatalogNamespaceSummary[];
+  namespaces_truncated: boolean;
+  config: CatalogConfigEntry[];
+}
+
+/** 404 catálogo desconhecido, 503 `catalog.db` indisponível. */
+export function getCatalogInfo(catalog: string, signal?: AbortSignal): Promise<CatalogInfo> {
+  return request<CatalogInfo>("/api/catalog/info", { query: { catalog }, signal });
+}
+
 /** Regra de nome de schema aceita pelo backend. */
 export const SCHEMA_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 

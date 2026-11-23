@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from ..catalog import iceberg_jdbc, registry, schemas
+from ..catalog.catalog_info import KNOWN_CATALOGS, build_catalog_info
 from ..catalog.store import catalog_db_path, connect
 from ..kernels.service import KernelsBusy
 from ..notislake import objectstore
@@ -170,6 +171,29 @@ async def get_table_info(request: Request, home: Home, catalog: Name, database: 
     if info is None:
         raise HTTPException(404, "Table not found")
     return info
+
+
+def _read_catalog_info(home: Path, catalog: str) -> dict[str, Any]:
+    conn = _open(home)
+    try:
+        return build_catalog_info(home, catalog, conn)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+@router.get("/info")
+async def get_catalog_info(home: Home, catalog: Name) -> dict[str, Any]:
+    """Visão geral de um catálogo (`spark_catalog`, `iceberg` ou `hudi`), só leitura. 404 desconhecido, 503 se o db falhar.
+
+    Sem `catalog.db` devolve `status: "empty"`; Iceberg ilegível devolve 200 com o status degradado. Segredos saem mascarados.
+    """
+    if catalog not in KNOWN_CATALOGS:
+        raise HTTPException(404, "Catalog not found")
+    try:
+        return await asyncio.to_thread(_read_catalog_info, home, catalog)
+    except sqlite3.Error as exc:
+        raise HTTPException(503, "Catalog database unavailable") from exc
 
 
 class CreateSchemaBody(BaseModel):

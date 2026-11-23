@@ -8,8 +8,9 @@
  * Pontos de extensão:
  * - `entry`: aba ativa (ou null), repassada à barra superior
  *   (seletor de ambiente em `components/kernel/KernelSelector.tsx`).
- * - Table info (`components/data/TableInfoPanel.tsx`): painel encaixado entre o
- *   conteúdo e a lateral direita, visível só com a lateral esquerda aberta.
+ * - Table info / Catalog info (`components/data/TableInfoPanel.tsx`,
+ *   `components/data/CatalogInfoPanel.tsx`): um painel por vez (`info.kind` do store),
+ *   encaixado entre o conteúdo e a lateral direita, visível só com a lateral esquerda aberta.
  * - Laterais: `Explorer` empilha os cartões de uma lateral; a composição e a
  *   ordem vêm de `state/layout.ts` (LEFT_CARDS/RIGHT_CARDS) e os cartões
  *   concretos são mapeados em `Explorer.tsx`.
@@ -17,6 +18,8 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { DEFAULT_SIDE_PANEL_WIDTH, useLayout } from "../../state/layout";
 import { type NotebookEntry, useWorkspace } from "../../state/workspace";
+import { useCatalog } from "../../state/catalog";
+import { CatalogInfoPanel } from "../data/CatalogInfoPanel";
 import { TableInfoPanel } from "../data/TableInfoPanel";
 import styles from "./AppShell.module.css";
 import { Banner } from "./Banner";
@@ -54,6 +57,7 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
   const setLeftWidth = useLayout((s) => s.setSidePanelWidth);
   const setRightWidth = useLayout((s) => s.setRightPanelWidth);
   const resetRightWidth = useLayout((s) => s.resetRightPanelWidth);
+  const infoKind = useCatalog((s) => s.info?.kind ?? null);
   const baseWidth = useRef(0);
   const showLeft = !focusMode && leftOpen;
   const showRight = !focusMode && rightOpen;
@@ -98,7 +102,8 @@ export function AppShell({ entry, children }: { entry: NotebookEntry | null; chi
           </>
         ) : null}
         <main className={styles.content}>{children}</main>
-        {showLeft ? <TableInfoPanel /> : null}
+        {showLeft && infoKind === "table" ? <TableInfoPanel /> : null}
+        {showLeft && infoKind === "catalog" ? <CatalogInfoPanel /> : null}
         {showRight ? (
           <>
             <ResizeHandle

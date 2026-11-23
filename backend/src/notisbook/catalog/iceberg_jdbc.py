@@ -130,6 +130,15 @@ def _node(row: tuple[Any, ...]) -> dict[str, Any]:
     }
 
 
+def _namespace_names(conn: sqlite3.Connection) -> sqlite3.Cursor:
+    """Namespaces do `iceberg`: união de `iceberg_namespace_properties` e `iceberg_tables` (1 coluna, sem ordem)."""
+    return conn.execute(
+        "SELECT namespace FROM iceberg_namespace_properties WHERE catalog_name = ? "
+        "UNION SELECT table_namespace FROM iceberg_tables WHERE catalog_name = ?",
+        (ICEBERG_CATALOG, ICEBERG_CATALOG),
+    )
+
+
 def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[str, Any]], int]:
     """Databases (namespaces) do `iceberg` e o total de tabelas listadas.
 
@@ -137,14 +146,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[
     quando o namespace é criado explicitamente. Levanta `UnsupportedIcebergSchema`.
     """
     has_type = _check_schema(conn)
-    names = {
-        r[0]
-        for r in conn.execute(
-            "SELECT namespace FROM iceberg_namespace_properties WHERE catalog_name = ? "
-            "UNION SELECT table_namespace FROM iceberg_tables WHERE catalog_name = ?",
-            (ICEBERG_CATALOG, ICEBERG_CATALOG),
-        )
-    }
+    names = {r[0] for r in _namespace_names(conn)}
     used = 0
     databases: list[dict[str, Any]] = []
     for db in sorted(names, key=lambda n: (locations.layer_rank(n), n)):
@@ -163,6 +165,34 @@ def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[
         used += len(entry["tables"])
         databases.append(entry)
     return databases, used
+
+
+def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Contagens exatas do `iceberg` (sem `MAX_TABLES`/`MAX_TOTAL_TABLES`): tabelas e views por namespace.
+
+    Namespaces pela mesma união de `list_databases`; views só existem quando `iceberg_type` existe.
+    Levanta `UnsupportedIcebergSchema` (e propaga `sqlite3.Error`) para o chamador degradar o status.
+    """
+    has_type = _check_schema(conn)
+    names = {r[0] for r in _namespace_names(conn)}
+    is_table = f"{_TABLE_FILTER}" if has_type else "1"
+    is_view = "iceberg_type = 'VIEW'" if has_type else "0"
+    tables: dict[str, int] = {}
+    views: dict[str, int] = {}
+    for namespace, n_tables, n_views in conn.execute(
+        f"SELECT table_namespace, SUM({is_table}), SUM({is_view}) FROM iceberg_tables WHERE catalog_name = ? GROUP BY table_namespace",
+        (ICEBERG_CATALOG,),
+    ):
+        tables[namespace] = int(n_tables or 0)
+        views[namespace] = int(n_views or 0)
+    ordered = sorted(names, key=lambda n: (locations.layer_rank(n), n))
+    total_tables = sum(tables.get(ns, 0) for ns in names)
+    return {
+        "namespaces": [{"name": ns, "tables": tables.get(ns, 0), "views": views.get(ns, 0)} for ns in ordered],
+        "tables": total_tables,
+        "views": sum(views.get(ns, 0) for ns in names),
+        "formats": {"iceberg": total_tables} if total_tables else {},
+    }
 
 
 def check_schema(conn: sqlite3.Connection) -> bool:
@@ -574,11 +604,7 @@ def read_metadata_within(location: str, roots: Sequence[str]) -> dict[str, Any]:
 
 def list_child_namespaces(conn: sqlite3.Connection, parent: str | None) -> list[str]:
     """Namespaces do próximo nível abaixo de `parent` (ou do topo), como o `JdbcCatalog.listNamespaces`."""
-    rows = conn.execute(
-        "SELECT namespace FROM iceberg_namespace_properties WHERE catalog_name = ? "
-        "UNION SELECT table_namespace FROM iceberg_tables WHERE catalog_name = ?",
-        (ICEBERG_CATALOG, ICEBERG_CATALOG),
-    )
+    rows = _namespace_names(conn)
     prefix = f"{parent}." if parent else ""
     children = set()
     for (name,) in rows:

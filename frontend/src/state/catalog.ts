@@ -7,9 +7,11 @@
 import { create } from "zustand";
 import {
   getCatalog,
+  getCatalogInfo,
   getColumns,
   getTableInfo,
   type CatalogColumn,
+  type CatalogInfo,
   type CatalogResponse,
   type ColumnsQuery,
   type TableInfo,
@@ -23,12 +25,25 @@ export interface ColumnsState {
 }
 
 /** Painel Table info: a tabela aberta e a última leitura de `/api/catalog/table`. */
-export interface InfoState {
+export interface TableInfoState {
+  kind: "table";
   query: ColumnsQuery;
   loading: boolean;
   error: string | null;
   data: TableInfo | null;
 }
+
+/** Painel Catalog info: o catálogo aberto (nome real, ex.: `spark_catalog`) e a última leitura de `/api/catalog/info`. */
+export interface CatalogInfoState {
+  kind: "catalog";
+  name: string;
+  loading: boolean;
+  error: string | null;
+  data: CatalogInfo | null;
+}
+
+/** Um painel lateral por vez: Table info ou Catalog info. */
+export type InfoState = TableInfoState | CatalogInfoState;
 
 interface CatalogState {
   loading: boolean;
@@ -41,16 +56,31 @@ interface CatalogState {
   toggle: (key: string, table?: ColumnsQuery) => void;
   expand: (key: string, table?: ColumnsQuery) => void;
   collapse: (key: string) => void;
-  /** Esquece a expansão e as colunas do schema excluído e de tudo sob ele (e fecha o Table info dele). */
+  /** Esquece a expansão e as colunas do schema excluído e de tudo sob ele (fecha o Table info dele e relê o Catalog info aberto do catálogo). */
   forgetSchema: (catalog: string, schema: string) => void;
   info: InfoState | null;
-  /** Abre (ou troca) a tabela do painel Table info. */
+  /** Abre (ou troca) a tabela do painel Table info; fecha o Catalog info, se aberto. */
   openInfo: (query: ColumnsQuery) => void;
+  /** Abre (ou troca) o catálogo do painel Catalog info; fecha o Table info, se aberto. */
+  openCatalogInfo: (name: string) => void;
+  /** Fecha o painel aberto (qualquer tipo) e descarta a leitura em voo. */
   closeInfo: () => void;
 }
 
 /** Id do painel Table info, alvo do `aria-controls` das linhas de tabela. */
 export const TABLE_INFO_PANEL_ID = "catalog-table-info";
+/** Id do painel Catalog info, alvo do `aria-controls` das linhas de catálogo. */
+export const CATALOG_INFO_PANEL_ID = "catalog-catalog-info";
+
+/** Tabela do Table info aberto, ou null (nenhum painel ou Catalog info aberto). */
+export function openTableQuery(info: InfoState | null): ColumnsQuery | null {
+  return info?.kind === "table" ? info.query : null;
+}
+
+/** Catálogo do Catalog info aberto, ou null (nenhum painel ou Table info aberto). */
+export function openCatalogName(info: InfoState | null): string | null {
+  return info?.kind === "catalog" ? info.name : null;
+}
 
 /** Identificador da tabela na árvore (`data-table-ref` da linha), para devolver o foco ao fechar o Table info. */
 export function tableRef(q: ColumnsQuery): string {
@@ -73,7 +103,10 @@ const columnReqs = new Map<string, number>();
 let columnSeq = 0;
 /** Consulta de colunas por nó de tabela, para recarregar no refresh. */
 const queries = new Map<string, ColumnsQuery>();
-/** Última requisição do Table info; só a mais recente aplica o resultado (troca de tabela durante a carga). */
+/**
+ * Última requisição do painel lateral (Table info ou Catalog info, sequência compartilhada): só a mais
+ * recente aplica o resultado, então abrir um tipo cancela a leitura pendente do outro.
+ */
 let infoSeq = 0;
 
 /** Mensagem curta para 409/503 do backend; o resto segue o texto do `detail`. */
@@ -81,6 +114,13 @@ function friendlyError(err: unknown): string {
   if (err instanceof ApiError && err.status === 503) return "Catalog database unavailable. Try again.";
   if (err instanceof ApiError && err.status === 409) return "Table metadata unavailable.";
   if (err instanceof ApiError && err.status === 404) return "Table no longer exists.";
+  return errorMessage(err);
+}
+
+/** Mensagem curta para os erros de `/api/catalog/info`. */
+function catalogInfoError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 503) return "Catalog database unavailable. Try again.";
+  if (err instanceof ApiError && err.status === 404) return "Catalog not found.";
   return errorMessage(err);
 }
 
@@ -104,23 +144,53 @@ export const useCatalog = create<CatalogState>((set, get) => {
   function loadInfo(query: ColumnsQuery) {
     const req = ++infoSeq;
     // Mesma tabela (refresh): mantém os dados na tela durante a releitura; outra tabela começa vazia.
-    set((s) => ({
-      info: { query, loading: true, error: null, data: sameTable(s.info?.query, query) ? (s.info?.data ?? null) : null },
-    }));
+    set((s) => {
+      const prev = s.info?.kind === "table" ? s.info : null;
+      return { info: { kind: "table", query, loading: true, error: null, data: sameTable(prev?.query, query) ? (prev?.data ?? null) : null } };
+    });
     getTableInfo(query)
       .then((data) => {
         if (req !== infoSeq) return;
-        set({ info: { query, loading: false, error: null, data } });
+        set({ info: { kind: "table", query, loading: false, error: null, data } });
       })
       .catch((err: unknown) => {
         if (req !== infoSeq) return;
         // Falha passageira (ex.: 503) ao reler a mesma tabela mantém os dados exibidos e só mostra o aviso;
         // outra tabela, ou 404 (tabela excluída), descarta os dados.
-        const prev = get().info;
+        const cur = get().info;
+        const prev = cur?.kind === "table" ? cur : null;
         const gone = err instanceof ApiError && err.status === 404;
         const keep = !gone && sameTable(prev?.query, query) ? (prev?.data ?? null) : null;
-        set({ info: { query, loading: false, error: friendlyError(err), data: keep } });
+        set({ info: { kind: "table", query, loading: false, error: friendlyError(err), data: keep } });
       });
+  }
+
+  function loadCatalogInfo(name: string) {
+    const req = ++infoSeq;
+    // Mesmo catálogo (refresh): mantém os dados na tela durante a releitura; outro catálogo começa vazio.
+    set((s) => {
+      const prev = s.info?.kind === "catalog" && s.info.name === name ? s.info : null;
+      return { info: { kind: "catalog", name, loading: true, error: null, data: prev?.data ?? null } };
+    });
+    getCatalogInfo(name)
+      .then((data) => {
+        if (req !== infoSeq) return;
+        set({ info: { kind: "catalog", name, loading: false, error: null, data } });
+      })
+      .catch((err: unknown) => {
+        if (req !== infoSeq) return;
+        // Falha passageira ao reler o mesmo catálogo mantém os dados exibidos; 404 descarta.
+        const cur = get().info;
+        const gone = err instanceof ApiError && err.status === 404;
+        const keep = !gone && cur?.kind === "catalog" && cur.name === name ? cur.data : null;
+        set({ info: { kind: "catalog", name, loading: false, error: catalogInfoError(err), data: keep } });
+      });
+  }
+
+  /** Relê o painel aberto, qualquer que seja o tipo. */
+  function reloadInfo(info: InfoState) {
+    if (info.kind === "table") loadInfo(info.query);
+    else loadCatalogInfo(info.name);
   }
 
   return {
@@ -144,7 +214,7 @@ export const useCatalog = create<CatalogState>((set, get) => {
       }
       set({ columns: kept, loading: true, error: null });
       const info = get().info;
-      if (info) loadInfo(info.query);
+      if (info) reloadInfo(info);
       const gen = ++generation;
       getCatalog()
         .then((data) => {
@@ -192,7 +262,9 @@ export const useCatalog = create<CatalogState>((set, get) => {
         }
       }
       const info = get().info;
-      if (info && info.query.catalog === catalog && info.query.database === schema) get().closeInfo();
+      if (info?.kind === "table" && info.query.catalog === catalog && info.query.database === schema) get().closeInfo();
+      // Contagens e namespaces do catálogo mudaram: relê o Catalog info aberto dele (mantém os dados durante a leitura).
+      else if (info?.kind === "catalog" && info.name === catalog) loadCatalogInfo(catalog);
       set((s) => ({
         expanded: Object.fromEntries(Object.entries(s.expanded).filter(([k]) => !under(k))) as Record<string, true>,
         columns: Object.fromEntries(Object.entries(s.columns).filter(([k]) => !under(k))),
@@ -203,8 +275,15 @@ export const useCatalog = create<CatalogState>((set, get) => {
       const info = get().info;
       // Clicar de novo na linha não deve refazer a requisição nem perder a aba atual do painel;
       // após erro (sem data e sem carga em curso), reabrir a mesma tabela tenta de novo.
-      if (info && sameTable(info.query, query) && (info.loading || info.data)) return;
+      if (info?.kind === "table" && sameTable(info.query, query) && (info.loading || info.data)) return;
       loadInfo(query);
+    },
+
+    openCatalogInfo: (name) => {
+      const info = get().info;
+      // Mesmo comportamento do Table info: reabrir o mesmo catálogo não relê nem perde a aba; após erro, tenta de novo.
+      if (info?.kind === "catalog" && info.name === name && (info.loading || info.data)) return;
+      loadCatalogInfo(name);
     },
 
     closeInfo: () => {
