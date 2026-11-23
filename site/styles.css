@@ -213,6 +213,7 @@ body {
 a { color: inherit; }
 img { max-width: 100%; display: block; }
 .ico { fill: currentColor; flex: none; display: block; width: 1em; height: 1em; }
+.ico-inline { width: 14px; height: 14px; display: inline; vertical-align: -2px; }
 code, pre, kbd { font-family: var(--font-mono); font-synthesis-style: none; }
 :focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
 .sr-only {
@@ -617,7 +618,6 @@ footer .brand .wordmark { font-size: 16px; color: var(--color-text); }
 .mk-sel .mk-chev, .mk-sel .mk-icon { color: var(--color-text); }
 .mk-svg12 { width: 12px; height: 12px; display: block; }
 .mk-svg14 { width: 14px; height: 14px; display: block; fill: currentColor; }
-.ico-inline { width: 14px; height: 14px; display: inline; vertical-align: -2px; }
 .mk-name { overflow: hidden; text-overflow: ellipsis; }
 .mk-size { margin-left: var(--space-2); color: var(--color-text-subtle); font-size: var(--font-size-xs); }
 .mk-sel .mk-size { color: var(--color-text); }
