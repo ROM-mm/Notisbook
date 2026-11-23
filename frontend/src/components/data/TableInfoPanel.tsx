@@ -127,7 +127,7 @@ function Columns({ info }: { info: TableInfo }) {
             </td>
             <td>{c.data_type}</td>
             <td>{c.nullable ? "yes" : "no"}</td>
-            <td className={c.description ? styles.prose : styles.na}>{c.description || DASH}</td>
+            <td className={c.description ? undefined : styles.na}>{c.description ? <span className={styles.prose}>{c.description}</span> : DASH}</td>
           </tr>
         ))}
       </tbody>

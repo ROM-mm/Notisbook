@@ -239,8 +239,7 @@
 }
 
 /* Texto corrido (comentários): quebra entre palavras e limita a contribuição à largura medida. */
-.prose,
-.grid td.prose {
+.prose {
   min-width: 30ch;
   max-width: 60ch;
   overflow-wrap: break-word;
