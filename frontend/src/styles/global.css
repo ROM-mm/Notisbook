@@ -69,32 +69,16 @@ kbd {
 }
 
 ::selection {
-  background: var(--color-accent-subtle);
+  background: var(--color-editor-selection);
 }
 
-/* Barra de rolagem fina e discreta. */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+/* Barras de rolagem ocultas; a rolagem por trackpad, roda e teclado segue ativa. */
+* {
+  scrollbar-width: none;
 }
 
-::-webkit-scrollbar-thumb {
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: var(--color-border-strong);
-  background-clip: padding-box;
-}
-
-::-webkit-scrollbar-track,
-::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-@supports not selector(::-webkit-scrollbar) {
-  * {
-    scrollbar-color: var(--color-border-strong) transparent;
-    scrollbar-width: thin;
-  }
+*::-webkit-scrollbar {
+  display: none;
 }
 
 /* Botão único do app: borda fina, sem sombra; variantes primary, danger e ghost. */
@@ -191,7 +175,7 @@ kbd {
 
 .input:focus {
   border-color: var(--color-focus-ring);
-  outline: 2px solid var(--color-accent-subtle);
+  outline: 2px solid var(--color-focus-ring);
   outline-offset: 0;
 }
 
