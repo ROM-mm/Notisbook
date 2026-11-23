@@ -1,4 +1,4 @@
-/* Notisbook landing — tokens espelhados de frontend/src/styles/tokens.css. Tipografia: VT323 (SIL OFL 1.1) é a assinatura retrô (títulos, eyebrow, botões, terminal, mock do app); Monocode (monoespaçada) é o texto corrido. */
+/* Notisbook landing — tokens: espelho integral de frontend/src/styles/tokens.css (inclusive os sem uso aqui; ressincronize por cópia direta, sem poda). Tipografia: VT323 (SIL OFL 1.1) é a assinatura retrô (títulos, eyebrow, botões, terminal, mock do app); Monocode (monoespaçada) é o texto corrido. */
 
 @font-face {
   font-family: "Monocode";
@@ -83,6 +83,7 @@
   --home-mark-shadow: #000;
 
   --sx-kw: #0b45d6;
+  --sx-text: var(--color-text);
   --sx-str: #117f32;
   --sx-num: #c6420e;
   --sx-com: #737373;
@@ -283,7 +284,8 @@ section { border-bottom: 1px solid var(--color-border); }
 .eyebrow::before { content: "// "; color: var(--color-text-subtle); }
 h1, h2, h3 { font-family: var(--font-display); font-weight: 400; line-height: 1.2; margin: 0; letter-spacing: -0.01em; }
 /* VT323 não tem negrito/itálico: impede a síntese nos elementos de assinatura. */
-h1, h2, h3, .wordmark, .eyebrow, .btn, .term, .app { font-synthesis: none; }
+h1, h2, h3, .wordmark, .eyebrow, .btn, .term, .app,
+#examples .cell, #examples .out, #examples .cell-label { font-synthesis: none; }
 h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 .lead { color: var(--color-text-muted); max-width: 62ch; margin: 14px 0 0; font-size: 16px; }
 .section-head { margin-bottom: 40px; }
@@ -351,7 +353,7 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 }
 .app-top .wordmark { font-size: 14px; }
 .app-top .tag { color: var(--color-text-muted); font-family: var(--font-sans); font-size: 12px; }
-.nb-tabs { display: flex; align-self: stretch; min-width: 0; overflow-x: auto; margin-left: 6px; scrollbar-width: none; }
+.nb-tabs { display: flex; align-self: stretch; min-width: 0; overflow-x: auto; margin-left: 6px; scrollbar-width: thin; }
 .nb-tab {
   display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; flex: none;
   border: 0; border-left: 1px solid var(--color-border); background: transparent;
@@ -415,7 +417,7 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
   display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px;
   border: 1px solid var(--color-border); background: var(--color-bg); color: var(--color-text-muted); font-size: 11px;
 }
-.ok { color: var(--color-success); }
+.ok { color: var(--color-success-text); }
 
 .k { color: var(--sx-kw); font-weight: 600; }
 .s { color: var(--sx-str); font-style: var(--sx-str-style); }
@@ -471,12 +473,11 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 .note { font-size: 12.5px; color: var(--color-text-muted); margin: 14px 0 0; }
 .note code { font-size: 12px; }
 /* As abas de #examples imitam o app: código e saídas usam a fonte do mock do hero (.app); a prosa ao redor segue em Monocode para leitura. */
-#examples .cell, #examples .out, #examples .col-label {
+#examples .cell, #examples .out, #examples .cell-label {
   --font-sans: var(--font-display); --font-mono: var(--font-display);
-  font-synthesis: none;
 }
 #examples .cell, #examples .out { font: 12.5px/1.5 var(--font-mono); }
-#examples .col-label { font-weight: 400; font-size: 12px; }
+#examples .cell-label { font-weight: 400; font-size: 12px; }
 .facts { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
 .facts li { padding-left: 18px; position: relative; color: var(--color-text-muted); }
 .facts li::before { content: "›"; position: absolute; left: 2px; color: var(--color-text); font-family: var(--font-mono); }
@@ -563,8 +564,6 @@ footer .brand .wordmark { font-size: 16px; color: var(--color-text); }
 .mk-badges { display: flex; flex-wrap: wrap; gap: var(--space-2); padding: var(--space-3) var(--space-5) 0; }
 .mk-badge { padding: 0 var(--space-2); border: 1px solid var(--color-border-strong); font-family: var(--font-mono); font-size: var(--font-size-xs); line-height: 20px; }
 .mk-managed { background: var(--color-accent); color: var(--on-accent); }
-.mk-external { border-style: dashed; }
-.mk-warn { border-color: var(--color-warning); background: var(--color-warning-subtle); color: var(--color-warning); }
 .mk-callout {
   margin: var(--space-3) var(--space-5) 0; padding: var(--space-2) var(--space-3);
   border-left: 3px solid var(--color-border-strong); background: var(--color-bg-hover);
@@ -618,12 +617,12 @@ footer .brand .wordmark { font-size: 16px; color: var(--color-text); }
 .mk-sel .mk-chev, .mk-sel .mk-icon { color: var(--color-text); }
 .mk-svg12 { width: 12px; height: 12px; display: block; }
 .mk-svg14 { width: 14px; height: 14px; display: block; fill: currentColor; }
+.ico-inline { width: 14px; height: 14px; display: inline; vertical-align: -2px; }
 .mk-name { overflow: hidden; text-overflow: ellipsis; }
 .mk-size { margin-left: var(--space-2); color: var(--color-text-subtle); font-size: var(--font-size-xs); }
 .mk-sel .mk-size { color: var(--color-text); }
 .mk-muted, .mk-muted .mk-icon { color: var(--color-text-subtle); }
 @media (prefers-reduced-motion: reduce) { .tree .chev, .mk-chev { transition: none; } }
-
 
 /* grid items não podem forçar rolagem horizontal da página */
 .install-grid > *, .panel-grid > *, .steps > *, .features > *, .links > * { min-width: 0; }

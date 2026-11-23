@@ -302,7 +302,7 @@
       <p class="panel-intro" data-i18n="ex.delta.intro">A SparkSession with Delta Lake, an external table written to the <code>bronze</code> layer and a Spark SQL cell to query it. The Ivy resolution log is replaced by a short package summary.</p>
       <div class="panel-grid">
         <div class="stack">
-          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">SparkSession</span><span class="ok">✓</span></div>
 <pre><span class="k">from</span> delta <span class="k">import</span> configure_spark_with_delta_pip
 <span class="k">from</span> pyspark.sql <span class="k">import</span> SparkSession
@@ -327,7 +327,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
 <pre><span class="k">select</span> * <span class="k">from</span> bronze.delta_employees</pre></div>
         </div>
         <div class="stack">
-          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
           <div class="out"><div class="out-head"><span>SparkSession</span></div>
             <div class="pkg">
               <div class="pkg-title"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><path d="M2 5l6-3 6 3v6l-6 3-6-3V5Zm0 0 6 3 6-3M8 8v6"/></svg>Pacotes Spark</div>
@@ -349,7 +349,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
       <p class="panel-intro" data-i18n="ex.iceberg.intro">Iceberg tables live in a separate <code>iceberg</code> catalog, backed by a JDBC catalog on the same local SQLite file, with data in the notislake.</p>
       <div class="panel-grid">
         <div class="stack">
-          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">SparkSession</span><span class="ok">✓</span></div>
 <pre>spark = (
     SparkSession.builder
@@ -371,7 +371,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
 <pre><span class="k">SELECT</span> * <span class="k">FROM</span> iceberg.bronze.iceberg_employees</pre></div>
         </div>
         <div class="stack">
-          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
           <div class="out"><div class="out-head"><span>Query</span><span>3 rows</span></div>
             <div class="out-table-wrap"><table>
               <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
@@ -379,7 +379,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
             </table></div>
           </div>
           <div class="out"><div class="out-head"><span>Catalog</span></div>
-<pre><svg class="ico" style="width:14px;height:14px;display:inline;vertical-align:-2px" aria-hidden="true"><use href="#s-iceberg"/></svg> iceberg
+<pre><svg class="ico ico-inline" aria-hidden="true"><use href="#s-iceberg"/></svg> iceberg
  └─ bronze
      └─ iceberg_employees</pre></div>
           <p class="note" data-i18n="ex.iceberg.note"><code>createOrReplace</code> lets the cell run again without errors.</p>
@@ -391,7 +391,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
       <p class="panel-intro" data-i18n="ex.hudi.intro">The Hudi bundle ships with every Spark line. Write a keyed external table to <code>bronze</code> and query it from Spark SQL.</p>
       <div class="panel-grid">
         <div class="stack">
-          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">SparkSession</span><span class="ok">✓</span></div>
 <pre>spark = (
     SparkSession.builder
@@ -411,7 +411,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
 <pre><span class="k">select</span> * <span class="k">from</span> bronze.hudi_employees</pre></div>
         </div>
         <div class="stack">
-          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
           <div class="out"><div class="out-head"><span>Query</span><span>3 rows</span></div>
             <div class="out-table-wrap"><table>
               <thead><tr><th>_hoodie_* …</th><th>id</th><th>nome</th><th>area</th></tr></thead>
@@ -427,7 +427,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
       <p class="panel-intro" data-i18n="ex.glue.intro">Pick the <strong>AWS Glue 5.0</strong> kernel and the same notebook runs inside a local Docker container (Spark 3.5, Python 3.11, Java 17), with Delta and Iceberg. The container reaches the catalog only through the backend API.</p>
       <div class="panel-grid">
         <div class="stack">
-          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">GlueContext</span><span class="ok">✓</span></div>
 <pre><span class="k">from</span> awsglue.context <span class="k">import</span> GlueContext
 <span class="k">from</span> pyspark.context <span class="k">import</span> SparkContext
@@ -452,7 +452,7 @@ df.<span class="f">show</span>()</pre></div>
 )</pre></div>
         </div>
         <div class="stack">
-          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
           <div class="out"><div class="out-head"><span>DataFrame</span><span>stdout</span></div>
 <pre>+---+-----+----------+
 | id| nome|      area|
@@ -472,7 +472,7 @@ df.<span class="f">show</span>()</pre></div>
       <p class="panel-intro" data-i18n="ex.duckdb.intro">Pick the <strong>DuckDB 2.0.1</strong> kernel and DuckDB cells run in-process, with Python cells beside them. The <code>notislake</code> catalog is attached through the app's Iceberg REST catalog with a per-session token, so the table is written as Iceberg in <code>bronze</code>, and a Parquet copy lands in the free <code>landing</code> zone.</p>
       <div class="panel-grid">
         <div class="stack">
-          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
 <pre><span class="k">CREATE SCHEMA IF NOT EXISTS</span> notislake.bronze</pre></div>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
@@ -498,7 +498,7 @@ df.<span class="f">show</span>()</pre></div>
 <pre><span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees</pre></div>
         </div>
         <div class="stack">
-          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
           <div class="out"><div class="out-head"><span>read_parquet</span><span>8 rows</span></div>
             <div class="out-table-wrap"><table>
               <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
@@ -506,10 +506,10 @@ df.<span class="f">show</span>()</pre></div>
             </table></div>
           </div>
           <div class="out"><div class="out-head"><span>Catalog · Notislake</span></div>
-<pre><svg class="ico" style="width:14px;height:14px;display:inline;vertical-align:-2px" aria-hidden="true"><use href="#s-iceberg"/></svg> iceberg
+<pre><svg class="ico ico-inline" aria-hidden="true"><use href="#s-iceberg"/></svg> iceberg
  └─ bronze
      └─ duckdb_employees
-<svg class="ico" style="width:14px;height:14px;display:inline;vertical-align:-2px" aria-hidden="true"><use href="#s-s3"/></svg> s3a://notislake
+<svg class="ico ico-inline" aria-hidden="true"><use href="#s-s3"/></svg> s3a://notislake
  └─ landing
      └─ duckdb_employees.parquet</pre></div>
           <p class="note" data-i18n="ex.duckdb.note">The table shows up under <code>iceberg › bronze</code> in the Catalog panel and the file under <code>landing</code> in the Notislake tree. The local Spark kernel also accepts <code>duckdb</code> cells, in-process and without the catalog; the Glue kernel takes Python and Spark SQL.</p>
@@ -521,7 +521,7 @@ df.<span class="f">show</span>()</pre></div>
       <p class="panel-intro" data-i18n="ex.cat.intro">The catalog outlives every kernel session. Tables are registered in a local SQLite file and shown in the Catalog panel even when no kernel is running.</p>
       <div class="panel-grid">
         <div class="stack">
-          <p class="col-label" data-i18n="ex.cat.tree">Catalog panel</p>
+          <p class="col-label cell-label" data-i18n="ex.cat.tree">Catalog panel</p>
           <div class="out" style="padding:10px 0">
             <ul class="tree">
               <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark</span>
@@ -748,7 +748,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
           <ul class="facts">
             <li data-i18n="md.nl.f1"><strong>The bucket as a tree.</strong> <code>s3a://notislake</code> always shows <code>landing</code>, <code>bronze</code>, <code>silver</code> and <code>gold</code>; each folder is listed when you expand it.</li>
             <li data-i18n="md.nl.f2"><strong>landing is the free zone.</strong> It stays dimmed because it sits outside the catalog: drop raw files there and read them by path, as the DuckDB sample does with its Parquet copy.</li>
-            <li data-i18n="md.nl.f3"><strong>Icons by format.</strong> Parquet, Avro, ORC, CSV, JSON and text files get their own icons and sizes; Delta folders and <code>_delta_log</code> show the Delta mark.</li>
+            <li data-i18n="md.nl.f3"><strong>Icons by format.</strong> Parquet, Avro, ORC, CSV, JSON and text files get their own icons and sizes; only <code>_delta_log</code> and <code>*.delta</code> folders show the Delta mark.</li>
             <li data-i18n="md.nl.f4"><strong>Read-only, keyboard friendly.</strong> Arrow keys walk the tree, the context menu copies the <code>s3a://</code> path, and the root opens a menu with the MinIO UI, a copy of the credentials and Settings.</li>
           </ul>
         </div>
@@ -1029,7 +1029,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "md.ti.f4": "<strong>Histórico e propriedades.</strong> Tabelas Iceberg acrescentam snapshots, número de linhas, tamanho e arquivos de dados a partir dos metadados. Delta e Hudi mostram a versão atual; o histórico delas precisa do kernel.",
     "md.nl.f1": "<strong>O bucket como árvore.</strong> <code>s3a://notislake</code> sempre mostra <code>landing</code>, <code>bronze</code>, <code>silver</code> e <code>gold</code>; cada pasta é listada quando você a expande.",
     "md.nl.f2": "<strong>landing é a zona livre.</strong> Ela aparece atenuada porque fica fora do catálogo: deixe arquivos brutos ali e leia-os pelo caminho, como o exemplo DuckDB faz com sua cópia em Parquet.",
-    "md.nl.f3": "<strong>Ícones por formato.</strong> Arquivos Parquet, Avro, ORC, CSV, JSON e texto têm ícones e tamanhos próprios; pastas Delta e <code>_delta_log</code> mostram a marca do Delta.",
+    "md.nl.f3": "<strong>Ícones por formato.</strong> Arquivos Parquet, Avro, ORC, CSV, JSON e texto têm ícones e tamanhos próprios; só <code>_delta_log</code> e pastas <code>*.delta</code> mostram a marca do Delta.",
     "md.nl.f4": "<strong>Somente leitura, pensada para o teclado.</strong> As setas percorrem a árvore, o menu de contexto copia o caminho <code>s3a://</code> e a raiz abre um menu com a MinIO UI, uma cópia das credenciais e Settings.",
     "ft.eyebrow": "SEÇÃO 3 · INVENTÁRIO DO SISTEMA",
     "ft.title": "Tudo o que o sistema precisa, já conectado. Sem cabos.",

@@ -92,7 +92,7 @@ def build_catalog_info(home: Path, catalog: str, conn: sqlite3.Connection | None
     return {
         "name": catalog,
         "kind": {registry.SPARK_CATALOG: "session", iceberg_jdbc.ICEBERG_CATALOG: "named"}.get(catalog, "display_group"),
-        "backing_catalog": _conf_name(catalog) if catalog == registry.HUDI_CATALOG else None,
+        "backing_catalog": registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else None,
         "status": status,
         "profile": PROFILE,
         "implementation": _safe(prefix, values.get(prefix)),
