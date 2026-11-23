@@ -24,6 +24,8 @@ import { type Draft, NotebookTree } from "./NotebookTree";
 
 const SESSIONS_RETRIES = 6;
 const SESSIONS_RETRY_MS = 500;
+/** Espera após o último `resize` da janela antes de remedir a largura do painel. */
+const RESIZE_DEBOUNCE_MS = 150;
 
 function withNotebookExt(name: string): string {
   return name.toLowerCase().endsWith(NOTEBOOK_EXT) ? name : `${name}${NOTEBOOK_EXT}`;
@@ -87,6 +89,20 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
     });
     return () => {
       active = false;
+    };
+  }, [fitToContent]);
+  // O teto (metade da janela) só vale no momento da medição: remede ao redimensionar a janela, com debounce.
+  // Largura manual segue intocada (`fitToContent` sai cedo com `rightPanelWidthManual`).
+  useEffect(() => {
+    let timer: number | undefined;
+    const onResize = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(fitToContent, RESIZE_DEBOUNCE_MS);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.clearTimeout(timer);
     };
   }, [fitToContent]);
 
