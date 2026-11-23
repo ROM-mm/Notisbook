@@ -24,6 +24,7 @@ _SCRIPT = (
 )
 
 # Mesmo critério de `isValidFontName` no frontend: o nome vira valor CSS entre aspas.
+# O descarte de nomes com prefixo `.` (famílias internas do sistema) é extra, feito em `_valid_name`.
 _NAME_PATTERN = re.compile(r"^[^\"'\\;{}\x00-\x1f\x7f]+$")
 
 
@@ -68,7 +69,7 @@ def _query() -> list[str] | None:
     if proc.returncode != 0:
         return None
     try:
-        return _filter(json.loads(proc.stdout.strip() or proc.stderr.strip()))
+        return _filter(json.loads(proc.stdout.strip()))
     except ValueError:
         return None
 
