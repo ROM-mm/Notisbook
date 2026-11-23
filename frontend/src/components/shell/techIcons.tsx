@@ -200,3 +200,22 @@ export const GlueIcon = (p: IconProps) => {
     </TechSvg>
   );
 };
+
+export const AvroIcon = (p: IconProps) => (
+  <TechSvg {...p}>
+    <path d="M16 8L30.5 25H1.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    <path d="M16 11.6L26.4 23.2H5.6Z" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+    <path
+      d="M13.3 21.6L16 15.2L18.7 21.6M14.2 19.6H17.8"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <g fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <path d="M11.6 13.2Q6.5 11.6 0.8 6.6M10.4 14.8Q6.2 13.9 2.2 10.6M9.2 16.5Q6 16 3.6 14.2" />
+      <path d="M20.4 13.2Q25.5 11.6 31.2 6.6M21.6 14.8Q25.8 13.9 29.8 10.6M22.8 16.5Q26 16 28.4 14.2" />
+    </g>
+  </TechSvg>
+);
