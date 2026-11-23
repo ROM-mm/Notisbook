@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Notisbook — Data Workstation · Process anything. Locally.</title>
-<meta name="description" content="A Data Workstation from an alternate 1970s, for macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, a persistent catalog and an AWS Glue 5.0 runtime, all on 127.0.0.1.">
+<meta name="description" content="A Data Workstation from an alternate 1970s, for macOS: Spark (local and AWS Glue 5.0) and DuckDB runtimes side by side, Delta Lake, Apache Iceberg, Apache Hudi and Parquet tables, a persistent catalog and a local S3 notislake, all on 127.0.0.1.">
 <link rel="icon" href="assets/favicon-light.svg" media="(prefers-color-scheme: light)">
 <link rel="icon" href="assets/favicon-dark.svg" media="(prefers-color-scheme: dark)">
 <link rel="stylesheet" href="styles.css">
@@ -41,8 +41,19 @@
 <path d="M3 24.5H29M6.5 27.6H25.5M10.5 30.6H21.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
     <symbol id="s-parquet" viewBox="0 0 32 32"><g transform="rotate(-45 16 16)" fill="currentColor" stroke="none"><rect x="5.40" y="5.40" width="21.20" height="3" rx="0.6"/><rect x="5.40" y="9.95" width="7.60" height="3" rx="0.6"/><rect x="14.60" y="9.95" width="12.00" height="3" rx="0.6"/><rect x="5.40" y="14.50" width="13.10" height="3" rx="0.6"/><rect x="20.10" y="14.50" width="6.50" height="3" rx="0.6"/><rect x="5.40" y="19.05" width="4.10" height="3" rx="0.6"/><rect x="11.10" y="19.05" width="15.50" height="3" rx="0.6"/><rect x="5.40" y="23.60" width="21.20" height="3" rx="0.6"/></g></symbol>
     <symbol id="s-glue" viewBox="0 0 32 32"><defs><clipPath id="c-glue-a"><polygon points="1.50,7.00 8.50,7.00 8.50,14.00 1.50,14.00"/></clipPath></defs><g clip-path="url(#c-glue-a)"><rect x="5" y="0" width="32" height="32" fill="none"/><path d="M5 0.0H32M5 2.5H32M5 5.0H32M5 7.5H32M5 10.0H32M5 12.5H32M5 15.0H32M5 17.5H32M5 20.0H32M5 22.5H32M5 25.0H32M5 27.5H32M5 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="1.50,7.00 8.50,7.00 8.50,14.00 1.50,14.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="5" y1="7" x2="5" y2="14" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-b"><polygon points="11.50,1.00 20.50,1.00 20.50,14.00 11.50,14.00"/></clipPath></defs><g clip-path="url(#c-glue-b)"><rect x="16" y="0" width="32" height="32" fill="none"/><path d="M16 0.0H32M16 2.5H32M16 5.0H32M16 7.5H32M16 10.0H32M16 12.5H32M16 15.0H32M16 17.5H32M16 20.0H32M16 22.5H32M16 25.0H32M16 27.5H32M16 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="11.50,1.00 20.50,1.00 20.50,14.00 11.50,14.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="16" y1="1" x2="16" y2="14" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-c"><polygon points="23.50,9.00 30.50,9.00 30.50,14.00 23.50,14.00"/></clipPath></defs><g clip-path="url(#c-glue-c)"><rect x="27" y="0" width="32" height="32" fill="none"/><path d="M27 0.0H32M27 2.5H32M27 5.0H32M27 7.5H32M27 10.0H32M27 12.5H32M27 15.0H32M27 17.5H32M27 20.0H32M27 22.5H32M27 25.0H32M27 27.5H32M27 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="23.50,9.00 30.50,9.00 30.50,14.00 23.50,14.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="27" y1="9" x2="27" y2="14" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-d"><polygon points="1.50,17.00 30.50,17.00 30.50,22.00 16.00,26.50 1.50,22.00"/></clipPath></defs><g clip-path="url(#c-glue-d)"><rect x="16" y="0" width="32" height="32" fill="none"/><path d="M16 0.0H32M16 2.5H32M16 5.0H32M16 7.5H32M16 10.0H32M16 12.5H32M16 15.0H32M16 17.5H32M16 20.0H32M16 22.5H32M16 25.0H32M16 27.5H32M16 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="1.50,17.00 30.50,17.00 30.50,22.00 16.00,26.50 1.50,22.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="16" y1="17" x2="16" y2="26.5" stroke="currentColor" stroke-width="1.6"/><defs><clipPath id="c-glue-e"><polygon points="12.50,27.50 19.50,27.50 19.50,31.00 12.50,31.00"/></clipPath></defs><g clip-path="url(#c-glue-e)"><rect x="16" y="0" width="32" height="32" fill="none"/><path d="M16 0.0H32M16 2.5H32M16 5.0H32M16 7.5H32M16 10.0H32M16 12.5H32M16 15.0H32M16 17.5H32M16 20.0H32M16 22.5H32M16 25.0H32M16 27.5H32M16 30.0H32" stroke="currentColor" stroke-width="1.2"/></g><polygon points="12.50,27.50 19.50,27.50 19.50,31.00 12.50,31.00" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><line x1="16" y1="27.5" x2="16" y2="31" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="s-duckdb" viewBox="0 0 32 32"><defs><mask id="m-duck"><rect width="32" height="32" fill="#fff"/><circle cx="13" cy="14" r="7" fill="#000"/><rect x="17" y="12.4" width="11" height="4.6" rx="2.3" fill="#000"/><path d="M0 23.5H32M0 26.7H32M0 29.9H32" stroke="#000" stroke-width="1.4"/></mask></defs><circle cx="16" cy="16" r="15" fill="currentColor" stroke="none" mask="url(#m-duck)"/><circle cx="15" cy="11" r="1.4" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="s-avro" viewBox="0 0 32 32"><path d="M16 8L30.5 25H1.5Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M16 11.6L26.4 23.2H5.6Z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M13.3 21.6L16 15.2L18.7 21.6M14.2 19.6H17.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M11.6 13.2Q6.5 11.6 0.8 6.6M10.4 14.8Q6.2 13.9 2.2 10.6M9.2 16.5Q6 16 3.6 14.2"/><path d="M20.4 13.2Q25.5 11.6 31.2 6.6M21.6 14.8Q25.8 13.9 29.8 10.6M22.8 16.5Q26 16 28.4 14.2"/></g></symbol>
+    <symbol id="s-orc" viewBox="0 0 32 32"><defs><mask id="m-orc"><rect width="32" height="32" fill="#fff"/><path d="M5 18.2Q6.6 13.6 9.4 11.2V8.9L12.8 8.6L16 6.4L19.2 8.6L22.6 8.9V11.2Q25.4 13.6 27 18.2L22.2 20.6Q20.2 15.6 16 13.4Q11.8 15.6 9.8 20.6Z" fill="#000"/><path d="M16 16.8Q18.4 18.6 19.2 20.6Q18 23.6 16 26.6Q14 23.6 12.8 20.6Q13.6 18.6 16 16.8Z" fill="#000"/></mask></defs><circle cx="16" cy="16" r="15" fill="currentColor" stroke="none" mask="url(#m-orc)"/></symbol>
   </svg>
-<svg hidden aria-hidden="true"><symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0"/><path d="M4 6v6a8 3 0 0 0 16 0v-6"/><path d="M4 12v6a8 3 0 0 0 16 0v-6"/></symbol></svg>
+<svg hidden aria-hidden="true"><symbol id="i-db" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0"/><path d="M4 6v6a8 3 0 0 0 16 0v-6"/><path d="M4 12v6a8 3 0 0 0 16 0v-6"/></symbol>
+<symbol id="i-folder" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 26V8Q3 7 4 7H11.5L14 10H28Q29 10 29 11V26Q29 27 28 27H4Q3 27 3 26ZM3 13.5H29"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/></symbol>
+<symbol id="i-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M9 6l6 6l-6 6"/></symbol>
+<symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M18 6l-12 12"/><path d="M6 6l12 12"/></symbol>
+<symbol id="i-table" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="square" stroke-linejoin="miter"><path d="M3 5a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14"/><path d="M3 10h18"/><path d="M10 3v18"/></symbol>
+<symbol id="i-file-csv" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="butt" stroke-linejoin="miter"><path d="M7 4Q7 3 8 3H20L26 9V28Q26 29 25 29H8Q7 29 7 28ZM20 3V9H26" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="10" y="12" width="13" height="14" rx="0.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 16H23" stroke="currentColor" stroke-width="2.4" fill="none"/><path d="M10 21H23M14.3 12V26M18.7 12V26" stroke="currentColor" stroke-width="1.3" fill="none"/></symbol>
+<symbol id="i-file-json" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="butt" stroke-linejoin="miter"><path d="M7 4Q7 3 8 3H20L26 9V28Q26 29 25 29H8Q7 29 7 28ZM20 3V9H26" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M14 12.5Q11.6 12.5 11.6 14.8V17.2Q11.6 18.6 10 19.2Q11.6 19.8 11.6 21.2V23.6Q11.6 25.9 14 25.9M19 12.5Q21.4 12.5 21.4 14.8V17.2Q21.4 18.6 23 19.2Q21.4 19.8 21.4 21.2V23.6Q21.4 25.9 19 25.9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="16.5" cy="19.2" r="1.1" fill="currentColor" stroke="none"/></symbol>
+<symbol id="i-file-text" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="butt" stroke-linejoin="miter"><path d="M7 4Q7 3 8 3H20L26 9V28Q26 29 25 29H8Q7 29 7 28ZM20 3V9H26" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.5 13H22.5M10.5 16.5H22.5M10.5 20H20M10.5 23.5H17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" fill="none"/></symbol></svg>
 <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
 
 <header class="site-header">
@@ -55,6 +66,7 @@
     <nav class="nav" aria-label="Main" data-i18n-aria="aria.main">
       <a href="#how" data-i18n="nav.how">How it works</a>
       <a href="#examples" data-i18n="nav.examples">Examples</a>
+      <a href="#metadata" data-i18n="nav.metadata">Metadata</a>
       <a href="#features" data-i18n="nav.features">Features</a>
       <a href="#compare" data-i18n="nav.compare">Compare</a>
       <a href="#install" data-i18n="nav.install">Install</a>
@@ -81,12 +93,12 @@
 <section class="hero" id="top">
   <div class="wrap hero-grid">
     <div>
-      <span class="hero-badge"><span class="dot" aria-hidden="true"></span><span data-i18n="hero.badge">v0.4.0 · macOS · Apache 2.0</span></span>
+      <span class="hero-badge"><span class="dot" aria-hidden="true"></span><span data-i18n="hero.badge">v0.7.0 · macOS · Apache 2.0</span></span>
       <h1>
-        <span data-i18n="hero.title">A 1970s Data Workstation. Running Spark.</span>
+        <span data-i18n="hero.title">A 1970s Data Workstation. Any engine.</span>
         <span class="slogan"><mark>Process anything. Locally.</mark></span>
       </h1>
-      <p class="lead" data-i18n="hero.lead">What would running Apache Spark on a 1970s computer feel like? Notisbook is a Data Workstation from an alternate timeline, where Spark, Glue, Delta Lake, Iceberg and Hudi already exist. Run Python, Spark SQL and DuckDB SQL cells on Spark with Delta Lake, Apache Iceberg and Apache Hudi, keep every table in a persistent catalog organized in <code>bronze</code>, <code>silver</code> and <code>gold</code>, and switch to an AWS Glue 5.0 runtime in Docker when you need it. Everything listens on <code>127.0.0.1</code>.</p>
+      <p class="lead" data-i18n="hero.lead">What would processing big data on a 1970s computer feel like? Notisbook is a Data Workstation from an alternate timeline, where the engines already sit in the cabinet. Spark (local, or AWS Glue 5.0 in Docker) and DuckDB run side by side as runtimes; Delta Lake, Apache Iceberg, Apache Hudi and Parquet are the table formats. Every table lands in a persistent catalog organized in <code>bronze</code>, <code>silver</code> and <code>gold</code>, and other engines may join later. Everything listens on <code>127.0.0.1</code>.</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href="#install" data-i18n="hero.cta1">Get started</a>
         <a class="btn btn-ghost" href="https://github.com/ROM-mm/Notisbook" data-i18n="hero.cta2">Explore the code</a>
@@ -99,63 +111,78 @@
       </div>
       <div class="stack-strip" aria-label="Supported technologies" data-i18n-aria="aria.stack">
         <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-spark"/></svg>Apache Spark</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-duckdb"/></svg>DuckDB</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-glue"/></svg>AWS Glue</span>
         <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-delta"/></svg>Delta Lake</span>
         <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-iceberg"/></svg>Apache Iceberg</span>
         <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-hudi"/></svg>Apache Hudi</span>
-        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-glue"/></svg>AWS Glue</span>
+        <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-parquet"/></svg>Parquet</span>
         <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-s3"/></svg>S3A · MinIO</span>
       </div>
     </div>
 
-    <figure class="app" style="margin:0" aria-label="Illustration of the Notisbook interface with the Catalog panel" data-i18n-aria="aria.figure">
+    <figure class="app" style="margin:0" aria-label="Illustration of the Notisbook interface with two notebooks open, one on a Spark kernel and one on a DuckDB kernel, next to the Catalog and Notislake panels" data-i18n-aria="aria.figure">
       <div class="app-top">
         <img src="assets/favicon-light.svg" alt="" width="18" height="18" class="mark-light">
         <img src="assets/favicon-dark.svg" alt="" width="18" height="18" class="mark-dark">
         <span class="wordmark">notisbook</span>
-        <span class="nb-tab"><span class="sq" aria-hidden="true"></span>delta.ipynb</span>
-        <span class="kernel"><span class="sq" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>3.5.9<span class="caret" aria-hidden="true">▾</span></span>
+        <div class="nb-tabs" role="tablist" aria-label="Open notebooks" data-i18n-aria="aria.nbtabs">
+          <button type="button" class="nb-tab" role="tab" id="tab-nb-delta" aria-controls="panel-nb-delta" aria-selected="true"><span class="sq" aria-hidden="true"></span>delta.ipynb</button>
+          <button type="button" class="nb-tab" role="tab" id="tab-nb-duckdb" aria-controls="panel-nb-duckdb" aria-selected="false" tabindex="-1"><span class="sq" aria-hidden="true"></span>duckdb.ipynb</button>
+        </div>
       </div>
       <div class="app-body">
         <aside class="app-side">
           <div class="side-title"><span>Catalog</span></div>
           <ul class="tree">
-            <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark_catalog</span>
+            <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark</span>
               <ul>
-                <li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
+                <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
                   <ul>
-                    <li class="sel"><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>delta_employees</span></li>
-                    <li><span><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi_employees</span></li>
-                    <li><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>glue_employees</span></li>
+                    <li class="sel"><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>delta_employees</span></li>
+                    <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>glue_employees</span></li>
                   </ul>
                 </li>
-                <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>silver</span></li>
-                <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>gold</span></li>
+                <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>silver</span></li>
+                <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>gold</span></li>
               </ul>
             </li>
-            <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg</span>
+            <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi</span>
               <ul>
-                <li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
-                  <ul><li><span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg_employees</span></li></ul>
+                <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
+                  <ul><li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi_employees</span></li></ul>
+                </li>
+              </ul>
+            </li>
+            <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg</span>
+              <ul>
+                <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
+                  <ul>
+                    <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>duckdb_employees</span></li>
+                    <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg_employees</span></li>
+                  </ul>
                 </li>
               </ul>
             </li>
           </ul>
           <div class="side-sep"></div>
-          <div class="side-title"><span>Notislake</span><span class="ok">● 127.0.0.1</span></div>
+          <div class="side-title"><span>Notislake</span></div>
           <ul class="tree">
-            <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="S3"><use href="#s-s3"/></svg>s3a://notislake</span>
+            <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="S3"><use href="#s-s3"/></svg>s3a://notislake</span>
               <ul>
-                <li><span><span class="fold" aria-hidden="true"></span>landing/</span></li>
-                <li><span><span class="fold" aria-hidden="true"></span>bronze/</span></li>
-                <li><span><span class="fold" aria-hidden="true"></span>silver/</span></li>
-                <li><span><span class="fold" aria-hidden="true"></span>gold/</span></li>
+                <li class="muted"><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg>landing</span></li>
+                <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg>bronze</span></li>
+                <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg>silver</span></li>
+                <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg>gold</span></li>
               </ul>
             </li>
           </ul>
         </aside>
         <div class="app-main">
-          <div class="cell">
-            <div class="cell-head"><span>python</span><span class="ok">✓</span></div>
+          <div class="nb-panel" role="tabpanel" id="panel-nb-delta" aria-labelledby="tab-nb-delta" tabindex="0">
+            <div class="nb-bar"><span class="kernel"><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>3.5.9<span class="caret" aria-hidden="true">▾</span></span></div>
+            <div class="cell">
+              <div class="cell-head"><span>python</span><span class="ok">✓</span></div>
 <pre>(
     df.write
     .<span class="f">format</span>(<span class="s">"delta"</span>)
@@ -163,23 +190,52 @@
     .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
     .<span class="f">saveAsTable</span>(<span class="s">"bronze.delta_employees"</span>)
 )</pre>
-            <div class="cell-out"><span class="run-dur">2.41 s</span></div>
-          </div>
-          <div class="add-bar" aria-hidden="true"><span class="add-line"></span><span class="add-btn"><span class="sq"></span>Code</span><span class="add-btn"><span class="sq"></span>Markdown</span><span class="add-line"></span></div>
-          <div class="cell active">
-            <div class="cell-head"><span>spark sql</span><span class="ok">✓</span></div>
+              <div class="cell-out"><span class="run-dur">2.41 s</span></div>
+            </div>
+            <div class="add-bar" aria-hidden="true"><span class="add-line"></span><span class="add-btn"><span class="sq"></span>Code</span><span class="add-btn"><span class="sq"></span>Markdown</span><span class="add-line"></span></div>
+            <div class="cell active">
+              <div class="cell-head"><span>spark sql</span><span class="ok">✓</span></div>
 <pre><span class="k">select</span> * <span class="k">from</span> bronze.delta_employees</pre>
-            <div class="cell-out">
-              <span class="run-dur">0.84 s</span>
-              <div class="out-table-wrap">
-                <table>
-                  <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
-                  <tbody>
-                    <tr><td>1</td><td>Ana</td><td>Dados</td></tr>
-                    <tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr>
-                    <tr><td>3</td><td>Carla</td><td>Segurança</td></tr>
-                  </tbody>
-                </table>
+              <div class="cell-out">
+                <span class="run-dur">0.84 s</span>
+                <div class="out-table-wrap">
+                  <table>
+                    <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
+                    <tbody>
+                      <tr><td>1</td><td>Ana</td><td>Dados</td></tr>
+                      <tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr>
+                      <tr><td>3</td><td>Carla</td><td>Segurança</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="nb-panel" role="tabpanel" id="panel-nb-duckdb" aria-labelledby="tab-nb-duckdb" tabindex="0" hidden>
+            <div class="nb-bar"><span class="kernel"><svg class="ico" role="img" aria-label="DuckDB"><use href="#s-duckdb"/></svg>2.0.1<span class="caret" aria-hidden="true">▾</span></span></div>
+            <div class="cell">
+              <div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">COPY</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees)
+<span class="k">TO</span> <span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span> (<span class="k">FORMAT</span> parquet)</pre>
+              <div class="cell-out"><span class="run-dur">0.37 s</span></div>
+            </div>
+            <div class="add-bar" aria-hidden="true"><span class="add-line"></span><span class="add-btn"><span class="sq"></span>Code</span><span class="add-btn"><span class="sq"></span>Markdown</span><span class="add-line"></span></div>
+            <div class="cell active">
+              <div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">SELECT</span> * <span class="k">FROM</span> <span class="f">read_parquet</span>(<span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span>)
+<span class="k">LIMIT</span> <span class="n">3</span></pre>
+              <div class="cell-out">
+                <span class="run-dur">0.12 s</span>
+                <div class="out-table-wrap">
+                  <table>
+                    <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
+                    <tbody>
+                      <tr><td>1</td><td>Romerito</td><td>Platform Engineering</td></tr>
+                      <tr><td>2</td><td>Theodoro</td><td>Data Engineering</td></tr>
+                      <tr><td>3</td><td>Miguel</td><td>AI Engineering</td></tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
@@ -195,7 +251,7 @@
     <div class="section-head">
       <p class="eyebrow" data-i18n="how.eyebrow">SECTION 1 · OPERATING PROCEDURE</p>
       <h2 data-i18n="how.title">Three steps from power-on to a cataloged table.</h2>
-      <p class="lead" data-i18n="how.lead">No cluster to provision and no cloud account to configure. No machine room either. Notisbook installs the engine, picks the JDK, starts the storage and registers what your cells create.</p>
+      <p class="lead" data-i18n="how.lead">No cluster to provision and no cloud account to configure. No machine room either. Notisbook installs the runtimes, picks the JDK for Spark, starts the storage and registers what your cells create.</p>
     </div>
     <ol class="steps" style="list-style:none;margin:0;padding:0">
       <li class="step">
@@ -206,17 +262,20 @@
       </li>
       <li class="step">
         <span class="step-num"><b>02</b><span data-i18n="how.s2k">configure</span></span>
-        <h3 data-i18n="how.s2t">Mount a Spark environment</h3>
-        <p data-i18n="how.s2p">Each Spark version gets its own isolated environment and kernel, like a partition of its own. Delta, Iceberg, Hudi and S3A jars are pinned per Spark line and verified by sha256; the JDK is selected for you.</p>
-        <div class="term"><pre><span class="c">prereqs › python › venv › install</span>
-<span class="c">› bundle › validate › kernelspec</span> <span class="ok">✓</span></pre></div>
+        <h3 data-i18n="how.s2t">Mount a runtime</h3>
+        <p data-i18n="how.s2p">Each runtime gets its own isolated environment and kernel, like a partition of its own. Spark is versioned per line, with Delta, Iceberg, Hudi and S3A jars verified by sha256 and the JDK selected for you; AWS Glue 5.0 runs in a local Docker container; DuckDB 2.0.1 ships with its extensions pinned by sha256 (<code>httpfs</code>, <code>iceberg</code>, <code>avro</code>, <code>excel</code>, <code>sqlite_scanner</code>, <code>postgres_scanner</code>, <code>spatial</code>).</p>
+        <div class="term"><pre><span class="prompt">› </span>spark 3.5.9 <span class="c">· jdk 17</span>      <span class="ok">✓</span>
+<span class="prompt">› </span>glue 5.0 <span class="c">· docker</span>        <span class="ok">✓</span>
+<span class="prompt">› </span>duckdb 2.0.1 <span class="c">· 7 ext</span>   <span class="ok">✓</span></pre></div>
       </li>
       <li class="step">
         <span class="step-num"><b>03</b><span data-i18n="how.s3k">run job</span></span>
         <h3 data-i18n="how.s3t">Submit cells, get cataloged tables</h3>
-        <p data-i18n="how.s3p">After each cell the catalog is reconciled, like a batch job closing its log: tables appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
+        <p data-i18n="how.s3p">After each cell the catalog is reconciled, like a batch job closing its log: tables written by Spark or DuckDB appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
         <div class="term"><pre>.<span class="f">saveAsTable</span>(<span class="s">"bronze.orders"</span>)
-<span class="c">→ Catalog › spark_catalog › bronze</span></pre></div>
+<span class="c">→ Catalog › spark › bronze</span>
+<span class="k">CREATE TABLE</span> notislake.bronze.orders <span class="k">AS</span> …
+<span class="c">→ Catalog › iceberg › bronze</span></pre></div>
       </li>
     </ol>
   </div>
@@ -226,8 +285,8 @@
   <div class="wrap section">
     <div class="section-head">
       <p class="eyebrow" data-i18n="ex.eyebrow">SECTION 2 · PROGRAM LIBRARY</p>
-      <h2 data-i18n="ex.title">One terminal, every table format.</h2>
-      <p class="lead" data-i18n="ex.lead">Programs from the library, taken from the sample notebooks seeded on the first run (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). Outputs are illustrative, like a printout.</p>
+      <h2 data-i18n="ex.title">One terminal, every runtime and table format.</h2>
+      <p class="lead" data-i18n="ex.lead">Programs from the library, taken from the sample notebooks seeded on the first run (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>, <code>duckdb.ipynb</code>). Outputs are illustrative, like a printout.</p>
     </div>
 
     <div class="tablist" role="tablist" aria-label="Examples" data-i18n-aria="aria.examples">
@@ -235,6 +294,7 @@
       <button class="tab" role="tab" id="tab-iceberg" aria-controls="panel-iceberg" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-iceberg"/></svg>Iceberg</button>
       <button class="tab" role="tab" id="tab-hudi" aria-controls="panel-hudi" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-hudi"/></svg>Hudi</button>
       <button class="tab" role="tab" id="tab-glue" aria-controls="panel-glue" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-glue"/></svg>Glue 5.0</button>
+      <button class="tab" role="tab" id="tab-duckdb" aria-controls="panel-duckdb" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-duckdb"/></svg>DuckDB</button>
       <button class="tab" role="tab" id="tab-catalog" aria-controls="panel-catalog" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-spark"/></svg>Catalog</button>
     </div>
 
@@ -280,7 +340,7 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
               <tbody><tr><td>1</td><td>Ana</td><td>Dados</td></tr><tr><td>2</td><td>Bruno</td><td>Plataforma</td></tr><tr><td>3</td><td>Carla</td><td>Segurança</td></tr></tbody>
             </table></div>
           </div>
-          <p class="note" data-i18n="ex.delta.note">Spark <code>WARN</code> and <code>INFO</code> lines stay out of the cell; <code>ERROR</code> lines still show. The table appears under <code>spark_catalog › bronze</code>.</p>
+          <p class="note" data-i18n="ex.delta.note">Spark <code>WARN</code> and <code>INFO</code> lines stay out of the cell; <code>ERROR</code> lines still show. The table appears under <code>spark › bronze</code> in the Catalog panel.</p>
         </div>
       </div>
     </div>
@@ -408,36 +468,92 @@ df.<span class="f">show</span>()</pre></div>
       </div>
     </div>
 
+    <div class="tabpanel" role="tabpanel" id="panel-duckdb" aria-labelledby="tab-duckdb" tabindex="0" hidden>
+      <p class="panel-intro" data-i18n="ex.duckdb.intro">Pick the <strong>DuckDB 2.0.1</strong> kernel and DuckDB cells run in-process, with Python cells beside them. The <code>notislake</code> catalog is attached through the app's Iceberg REST catalog with a per-session token, so the table is written as Iceberg in <code>bronze</code>, and a Parquet copy lands in the free <code>landing</code> zone.</p>
+      <div class="panel-grid">
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.code">Notebook</p>
+          <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">CREATE SCHEMA IF NOT EXISTS</span> notislake.bronze</pre></div>
+          <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">DROP TABLE IF EXISTS</span> notislake.bronze.duckdb_employees;
+
+<span class="k">CREATE TABLE</span> notislake.bronze.duckdb_employees <span class="k">AS</span>
+<span class="k">SELECT</span> id::<span class="k">BIGINT</span> <span class="k">AS</span> id, nome, area
+<span class="k">FROM</span> (<span class="k">VALUES</span>
+    (<span class="n">1</span>, <span class="s">'Romerito'</span>, <span class="s">'Platform Engineering'</span>),
+    (<span class="n">2</span>, <span class="s">'Theodoro'</span>, <span class="s">'Data Engineering'</span>),
+    (<span class="n">3</span>, <span class="s">'Miguel'</span>, <span class="s">'AI Engineering'</span>),
+    (<span class="n">4</span>, <span class="s">'Nina'</span>, <span class="s">'Coffee Engineering'</span>),
+    (<span class="n">5</span>, <span class="s">'Niko'</span>, <span class="s">'Security Engineering'</span>),
+    (<span class="n">6</span>, <span class="s">'Leonor'</span>, <span class="s">'Governance'</span>),
+    (<span class="n">7</span>, <span class="s">'Ana'</span>, <span class="s">'Data Engineering'</span>),
+    (<span class="n">8</span>, <span class="s">'Bruno'</span>, <span class="s">'Platform Engineering'</span>)
+) <span class="k">AS</span> t(id, nome, area)</pre></div>
+          <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">COPY</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees) <span class="k">TO</span> <span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span> (<span class="k">FORMAT</span> parquet)</pre></div>
+          <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">SELECT</span> * <span class="k">FROM</span> <span class="f">read_parquet</span>(<span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span>)</pre></div>
+          <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
+<pre><span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees</pre></div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="ex.out">Expected output</p>
+          <div class="out"><div class="out-head"><span>read_parquet</span><span>8 rows</span></div>
+            <div class="out-table-wrap"><table>
+              <thead><tr><th>id</th><th>nome</th><th>area</th></tr></thead>
+              <tbody><tr><td>1</td><td>Romerito</td><td>Platform Engineering</td></tr><tr><td>2</td><td>Theodoro</td><td>Data Engineering</td></tr><tr><td>3</td><td>Miguel</td><td>AI Engineering</td></tr><tr><td>4</td><td>Nina</td><td>Coffee Engineering</td></tr><tr><td>5</td><td>Niko</td><td>Security Engineering</td></tr><tr><td>6</td><td>Leonor</td><td>Governance</td></tr><tr><td>7</td><td>Ana</td><td>Data Engineering</td></tr><tr><td>8</td><td>Bruno</td><td>Platform Engineering</td></tr></tbody>
+            </table></div>
+          </div>
+          <div class="out"><div class="out-head"><span>Catalog · Notislake</span></div>
+<pre><svg class="ico" style="width:14px;height:14px;display:inline;vertical-align:-2px" aria-hidden="true"><use href="#s-iceberg"/></svg> iceberg
+ └─ bronze
+     └─ duckdb_employees
+<svg class="ico" style="width:14px;height:14px;display:inline;vertical-align:-2px" aria-hidden="true"><use href="#s-s3"/></svg> s3a://notislake
+ └─ landing
+     └─ duckdb_employees.parquet</pre></div>
+          <p class="note" data-i18n="ex.duckdb.note">The table shows up under <code>iceberg › bronze</code> in the Catalog panel and the file under <code>landing</code> in the Notislake tree. The local Spark kernel also accepts <code>duckdb</code> cells, in-process and without the catalog; the Glue kernel takes Python and Spark SQL.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="tabpanel" role="tabpanel" id="panel-catalog" aria-labelledby="tab-catalog" tabindex="0" hidden>
-      <p class="panel-intro" data-i18n="ex.cat.intro">The catalog outlives your Spark sessions. Tables are registered in a local SQLite file and shown in the Catalog panel even when no kernel is running.</p>
+      <p class="panel-intro" data-i18n="ex.cat.intro">The catalog outlives every kernel session. Tables are registered in a local SQLite file and shown in the Catalog panel even when no kernel is running.</p>
       <div class="panel-grid">
         <div class="stack">
           <p class="col-label" data-i18n="ex.cat.tree">Catalog panel</p>
           <div class="out" style="padding:10px 0">
             <ul class="tree">
-              <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark_catalog</span>
+              <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg>spark</span>
                 <ul>
-                  <li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
+                  <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
                     <ul>
-                      <li><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>delta_employees</span></li>
-                      <li><span><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi_employees</span></li>
-                      <li><span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>glue_employees</span></li>
+                      <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>delta_employees</span></li>
+                      <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Delta"><use href="#s-delta"/></svg>glue_employees</span></li>
                     </ul>
                   </li>
-                  <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>silver</span></li>
-                  <li><span><span class="caret">▸</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>gold</span></li>
+                  <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>silver</span></li>
+                  <li><span><svg class="chev" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>gold</span></li>
                 </ul>
               </li>
-              <li><span><span class="caret">▾</span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg</span>
-                <ul><li><span><span class="caret">▾</span><svg class="db-ico" width="14" height="14" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
-                  <ul><li><span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg_employees</span></li></ul></li></ul>
+              <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi</span>
+                <ul><li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
+                  <ul><li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Hudi"><use href="#s-hudi"/></svg>hudi_employees</span></li></ul></li></ul>
+              </li>
+              <li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg</span>
+                <ul><li><span><svg class="chev open" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg><svg class="db-ico" aria-hidden="true" focusable="false"><use href="#i-db"/></svg>bronze</span>
+                  <ul>
+                    <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>duckdb_employees</span></li>
+                    <li><span><span class="chev" aria-hidden="true"></span><svg class="ico" role="img" aria-label="Iceberg"><use href="#s-iceberg"/></svg>iceberg_employees</span></li>
+                  </ul></li></ul>
               </li>
             </ul>
           </div>
           <div class="out"><div class="out-head"><span>~/.notisbook</span></div>
 <pre>catalog.db        <span class="c"># nb_* registry + iceberg_* (JDBC catalog)</span>
 notebooks/        <span class="c"># default notebooks folder</span>
-envs/             <span class="c"># spark-&lt;version&gt;-&lt;id&gt;/</span>
+envs/             <span class="c"># spark-&lt;version&gt;-&lt;id&gt;/, duckdb-&lt;version&gt;-&lt;id&gt;/</span>
+duckdb/           <span class="c"># pinned DuckDB extensions</span>
 minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
         </div>
         <div class="stack">
@@ -445,8 +561,195 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
           <ul class="facts">
             <li data-i18n="ex.cat.f1"><strong>Reconciled after every cell.</strong> A catalog hook records table creations, changes, renames and deletions, and picks up writes made by other kernels before the next cell.</li>
             <li data-i18n="ex.cat.f2"><strong>Layers enforced.</strong> Managed tables live at <code>s3a://notislake/&lt;layer&gt;/&lt;table&gt;</code>. The schema decides the layer, and a write to the wrong layer fails before any data is written.</li>
-            <li data-i18n="ex.cat.f3"><strong>Schemas without Spark.</strong> Browse catalogs and columns, and create or delete schemas from the UI without starting a SparkSession.</li>
-            <li data-i18n="ex.cat.f4"><strong>Same catalog in Docker.</strong> The AWS Glue container reaches the catalog through <code>/api/runtime-catalog</code> and an Iceberg REST catalog, authenticated by a per-session token.</li>
+            <li data-i18n="ex.cat.f3"><strong>Schemas without a kernel.</strong> Browse catalogs and columns, and create or delete schemas from the UI without starting any session.</li>
+            <li data-i18n="ex.cat.f4"><strong>Same catalog in Docker and DuckDB.</strong> The AWS Glue container reaches the catalog through <code>/api/runtime-catalog</code> and the Iceberg REST catalog; the DuckDB kernel attaches the same Iceberg REST catalog. Both are authenticated by a per-session token.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="metadata">
+  <div class="wrap section">
+    <div class="section-head">
+      <p class="eyebrow" data-i18n="md.eyebrow">SECTION 2.1 · INSPECTION PANELS</p>
+      <h2 data-i18n="md.title">Read the metadata without starting a kernel.</h2>
+      <p class="lead" data-i18n="md.lead">Click a catalog or a table in the Catalog panel and an info panel docks beside the notebook, like the inspection panel of an old console. It reads <code>catalog.db</code>, the Iceberg metadata and the bucket, so nothing waits for a session. The panel labels are the app's own and stay in English.</p>
+    </div>
+
+    <div class="tablist" role="tablist" aria-label="Metadata panels" data-i18n-aria="aria.metadata">
+      <button class="tab" role="tab" id="tab-md-catalog" aria-controls="panel-md-catalog" aria-selected="true"><svg class="ico" aria-hidden="true"><use href="#s-iceberg"/></svg>Catalog info</button>
+      <button class="tab" role="tab" id="tab-md-table" aria-controls="panel-md-table" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#i-table"/></svg>Table info</button>
+      <button class="tab" role="tab" id="tab-md-lake" aria-controls="panel-md-lake" aria-selected="false" tabindex="-1"><svg class="ico" aria-hidden="true"><use href="#s-s3"/></svg>Notislake</button>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-md-catalog" aria-labelledby="tab-md-catalog" tabindex="0">
+      <div class="mk-grid-2">
+        <aside class="mk-panel" id="mock-catalog-info" aria-label="Catalog info">
+          <header class="mk-head">
+            <span class="mk-head-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#s-iceberg"/></svg></span>
+            <div class="mk-head-text"><p class="mk-title">iceberg</p><span class="mk-path">spark.sql.catalog.iceberg</span></div>
+            <span class="mk-close" aria-hidden="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-close"/></svg></span>
+          </header>
+          <div class="mk-badges"><span class="mk-badge">named catalog</span><span class="mk-badge">profile: local</span></div>
+          <div class="mk-tabs" role="tablist" aria-label="Catalog info sections">
+            <button type="button" class="mk-tab" role="tab" id="mk-ci-tab-overview" aria-controls="mk-ci-panel-overview" aria-selected="true">Overview</button>
+            <button type="button" class="mk-tab" role="tab" id="mk-ci-tab-config" aria-controls="mk-ci-panel-config" aria-selected="false" tabindex="-1">Config</button>
+            <button type="button" class="mk-tab" role="tab" id="mk-ci-tab-namespaces" aria-controls="mk-ci-panel-namespaces" aria-selected="false" tabindex="-1">Namespaces</button>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ci-panel-overview" aria-labelledby="mk-ci-tab-overview" tabindex="0">
+            <dl class="mk-facts">
+              <div><dt>Status</dt><dd>ok</dd></div>
+              <div><dt>Kind</dt><dd>named catalog</dd></div>
+              <div><dt>Implementation</dt><dd>org.apache.iceberg.spark.SparkCatalog</dd></div>
+              <div><dt>Type</dt><dd>jdbc</dd></div>
+              <div><dt>Warehouse</dt><dd>s3a://notislake</dd></div>
+              <div><dt>URI</dt><dd>jdbc:sqlite:/Users/operator/.notisbook/catalog.db?busy_timeout=10000</dd></div>
+              <div><dt>FileIO</dt><dd>org.apache.iceberg.hadoop.HadoopFileIO</dd></div>
+              <div><dt>Namespaces</dt><dd>1</dd></div>
+              <div><dt>Tables</dt><dd>2</dd></div>
+              <div><dt>Views</dt><dd>0</dd></div>
+              <div><dt>Formats</dt><dd>Iceberg 2</dd></div>
+            </dl>
+            <p class="mk-note">Config shown is the local Spark runtime profile. In Docker/Glue and DuckDB runtimes, iceberg is reached through the app's REST catalog and the token is applied to the session.</p>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ci-panel-config" aria-labelledby="mk-ci-tab-config" tabindex="0" hidden>
+            <table class="mk-grid">
+              <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
+              <tbody>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg</td><td class="mk-mono">org.apache.iceberg.spark.SparkCatalog</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.type</td><td class="mk-mono">jdbc</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.uri</td><td class="mk-mono">jdbc:sqlite:/Users/operator/.notisbook/catalog.db?busy_timeout=10000</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.warehouse</td><td class="mk-mono">s3a://notislake</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.table-default.gc.enabled</td><td class="mk-mono">false</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.jdbc.schema-version</td><td class="mk-mono">V1</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.io-impl</td><td class="mk-mono">org.apache.iceberg.hadoop.HadoopFileIO</td></tr>
+                <tr><td class="mk-mono">spark.sql.catalog.iceberg.jdbc.init-catalog-tables</td><td class="mk-mono">false</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ci-panel-namespaces" aria-labelledby="mk-ci-tab-namespaces" tabindex="0" hidden>
+            <p class="mk-note">Tables and views in this node.</p>
+            <table class="mk-grid">
+              <thead><tr><th scope="col">Namespace</th><th scope="col">Tables</th><th scope="col">Views</th></tr></thead>
+              <tbody>
+                <tr><td class="mk-mono">bronze</td><td class="mk-mono">2</td><td class="mk-mono">0</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </aside>
+        <div class="stack">
+          <p class="col-label" data-i18n="md.how">What it shows</p>
+          <ul class="facts">
+            <li data-i18n="md.ci.f1"><strong>Opened from the catalog name.</strong> Clicking <code>spark</code>, <code>hudi</code> or <code>iceberg</code> in the Catalog panel opens the panel; Esc closes it and the focus goes back to the tree.</li>
+            <li data-i18n="md.ci.f2"><strong>Overview.</strong> Implementation, catalog type, warehouse, JDBC URI and FileIO, with exact namespace, table and view counts read from <code>catalog.db</code>.</li>
+            <li data-i18n="md.ci.f3"><strong>Config.</strong> The <code>spark.sql.catalog.*</code> keys of the local Spark profile, the same source as <code>spark-defaults.conf</code>; sensitive values are masked by the backend.</li>
+            <li data-i18n="md.ci.f4"><strong>Namespaces.</strong> Every schema of the node with its tables and views. <code>hudi</code> is a display group whose tables live in <code>spark_catalog</code>.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-md-table" aria-labelledby="tab-md-table" tabindex="0" hidden>
+      <div class="mk-grid-2">
+        <aside class="mk-panel" id="mock-table-info" aria-label="Table info">
+          <header class="mk-head">
+            <span class="mk-head-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#s-iceberg"/></svg></span>
+            <div class="mk-head-text"><p class="mk-title">duckdb_employees</p><span class="mk-path">iceberg.bronze.duckdb_employees</span></div>
+            <span class="mk-close" aria-hidden="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-close"/></svg></span>
+          </header>
+          <div class="mk-badges"><span class="mk-badge mk-managed">MANAGED</span><span class="mk-badge">Iceberg</span></div>
+          <p class="mk-callout">Managed Iceberg table: DROP TABLE removes the registration only; files are deleted only with DROP TABLE … PURGE.</p>
+          <div class="mk-tabs" role="tablist" aria-label="Table info sections">
+            <button type="button" class="mk-tab" role="tab" id="mk-ti-tab-overview" aria-controls="mk-ti-panel-overview" aria-selected="true">Overview</button>
+            <button type="button" class="mk-tab" role="tab" id="mk-ti-tab-columns" aria-controls="mk-ti-panel-columns" aria-selected="false" tabindex="-1">Columns</button>
+            <button type="button" class="mk-tab" role="tab" id="mk-ti-tab-history" aria-controls="mk-ti-panel-history" aria-selected="false" tabindex="-1">History</button>
+            <button type="button" class="mk-tab" role="tab" id="mk-ti-tab-properties" aria-controls="mk-ti-panel-properties" aria-selected="false" tabindex="-1">Properties</button>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ti-panel-overview" aria-labelledby="mk-ti-tab-overview" tabindex="0">
+            <dl class="mk-facts">
+              <div><dt>Full name</dt><dd>iceberg.bronze.duckdb_employees</dd></div>
+              <div><dt>Type</dt><dd>MANAGED</dd></div>
+              <div><dt>Format</dt><dd>Iceberg</dd></div>
+              <div><dt>Location</dt><dd>s3a://notislake/bronze/duckdb_employees</dd></div>
+              <div><dt>Comment</dt><dd class="mk-na">—</dd></div>
+              <div><dt>Partitions</dt><dd>None</dd></div>
+              <div><dt>Columns</dt><dd>3</dd></div>
+              <div><dt>Registered at</dt><dd class="mk-na">—</dd></div>
+              <div><dt>Updated at</dt><dd>Nov 23, 2026, 3:04 PM</dd></div>
+              <div><dt>Current version</dt><dd>snapshot 6127730458112930571</dd></div>
+              <div><dt>Rows</dt><dd>8</dd></div>
+              <div><dt>Size</dt><dd>1.6 KB</dd></div>
+              <div><dt>Data files</dt><dd>1</dd></div>
+            </dl>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ti-panel-columns" aria-labelledby="mk-ti-tab-columns" tabindex="0" hidden>
+            <table class="mk-grid">
+              <thead><tr><th scope="col">#</th><th scope="col">Name</th><th scope="col">Type</th><th scope="col">Nullable</th><th scope="col">Comment</th></tr></thead>
+              <tbody>
+                <tr><td class="mk-num">1</td><td>id</td><td>long</td><td>yes</td><td class="mk-na">—</td></tr>
+                <tr><td class="mk-num">2</td><td>nome</td><td>string</td><td>yes</td><td class="mk-na">—</td></tr>
+                <tr><td class="mk-num">3</td><td>area</td><td>string</td><td>yes</td><td class="mk-na">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ti-panel-history" aria-labelledby="mk-ti-tab-history" tabindex="0" hidden>
+            <table class="mk-grid">
+              <thead><tr><th scope="col">Snapshot</th><th scope="col">When</th><th scope="col">Operation</th></tr></thead>
+              <tbody>
+                <tr class="mk-current" aria-current="true"><td class="mk-mono">6127730458112930571<span class="mk-flag">current</span></td><td>Nov 23, 2026, 3:04 PM</td><td>append<div class="mk-sub">added records: 8 · added data files: 1</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mk-body" role="tabpanel" id="mk-ti-panel-properties" aria-labelledby="mk-ti-tab-properties" tabindex="0" hidden>
+            <p class="mk-empty">No properties.</p>
+          </div>
+        </aside>
+        <div class="stack">
+          <p class="col-label" data-i18n="md.how">What it shows</p>
+          <ul class="facts">
+            <li data-i18n="md.ti.f1"><strong>Type and format badges.</strong> <code>MANAGED</code> tables live in <code>s3a://notislake/&lt;layer&gt;/&lt;table&gt;</code>; <code>EXTERNAL</code> ones only point to their files.</li>
+            <li data-i18n="md.ti.f2"><strong>What DROP TABLE does.</strong> The callout spells it out per format: a managed Delta, Parquet or Hudi table loses its files, an external one keeps them, and Iceberg only deletes them with <code>PURGE</code>.</li>
+            <li data-i18n="md.ti.f3"><strong>Columns.</strong> Position, name, type, nullability, comment and partition flag.</li>
+            <li data-i18n="md.ti.f4"><strong>History and properties.</strong> Iceberg tables add snapshots, row count, size and data files from their metadata. Delta and Hudi show the current version; their history needs the kernel.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabpanel" role="tabpanel" id="panel-md-lake" aria-labelledby="tab-md-lake" tabindex="0" hidden>
+      <div class="mk-grid-2">
+        <div class="mk-card" id="mock-notislake" role="group" aria-label="Notislake">
+          <p class="mk-card-title">Notislake</p>
+          <div class="mk-root"><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#s-s3"/></svg></span><span>s3a://notislake</span></div>
+          <div class="mk-children">
+            <div class="mk-row mk-guides mk-muted" style="padding-left:14px;--tree-guides:0px"><span class="mk-chev mk-chev-open" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">landing</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#s-avro"/></svg></span><span class="mk-name">clicks.avro</span><span class="mk-size">12.4 KB</span></div>
+            <div class="mk-row mk-guides mk-sel" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#s-parquet"/></svg></span><span class="mk-name">duckdb_employees.parquet</span><span class="mk-size">1.6 KB</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-file-json"/></svg></span><span class="mk-name">events.json</span><span class="mk-size">3.1 KB</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-file-text"/></svg></span><span class="mk-name">notes.txt</span><span class="mk-size">512 B</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-file-csv"/></svg></span><span class="mk-name">orders.csv</span><span class="mk-size">8.7 KB</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#s-orc"/></svg></span><span class="mk-name">sales.orc</span><span class="mk-size">20.3 KB</span></div>
+            <div class="mk-row mk-guides" style="padding-left:14px;--tree-guides:0px"><span class="mk-chev mk-chev-open" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">bronze</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev mk-chev-open" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">delta_employees_files</span></div>
+            <div class="mk-row mk-guides" style="padding-left:42px;--tree-guides:28px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#s-delta"/></svg></span><span class="mk-name">_delta_log</span></div>
+            <div class="mk-row mk-guides" style="padding-left:42px;--tree-guides:28px"><span class="mk-chev" aria-hidden="true"></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#s-parquet"/></svg></span><span class="mk-name">part-00000-5b1e7c2d-c000.snappy.parquet</span><span class="mk-size">1.1 KB</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">duckdb_employees</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">glue_employees_files</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">hudi_employees_files</span></div>
+            <div class="mk-row mk-guides" style="padding-left:28px;--tree-guides:14px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">iceberg_employees_files</span></div>
+            <div class="mk-row mk-guides" style="padding-left:14px;--tree-guides:0px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">silver</span></div>
+            <div class="mk-row mk-guides" style="padding-left:14px;--tree-guides:0px"><span class="mk-chev" aria-hidden="true"><svg class="mk-svg12" aria-hidden="true" focusable="false"><use href="#i-chevron"/></svg></span><span class="mk-icon"><svg class="mk-svg14" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></span><span class="mk-name">gold</span></div>
+          </div>
+        </div>
+        <div class="stack">
+          <p class="col-label" data-i18n="md.how">What it shows</p>
+          <ul class="facts">
+            <li data-i18n="md.nl.f1"><strong>The bucket as a tree.</strong> <code>s3a://notislake</code> always shows <code>landing</code>, <code>bronze</code>, <code>silver</code> and <code>gold</code>; each folder is listed when you expand it.</li>
+            <li data-i18n="md.nl.f2"><strong>landing is the free zone.</strong> It stays dimmed because it sits outside the catalog: drop raw files there and read them by path, as the DuckDB sample does with its Parquet copy.</li>
+            <li data-i18n="md.nl.f3"><strong>Icons by format.</strong> Parquet, Avro, ORC, CSV, JSON and text files get their own icons and sizes; Delta folders and <code>_delta_log</code> show the Delta mark.</li>
+            <li data-i18n="md.nl.f4"><strong>Read-only, keyboard friendly.</strong> Arrow keys walk the tree, the context menu copies the <code>s3a://</code> path, and the root opens a menu with the MinIO UI, a copy of the credentials and Settings.</li>
           </ul>
         </div>
       </div>
@@ -462,9 +765,9 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     </div>
     <div class="features">
       <article class="feature hl">
-        <div class="feature-icons"><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg><svg class="ico" role="img" aria-label="Parquet"><use href="#s-parquet"/></svg></div>
+        <div class="feature-icons"><svg class="ico" role="img" aria-label="Spark"><use href="#s-spark"/></svg><svg class="ico" role="img" aria-label="DuckDB"><use href="#s-duckdb"/></svg><svg class="ico" role="img" aria-label="Parquet"><use href="#s-parquet"/></svg></div>
         <h3 data-i18n="ft.cat.t">Persistent catalog</h3>
-        <p data-i18n="ft.cat.p">Delta, Parquet and Hudi tables created by notebooks are kept in <code>catalog.db</code> (SQLite) and listed without an open Spark session. Iceberg has its own <code>iceberg</code> catalog, also served over REST to the Glue container.</p>
+        <p data-i18n="ft.cat.p">Delta, Parquet and Hudi tables created by notebooks are kept in <code>catalog.db</code> (SQLite) and listed without an open kernel. Iceberg has its own <code>iceberg</code> catalog, also served over REST to the Glue container and the DuckDB kernel.</p>
       </article>
       <article class="feature hl">
         <div class="feature-icons"><svg class="ico" role="img" aria-label="Delta Lake"><use href="#s-delta"/></svg><svg class="ico" role="img" aria-label="Apache Iceberg"><use href="#s-iceberg"/></svg><svg class="ico" role="img" aria-label="Apache Hudi"><use href="#s-hudi"/></svg></div>
@@ -476,15 +779,20 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
         <h3 data-i18n="ft.glue.t">AWS Glue runtime in Docker</h3>
         <p data-i18n="ft.glue.p">Optional kernel on the AWS Glue 5.0 image: Spark 3.5, Python 3.11, Java 17, with Delta and Iceberg, running in a persistent local container.</p>
       </article>
+      <article class="feature hl">
+        <div class="feature-icons"><svg class="ico" role="img" aria-label="DuckDB"><use href="#s-duckdb"/></svg><span class="glyph">2.0.1</span></div>
+        <h3 data-i18n="ft.duck.t">DuckDB runtime</h3>
+        <p data-i18n="ft.duck.p">Its own environment and kernel, no JVM needed. The <code>httpfs</code>, <code>iceberg</code>, <code>avro</code>, <code>excel</code>, <code>sqlite_scanner</code>, <code>postgres_scanner</code> and <code>spatial</code> extensions are pinned by sha256; Iceberg tables go through the app's REST catalog.</p>
+      </article>
       <article class="feature">
         <div class="feature-icons"><svg class="ico" role="img" aria-label="S3"><use href="#s-s3"/></svg></div>
         <h3 data-i18n="ft.lake.t">notislake</h3>
-        <p data-i18n="ft.lake.p">A local MinIO, started and supervised by Notisbook, serves the <code>notislake</code> bucket with <code>bronze</code>, <code>silver</code> and <code>gold</code> layers over <code>s3a://</code>. A manual S3 endpoint can be used instead.</p>
+        <p data-i18n="ft.lake.p">A local MinIO, started and supervised by Notisbook, serves the <code>notislake</code> bucket over <code>s3a://</code>: <code>bronze</code>, <code>silver</code> and <code>gold</code> are the cataloged layers, and <code>landing</code> is a free zone outside the catalog for raw files. A manual S3 endpoint can be used instead.</p>
       </article>
       <article class="feature">
         <div class="feature-icons"><span class="glyph">py</span><span class="glyph">sql</span><span class="glyph">duckdb</span></div>
         <h3 data-i18n="ft.cells.t">Python, Spark SQL and DuckDB</h3>
-        <p data-i18n="ft.cells.p">Edit <code>.ipynb</code> notebooks in the browser and run Python, Spark SQL and DuckDB SQL cells in Jupyter kernels.</p>
+        <p data-i18n="ft.cells.p">Edit <code>.ipynb</code> notebooks in the browser. The local Spark kernel runs Python, Spark SQL and DuckDB cells (DuckDB in-process, without the catalog); the Glue kernel runs Python and Spark SQL; the DuckDB kernel runs Python and DuckDB cells on the notislake catalog.</p>
       </article>
       <article class="feature">
         <div class="feature-icons" aria-hidden="true"><kbd class="glyph">⇧↵</kbd><kbd class="glyph">⌘↵</kbd><kbd class="glyph">Esc</kbd></div>
@@ -544,17 +852,18 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
   <div class="wrap section">
     <div class="section-head">
       <p class="eyebrow" data-i18n="cmp.eyebrow">SECTION 4 · COMPATIBILITY TABLE</p>
-      <h2 data-i18n="cmp.title">Why not wire it up yourself with pip install pyspark?</h2>
-      <p class="lead" data-i18n="cmp.lead">You can assemble a local lakehouse stack by hand, as operators once did with cables and patience. Notisbook does the assembly for you and keeps it consistent.</p>
+      <h2 data-i18n="cmp.title">Why not wire it up yourself with pip install?</h2>
+      <p class="lead" data-i18n="cmp.lead">You can assemble a local data stack by hand, as operators once did with cables and patience. Notisbook does the assembly for you and keeps it consistent.</p>
     </div>
     <div class="tbl-wrap">
       <table class="tbl">
-        <thead><tr><th scope="col" data-i18n="cmp.c0">Capability</th><th scope="col" class="us">Notisbook</th><th scope="col" data-i18n="cmp.c2">Jupyter + pyspark by hand</th><th scope="col" data-i18n="cmp.c3">Managed cloud notebooks</th></tr></thead>
+        <thead><tr><th scope="col" data-i18n="cmp.c0">Capability</th><th scope="col" class="us">Notisbook</th><th scope="col" data-i18n="cmp.c2">Jupyter + engines installed by hand</th><th scope="col" data-i18n="cmp.c3">Managed cloud notebooks</th></tr></thead>
         <tbody>
           <tr><th scope="row" data-i18n="cmp.r1">Delta, Iceberg and Hudi jars</th><td class="us"><span class="yes" data-i18n="cmp.r1a">Pinned per Spark line, sha256-verified</span></td><td class="part" data-i18n="cmp.r1b">You resolve versions and downloads</td><td class="part" data-i18n="cmp.r1c">Depends on the provider</td></tr>
-          <tr><th scope="row" data-i18n="cmp.r2">Persistent table catalog</th><td class="us"><span class="yes" data-i18n="cmp.r2a">SQLite, visible without a Spark session</span></td><td class="part" data-i18n="cmp.r2b">You configure a metastore</td><td class="part" data-i18n="cmp.r2c">Provided by the platform</td></tr>
-          <tr><th scope="row" data-i18n="cmp.r3">S3-compatible storage</th><td class="us"><span class="yes" data-i18n="cmp.r3a">Local MinIO with bronze / silver / gold</span></td><td class="part" data-i18n="cmp.r3b">You install and configure it</td><td class="part" data-i18n="cmp.r3c">Cloud storage, billed</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r2">Persistent table catalog</th><td class="us"><span class="yes" data-i18n="cmp.r2a">SQLite, visible without any kernel</span></td><td class="part" data-i18n="cmp.r2b">You configure a metastore</td><td class="part" data-i18n="cmp.r2c">Provided by the platform</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r3">S3-compatible storage</th><td class="us"><span class="yes" data-i18n="cmp.r3a">Local MinIO: landing plus bronze / silver / gold</span></td><td class="part" data-i18n="cmp.r3b">You install and configure it</td><td class="part" data-i18n="cmp.r3c">Cloud storage, billed</td></tr>
           <tr><th scope="row" data-i18n="cmp.r4">AWS Glue 5.0 runtime</th><td class="us"><span class="yes" data-i18n="cmp.r4a">Local Docker kernel, same catalog</span></td><td class="part" data-i18n="cmp.r4b">Manual container setup</td><td class="part" data-i18n="cmp.r4c">Remote jobs</td></tr>
+          <tr><th scope="row" data-i18n="cmp.r7">DuckDB runtime</th><td class="us"><span class="yes" data-i18n="cmp.r7a">Own kernel, extensions pinned by sha256, same catalog</span></td><td class="part" data-i18n="cmp.r7b">You install DuckDB and its extensions</td><td class="part" data-i18n="cmp.r7c">Depends on the provider</td></tr>
           <tr><th scope="row" data-i18n="cmp.r5">JDK per Spark version</th><td class="us"><span class="yes" data-i18n="cmp.r5a">Selected and written to the kernelspec</span></td><td class="part" data-i18n="cmp.r5b">Managed by you</td><td class="part" data-i18n="cmp.r5c">Managed by the platform</td></tr>
           <tr><th scope="row" data-i18n="cmp.r6">Where your data lives</th><td class="us"><span class="yes" data-i18n="cmp.r6a">Your Mac, on 127.0.0.1</span></td><td class="part" data-i18n="cmp.r6b">Your machine</td><td class="part" data-i18n="cmp.r6c">The provider's cloud</td></tr>
         </tbody>
@@ -582,7 +891,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
           <h3 data-i18n="in.b2">2 · Boot</h3>
           <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="notisbook" data-i18n="copy">Copy</button></div>
 <pre><span class="prompt">$ </span>notisbook</pre></div>
-          <p data-i18n="in.b2p">Starts the backend on <code>http://127.0.0.1:8765</code>, prints the address with a per-startup token and opens your browser. The first run seeds the Delta, Hudi, Iceberg and Glue samples. To check the bundled notislake without starting a server, run <code>notisbook --check-notislake</code>.</p>
+          <p data-i18n="in.b2p">Starts the backend on <code>http://127.0.0.1:8765</code>, prints the address with a per-startup token and opens your browser. The first run seeds the Delta, Hudi, Iceberg, Glue and DuckDB samples. To check the bundled notislake without starting a server, run <code>notisbook --check-notislake</code>.</p>
         </div>
         <div class="install-block">
           <h3 data-i18n="in.b3">3 · Optional: AWS Glue base image</h3>
@@ -603,7 +912,7 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
             <li data-i18n="in.r1">macOS on Apple silicon or Intel.</li>
             <li data-i18n="in.r2"><code>curl</code> (or <code>wget</code>), <code>awk</code> and <code>shasum</code>.</li>
             <li data-i18n="in.r3"><code>uv</code> 0.8.4 or newer (installed automatically if missing).</li>
-            <li data-i18n="in.r4">JDK 17 for Spark 3.x; JDK 21 (or 17) for Spark 4.x.</li>
+            <li data-i18n="in.r4">Only for Spark runtimes: JDK 17 for Spark 3.x; JDK 21 (or 17) for Spark 4.x.</li>
             <li data-i18n="in.r5">For the Glue runtime: Docker (for example via Colima) and about 15 GiB of free disk.</li>
           </ul>
         </div>
@@ -660,34 +969,37 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
 
   var PT = {
     "meta.title": "Notisbook — Data Workstation local para macOS · Process anything. Locally.",
-    "meta.desc": "Uma Data Workstation de uma linha do tempo alternativa dos anos 1970, para macOS: Spark, Delta Lake, Apache Iceberg, Apache Hudi, um catálogo persistente e um runtime AWS Glue 5.0, tudo em 127.0.0.1.",
+    "meta.desc": "Uma Data Workstation de uma linha do tempo alternativa dos anos 1970, para macOS: runtimes Spark (local e AWS Glue 5.0) e DuckDB lado a lado, tabelas Delta Lake, Apache Iceberg, Apache Hudi e Parquet, um catálogo persistente e um notislake S3 local, tudo em 127.0.0.1.",
     "skip": "Pular para o conteúdo",
     "nav.how": "Como funciona", "nav.examples": "Exemplos", "nav.features": "Recursos", "nav.compare": "Comparativo", "nav.install": "Instalação",
+    "nav.metadata": "Metadados",
     "theme": "Alternar tema de cores",
     "aria.main": "Principal", "aria.lang": "Idioma", "aria.github": "Notisbook no GitHub",
     "aria.stack": "Tecnologias suportadas", "aria.examples": "Exemplos",
-    "aria.figure": "Ilustração da interface do Notisbook com o painel Catalog",
+    "aria.figure": "Ilustração da interface do Notisbook com dois notebooks abertos, um em kernel Spark e outro em kernel DuckDB, ao lado dos painéis Catalog e Notislake",
+    "aria.nbtabs": "Notebooks abertos",
+    "aria.metadata": "Painéis de metadados",
     "copy": "Copiar", "copied": "Copiado",
-    "hero.badge": "v0.4.0 · macOS · Apache 2.0",
-    "hero.title": "Uma Data Workstation dos anos 1970. Rodando Spark.",
-    "hero.lead": "Como seria executar Apache Spark em um computador dos anos 1970? O Notisbook é uma Data Workstation de uma linha do tempo alternativa, onde Spark, Glue, Delta Lake, Iceberg e Hudi já existem. Execute células Python, Spark SQL e DuckDB SQL sobre Spark com Delta Lake, Apache Iceberg e Apache Hudi, mantenha cada tabela em um catálogo persistente organizado em <code>bronze</code>, <code>silver</code> e <code>gold</code> e mude para um runtime AWS Glue 5.0 em Docker quando precisar. Tudo escuta em <code>127.0.0.1</code>.",
+    "hero.badge": "v0.7.0 · macOS · Apache 2.0",
+    "hero.title": "Uma Data Workstation dos anos 1970. Qualquer engine.",
+    "hero.lead": "Como seria processar big data em um computador dos anos 1970? O Notisbook é uma Data Workstation de uma linha do tempo alternativa, onde as engines já estão instaladas no gabinete. Spark (local, ou AWS Glue 5.0 em Docker) e DuckDB rodam lado a lado como runtimes; Delta Lake, Apache Iceberg, Apache Hudi e Parquet são os formatos de tabela. Cada tabela fica em um catálogo persistente organizado em <code>bronze</code>, <code>silver</code> e <code>gold</code>, e outras engines podem chegar depois. Tudo escuta em <code>127.0.0.1</code>.",
     "hero.cta1": "Começar agora", "hero.cta2": "Explorar o código",
     "hero.termcomment": "# abre http://127.0.0.1:8765/?token=&lt;token&gt; no navegador",
     "how.eyebrow": "SEÇÃO 1 · PROCEDIMENTO DE OPERAÇÃO",
     "how.title": "Três passos do liga-desliga a uma tabela catalogada.",
-    "how.lead": "Sem cluster para provisionar e sem conta de nuvem para configurar. Nem sala de máquinas. O Notisbook instala o motor, escolhe o JDK, inicia o armazenamento e registra o que suas células criam.",
+    "how.lead": "Sem cluster para provisionar e sem conta de nuvem para configurar. Nem sala de máquinas. O Notisbook instala os runtimes, escolhe o JDK do Spark, inicia o armazenamento e registra o que suas células criam.",
     "how.s1k": "carregar", "how.s1t": "Carregue o sistema com uma linha",
     "how.s1p": "O instalador confere o sha256 do wheel, do arquivo de constraints e do pacote do MinIO antes de instalar qualquer coisa, como um operador conferindo a fita. Em seguida, coloca o notislake na sua máquina.",
-    "how.s2k": "configurar", "how.s2t": "Monte um ambiente Spark",
-    "how.s2p": "Cada versão do Spark tem seu próprio ambiente isolado e kernel, como uma partição só dela. Os jars de Delta, Iceberg, Hudi e S3A são fixados por linha do Spark e verificados por sha256; o JDK é escolhido para você.",
+    "how.s2k": "configurar", "how.s2t": "Monte um runtime",
+    "how.s2p": "Cada runtime tem seu próprio ambiente isolado e kernel, como uma partição só dele. O Spark é versionado por linha, com os jars de Delta, Iceberg, Hudi e S3A verificados por sha256 e o JDK escolhido para você; o AWS Glue 5.0 roda em um container Docker local; o DuckDB 2.0.1 vem com suas extensões fixadas por sha256 (<code>httpfs</code>, <code>iceberg</code>, <code>avro</code>, <code>excel</code>, <code>sqlite_scanner</code>, <code>postgres_scanner</code>, <code>spatial</code>).",
     "how.s3k": "rodar job", "how.s3t": "Submeta células e obtenha tabelas catalogadas",
-    "how.s3p": "Após cada célula o catálogo é reconciliado, como um job em lote fechando seu log: as tabelas aparecem no painel Catalog, com os arquivos em <code>s3a://notislake/&lt;camada&gt;/</code>. O schema define a camada.",
+    "how.s3p": "Após cada célula o catálogo é reconciliado, como um job em lote fechando seu log: as tabelas gravadas pelo Spark ou pelo DuckDB aparecem no painel Catalog, com os arquivos em <code>s3a://notislake/&lt;camada&gt;/</code>. O schema define a camada.",
     "ex.eyebrow": "SEÇÃO 2 · BIBLIOTECA DE PROGRAMAS",
-    "ex.title": "Um terminal, todos os formatos de tabela.",
-    "ex.lead": "Programas da biblioteca, extraídos dos notebooks de exemplo criados na primeira execução (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>). As saídas são ilustrativas, como uma listagem impressa.",
+    "ex.title": "Um terminal, todos os runtimes e formatos de tabela.",
+    "ex.lead": "Programas da biblioteca, extraídos dos notebooks de exemplo criados na primeira execução (<code>delta.ipynb</code>, <code>iceberg.ipynb</code>, <code>hudi.ipynb</code>, <code>glue.ipynb</code>, <code>duckdb.ipynb</code>). As saídas são ilustrativas, como uma listagem impressa.",
     "ex.code": "Notebook", "ex.out": "Saída esperada",
     "ex.delta.intro": "Uma SparkSession com Delta Lake, uma tabela externa gravada na camada <code>bronze</code> e uma célula Spark SQL para consultá-la. O log de resolução do Ivy é substituído por um resumo curto dos pacotes.",
-    "ex.delta.note": "Linhas <code>WARN</code> e <code>INFO</code> do Spark ficam fora da célula; linhas <code>ERROR</code> continuam aparecendo. A tabela aparece em <code>spark_catalog › bronze</code>.",
+    "ex.delta.note": "Linhas <code>WARN</code> e <code>INFO</code> do Spark ficam fora da célula; linhas <code>ERROR</code> continuam aparecendo. A tabela aparece em <code>spark › bronze</code> no painel Catalog.",
     "ex.iceberg.intro": "Tabelas Iceberg ficam em um catálogo <code>iceberg</code> separado, apoiado em um catálogo JDBC no mesmo arquivo SQLite local, com os dados no notislake.",
     "ex.iceberg.note": "<code>createOrReplace</code> permite reexecutar a célula sem erros.",
     "ex.hudi.intro": "O bundle do Hudi acompanha todas as linhas do Spark. Grave uma tabela externa com chave na camada <code>bronze</code> e consulte-a pelo Spark SQL.",
@@ -695,24 +1007,44 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "ex.glue.intro": "Escolha o kernel <strong>AWS Glue 5.0</strong> e o mesmo notebook roda dentro de um container Docker local (Spark 3.5, Python 3.11, Java 17), com Delta e Iceberg. O container acessa o catálogo somente pela API do backend.",
     "ex.glue.rt": "Instalação do runtime",
     "ex.glue.note": "A imagem é construída uma única vez em Settings, sobre <code>public.ecr.aws/glue/aws-glue-libs:5</code> (fixada por digest), e precisa de cerca de 15 GiB livres em disco.",
-    "ex.cat.intro": "O catálogo sobrevive às sessões Spark. As tabelas são registradas em um arquivo SQLite local e aparecem no painel Catalog mesmo sem nenhum kernel em execução.",
+    "ex.duckdb.intro": "Escolha o kernel <strong>DuckDB 2.0.1</strong> e as células DuckDB rodam em processo, com células Python ao lado. O catálogo <code>notislake</code> é anexado pelo catálogo Iceberg REST do app com um token por sessão, então a tabela é gravada como Iceberg em <code>bronze</code>, e uma cópia em Parquet vai para a zona livre <code>landing</code>.",
+    "ex.duckdb.note": "A tabela aparece em <code>iceberg › bronze</code> no painel Catalog e o arquivo em <code>landing</code> na árvore Notislake. O kernel Spark local também aceita células <code>duckdb</code>, em processo e sem o catálogo; o kernel Glue aceita Python e Spark SQL.",
+    "ex.cat.intro": "O catálogo sobrevive a todas as sessões de kernel. As tabelas são registradas em um arquivo SQLite local e aparecem no painel Catalog mesmo sem nenhum kernel em execução.",
     "ex.cat.tree": "Painel Catalog", "ex.cat.how": "Como funciona",
     "ex.cat.f1": "<strong>Reconciliado após cada célula.</strong> Um hook de catálogo registra criações, alterações, renomeações e exclusões de tabelas e incorpora gravações feitas por outros kernels antes da próxima célula.",
     "ex.cat.f2": "<strong>Camadas garantidas.</strong> Tabelas gerenciadas ficam em <code>s3a://notislake/&lt;camada&gt;/&lt;tabela&gt;</code>. O schema define a camada, e uma gravação na camada errada falha antes de qualquer dado ser escrito.",
-    "ex.cat.f3": "<strong>Schemas sem Spark.</strong> Navegue por catálogos e colunas e crie ou exclua schemas pela interface sem iniciar uma SparkSession.",
-    "ex.cat.f4": "<strong>O mesmo catálogo no Docker.</strong> O container AWS Glue acessa o catálogo via <code>/api/runtime-catalog</code> e um catálogo Iceberg REST, autenticado por um token por sessão.",
+    "ex.cat.f3": "<strong>Schemas sem kernel.</strong> Navegue por catálogos e colunas e crie ou exclua schemas pela interface sem iniciar nenhuma sessão.",
+    "ex.cat.f4": "<strong>O mesmo catálogo no Docker e no DuckDB.</strong> O container AWS Glue acessa o catálogo via <code>/api/runtime-catalog</code> e o catálogo Iceberg REST; o kernel DuckDB anexa o mesmo catálogo Iceberg REST. Os dois são autenticados por um token por sessão.",
+    "md.eyebrow": "SEÇÃO 2.1 · PAINÉIS DE INSPEÇÃO",
+    "md.title": "Leia os metadados sem ligar um kernel.",
+    "md.lead": "Clique em um catálogo ou em uma tabela no painel Catalog e um painel de informações se encaixa ao lado do notebook, como o painel de inspeção de um console antigo. Ele lê o <code>catalog.db</code>, os metadados do Iceberg e o bucket, então nada espera por uma sessão. Os rótulos do painel são os do app e ficam em inglês.",
+    "md.how": "O que ele mostra",
+    "md.ci.f1": "<strong>Aberto pelo nome do catálogo.</strong> Clicar em <code>spark</code>, <code>hudi</code> ou <code>iceberg</code> no painel Catalog abre o painel; Esc fecha e o foco volta para a árvore.",
+    "md.ci.f2": "<strong>Overview.</strong> Implementação, tipo do catálogo, warehouse, URI JDBC e FileIO, com contagens exatas de namespaces, tabelas e views lidas do <code>catalog.db</code>.",
+    "md.ci.f3": "<strong>Config.</strong> As chaves <code>spark.sql.catalog.*</code> do perfil Spark local, a mesma fonte do <code>spark-defaults.conf</code>; valores sensíveis são mascarados pelo backend.",
+    "md.ci.f4": "<strong>Namespaces.</strong> Cada schema do nó com suas tabelas e views. O <code>hudi</code> é um agrupamento de exibição cujas tabelas ficam no <code>spark_catalog</code>.",
+    "md.ti.f1": "<strong>Selos de tipo e formato.</strong> Tabelas <code>MANAGED</code> ficam em <code>s3a://notislake/&lt;camada&gt;/&lt;tabela&gt;</code>; as <code>EXTERNAL</code> só apontam para seus arquivos.",
+    "md.ti.f2": "<strong>O que o DROP TABLE faz.</strong> O aviso explica por formato: uma tabela Delta, Parquet ou Hudi gerenciada perde seus arquivos, uma externa os mantém, e o Iceberg só os apaga com <code>PURGE</code>.",
+    "md.ti.f3": "<strong>Colunas.</strong> Posição, nome, tipo, nulidade, comentário e marca de partição.",
+    "md.ti.f4": "<strong>Histórico e propriedades.</strong> Tabelas Iceberg acrescentam snapshots, número de linhas, tamanho e arquivos de dados a partir dos metadados. Delta e Hudi mostram a versão atual; o histórico delas precisa do kernel.",
+    "md.nl.f1": "<strong>O bucket como árvore.</strong> <code>s3a://notislake</code> sempre mostra <code>landing</code>, <code>bronze</code>, <code>silver</code> e <code>gold</code>; cada pasta é listada quando você a expande.",
+    "md.nl.f2": "<strong>landing é a zona livre.</strong> Ela aparece atenuada porque fica fora do catálogo: deixe arquivos brutos ali e leia-os pelo caminho, como o exemplo DuckDB faz com sua cópia em Parquet.",
+    "md.nl.f3": "<strong>Ícones por formato.</strong> Arquivos Parquet, Avro, ORC, CSV, JSON e texto têm ícones e tamanhos próprios; pastas Delta e <code>_delta_log</code> mostram a marca do Delta.",
+    "md.nl.f4": "<strong>Somente leitura, pensada para o teclado.</strong> As setas percorrem a árvore, o menu de contexto copia o caminho <code>s3a://</code> e a raiz abre um menu com a MinIO UI, uma cópia das credenciais e Settings.",
     "ft.eyebrow": "SEÇÃO 3 · INVENTÁRIO DO SISTEMA",
     "ft.title": "Tudo o que o sistema precisa, já conectado. Sem cabos.",
     "ft.cat.t": "Catálogo persistente",
-    "ft.cat.p": "Tabelas Delta, Parquet e Hudi criadas pelos notebooks ficam em <code>catalog.db</code> (SQLite) e são listadas sem uma sessão Spark aberta. O Iceberg tem seu próprio catálogo <code>iceberg</code>, também servido via REST ao container do Glue.",
+    "ft.cat.p": "Tabelas Delta, Parquet e Hudi criadas pelos notebooks ficam em <code>catalog.db</code> (SQLite) e são listadas sem um kernel aberto. O Iceberg tem seu próprio catálogo <code>iceberg</code>, também servido via REST ao container do Glue e ao kernel DuckDB.",
     "ft.fmt.t": "Delta, Iceberg e Hudi",
     "ft.fmt.p": "Uma matriz de bundles por linha do Spark (3.5 e 4.1) fixa os jars de Delta Lake, Iceberg, Hudi e Hadoop/S3A, cada um verificado por sha256.",
     "ft.glue.t": "Runtime AWS Glue em Docker",
     "ft.glue.p": "Kernel opcional sobre a imagem AWS Glue 5.0: Spark 3.5, Python 3.11, Java 17, com Delta e Iceberg, rodando em um container local persistente.",
+    "ft.duck.t": "Runtime DuckDB",
+    "ft.duck.p": "Ambiente e kernel próprios, sem JVM. As extensões <code>httpfs</code>, <code>iceberg</code>, <code>avro</code>, <code>excel</code>, <code>sqlite_scanner</code>, <code>postgres_scanner</code> e <code>spatial</code> são fixadas por sha256; as tabelas Iceberg passam pelo catálogo REST do app.",
     "ft.lake.t": "notislake",
-    "ft.lake.p": "Um MinIO local, iniciado e supervisionado pelo Notisbook, serve o bucket <code>notislake</code> com as camadas <code>bronze</code>, <code>silver</code> e <code>gold</code> via <code>s3a://</code>. Um endpoint S3 manual pode ser usado no lugar.",
+    "ft.lake.p": "Um MinIO local, iniciado e supervisionado pelo Notisbook, serve o bucket <code>notislake</code> via <code>s3a://</code>: <code>bronze</code>, <code>silver</code> e <code>gold</code> são as camadas catalogadas, e <code>landing</code> é uma zona livre, fora do catálogo, para arquivos brutos. Um endpoint S3 manual pode ser usado no lugar.",
     "ft.cells.t": "Python, Spark SQL e DuckDB",
-    "ft.cells.p": "Edite notebooks <code>.ipynb</code> no navegador e execute células Python, Spark SQL e DuckDB SQL em kernels Jupyter.",
+    "ft.cells.p": "Edite notebooks <code>.ipynb</code> no navegador. O kernel Spark local executa células Python, Spark SQL e DuckDB (DuckDB em processo, sem o catálogo); o kernel Glue executa Python e Spark SQL; o kernel DuckDB executa células Python e DuckDB sobre o catálogo do notislake.",
     "ft.keys.t": "Células guiadas pelo teclado",
     "ft.keys.p": "<kbd>Shift+Enter</kbd> executa a célula e avança para a próxima; <kbd>⌘Enter</kbd> executa e permanece nela. Um modo comando no estilo Jupyter oferece <kbd>Esc</kbd>/<kbd>Enter</kbd>, <kbd>J</kbd>/<kbd>K</kbd> para navegar, <kbd>A</kbd>/<kbd>B</kbd> para inserir, <kbd>M</kbd>/<kbd>Y</kbd> para converter e <kbd>D D</kbd> para excluir.",
     "ft.md.t": "Markdown, títulos e foco",
@@ -730,28 +1062,32 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     "mx.eyebrow": "TABELA 3.1 · MATRIZ DE BUNDLES", "mx.line": "Linha do Spark",
     "mx.caption": "Cada jar é fixado com seu sha256 e conferido no download.",
     "cmp.eyebrow": "SEÇÃO 4 · TABELA DE COMPATIBILIDADE",
-    "cmp.title": "Por que não montar tudo à mão com pip install pyspark?",
-    "cmp.lead": "Você pode montar um lakehouse local manualmente, como os operadores faziam com cabos e paciência. O Notisbook faz essa montagem por você e a mantém consistente.",
-    "cmp.c0": "Recurso", "cmp.c2": "Jupyter + pyspark manual", "cmp.c3": "Notebooks gerenciados na nuvem",
+    "cmp.title": "Por que não montar tudo à mão com pip install?",
+    "cmp.lead": "Você pode montar uma stack de dados local manualmente, como os operadores faziam com cabos e paciência. O Notisbook faz essa montagem por você e a mantém consistente.",
+    "cmp.c0": "Recurso", "cmp.c2": "Jupyter + engines instaladas à mão", "cmp.c3": "Notebooks gerenciados na nuvem",
     "cmp.r1": "Jars de Delta, Iceberg e Hudi", "cmp.r1a": "Fixados por linha do Spark, verificados por sha256", "cmp.r1b": "Você resolve versões e downloads", "cmp.r1c": "Depende do provedor",
-    "cmp.r2": "Catálogo de tabelas persistente", "cmp.r2a": "SQLite, visível sem sessão Spark", "cmp.r2b": "Você configura um metastore", "cmp.r2c": "Fornecido pela plataforma",
-    "cmp.r3": "Armazenamento compatível com S3", "cmp.r3a": "MinIO local com bronze / silver / gold", "cmp.r3b": "Você instala e configura", "cmp.r3c": "Armazenamento em nuvem, cobrado",
+    "cmp.r2": "Catálogo de tabelas persistente", "cmp.r2a": "SQLite, visível sem nenhum kernel", "cmp.r2b": "Você configura um metastore", "cmp.r2c": "Fornecido pela plataforma",
+    "cmp.r3": "Armazenamento compatível com S3", "cmp.r3a": "MinIO local: landing mais bronze / silver / gold", "cmp.r3b": "Você instala e configura", "cmp.r3c": "Armazenamento em nuvem, cobrado",
     "cmp.r4": "Runtime AWS Glue 5.0", "cmp.r4a": "Kernel Docker local, mesmo catálogo", "cmp.r4b": "Configuração manual de container", "cmp.r4c": "Jobs remotos",
     "cmp.r5": "JDK por versão do Spark", "cmp.r5a": "Selecionado e gravado no kernelspec", "cmp.r5b": "Gerenciado por você", "cmp.r5c": "Gerenciado pela plataforma",
     "cmp.r6": "Onde seus dados ficam", "cmp.r6a": "No seu Mac, em 127.0.0.1", "cmp.r6b": "Na sua máquina", "cmp.r6c": "Na nuvem do provedor",
+    "cmp.r7": "Runtime DuckDB",
+    "cmp.r7a": "Kernel próprio, extensões fixadas por sha256, mesmo catálogo",
+    "cmp.r7b": "Você instala o DuckDB e as extensões",
+    "cmp.r7c": "Depende do provedor",
     "cmp.caption": "Comparação qualitativa de configurações típicas; não descreve nenhum fornecedor específico.",
     "in.eyebrow": "SEÇÃO 5 · CARGA DO SISTEMA", "in.title": "Sequência de boot: um comando.",
     "in.b1": "1 · Instalar ou atualizar",
     "in.b1p": "Execute o mesmo comando novamente para atualizar. Fixe uma versão com <code>sh -s -- --version X.Y.Z</code> ou <code>NOTISBOOK_VERSION=X.Y.Z</code>.",
     "in.b2": "2 · Iniciar o boot",
-    "in.b2p": "Inicia o backend em <code>http://127.0.0.1:8765</code>, exibe o endereço com um token por inicialização e abre o navegador. A primeira execução cria os exemplos Delta, Hudi, Iceberg e Glue. Para verificar o notislake incluído sem iniciar um servidor, execute <code>notisbook --check-notislake</code>.",
+    "in.b2p": "Inicia o backend em <code>http://127.0.0.1:8765</code>, exibe o endereço com um token por inicialização e abre o navegador. A primeira execução cria os exemplos Delta, Hudi, Iceberg, Glue e DuckDB. Para verificar o notislake incluído sem iniciar um servidor, execute <code>notisbook --check-notislake</code>.",
     "in.b3": "3 · Opcional: imagem base do AWS Glue",
     "in.b4": "Desinstalar", "in.b4p": "Remove o Notisbook e mantém seus dados em <code>~/.notisbook</code>.",
     "in.req": "Requisitos",
     "in.r1": "macOS em Apple silicon ou Intel.",
     "in.r2": "<code>curl</code> (ou <code>wget</code>), <code>awk</code> e <code>shasum</code>.",
     "in.r3": "<code>uv</code> 0.8.4 ou mais recente (instalado automaticamente se ausente).",
-    "in.r4": "JDK 17 para Spark 3.x; JDK 21 (ou 17) para Spark 4.x.",
+    "in.r4": "Só para runtimes Spark: JDK 17 para Spark 3.x; JDK 21 (ou 17) para Spark 4.x.",
     "in.r5": "Para o runtime Glue: Docker (por exemplo via Colima) e cerca de 15 GiB livres em disco.",
     "in.opt": "Opção", "in.eff": "Efeito",
     "in.o1": "Porta HTTP em 127.0.0.1 (padrão 8765)",
@@ -812,24 +1148,28 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
     try { localStorage.setItem("nb-theme", next); } catch (e) {}
   });
 
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
-  function select(tab) {
-    tabs.forEach(function (x) {
-      var on = x === tab;
-      x.setAttribute("aria-selected", String(on));
-      x.tabIndex = on ? 0 : -1;
-      document.getElementById(x.getAttribute("aria-controls")).hidden = !on;
-    });
-  }
-  tabs.forEach(function (tab, i) {
-    tab.addEventListener("click", function () { select(tab); });
-    tab.addEventListener("keydown", function (e) {
-      var j = null;
-      if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
-      else if (e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
-      else if (e.key === "Home") j = 0;
-      else if (e.key === "End") j = tabs.length - 1;
-      if (j !== null) { e.preventDefault(); tabs[j].focus(); select(tabs[j]); }
+  /* cada tablist é um grupo independente (exemplos, notebooks do hero, painéis de metadados e suas abas internas) */
+  document.querySelectorAll('[role="tablist"]').forEach(function (list) {
+    var tabs = Array.prototype.slice.call(list.querySelectorAll('[role="tab"]'));
+    function select(tab) {
+      tabs.forEach(function (x) {
+        var on = x === tab;
+        x.setAttribute("aria-selected", String(on));
+        x.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(x.getAttribute("aria-controls"));
+        if (panel) panel.hidden = !on;
+      });
+    }
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener("click", function () { select(tab); });
+      tab.addEventListener("keydown", function (e) {
+        var j = null;
+        if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
+        else if (e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
+        else if (e.key === "Home") j = 0;
+        else if (e.key === "End") j = tabs.length - 1;
+        if (j !== null) { e.preventDefault(); tabs[j].focus(); select(tabs[j]); }
+      });
     });
   });
 
