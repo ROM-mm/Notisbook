@@ -239,7 +239,7 @@ def render_s3a_defaults(home: Path) -> list[str]:
     ]
 
 
-_CATALOG_PREFIX = "spark.sql.catalog."
+CATALOG_PREFIX = "spark.sql.catalog."
 
 
 def catalog_conf(home: Path) -> list[tuple[str, str]]:
@@ -253,19 +253,19 @@ def catalog_conf(home: Path) -> list[tuple[str, str]]:
 
     return [
         ("spark.sql.warehouse.dir", safety_warehouse_uri(home)),
-        (f"{_CATALOG_PREFIX}spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"),
-        (f"{_CATALOG_PREFIX}iceberg", "org.apache.iceberg.spark.SparkCatalog"),
-        (f"{_CATALOG_PREFIX}iceberg.type", "jdbc"),
-        (f"{_CATALOG_PREFIX}iceberg.uri", catalog_uri(home)),
-        (f"{_CATALOG_PREFIX}iceberg.warehouse", ROOT_URI),
+        (f"{CATALOG_PREFIX}spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog"),
+        (f"{CATALOG_PREFIX}iceberg", "org.apache.iceberg.spark.SparkCatalog"),
+        (f"{CATALOG_PREFIX}iceberg.type", "jdbc"),
+        (f"{CATALOG_PREFIX}iceberg.uri", catalog_uri(home)),
+        (f"{CATALOG_PREFIX}iceberg.warehouse", ROOT_URI),
         # Tables live in the shared bucket: Iceberg must not garbage-collect files on its own.
-        (f"{_CATALOG_PREFIX}iceberg.table-default.gc.enabled", "false"),
-        (f"{_CATALOG_PREFIX}iceberg.jdbc.schema-version", "V1"),
+        (f"{CATALOG_PREFIX}iceberg.table-default.gc.enabled", "false"),
+        (f"{CATALOG_PREFIX}iceberg.jdbc.schema-version", "V1"),
         # Data files go through Hadoop's FileSystem (local and `s3a://`); the default S3FileIO would need the SDK's own wiring.
-        (f"{_CATALOG_PREFIX}iceberg.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO"),
+        (f"{CATALOG_PREFIX}iceberg.io-impl", "org.apache.iceberg.hadoop.HadoopFileIO"),
         # The backend creates the Iceberg tables; the catalog's own init pins a read snapshot in its
         # pooled SQLite connection and breaks the next commit after any external write (BUSY_SNAPSHOT).
-        (f"{_CATALOG_PREFIX}iceberg.jdbc.init-catalog-tables", "false"),
+        (f"{CATALOG_PREFIX}iceberg.jdbc.init-catalog-tables", "false"),
     ]
 
 
@@ -291,7 +291,7 @@ def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> 
         *([f"spark.driver.extraClassPath {driver_jars}"] if driver_jars else []),
         f"spark.sql.extensions {extensions}",
         # The warehouse line was already emitted by `render_s3a_defaults`; only the catalog lines go here.
-        *(f"{key} {value}" for key, value in catalog_conf(home) if key.startswith(_CATALOG_PREFIX)),
+        *(f"{key} {value}" for key, value in catalog_conf(home) if key.startswith(CATALOG_PREFIX)),
         "spark.serializer org.apache.spark.serializer.KryoSerializer",
         "spark.kryo.registrator org.apache.spark.HoodieSparkKryoRegistrar",
     ]

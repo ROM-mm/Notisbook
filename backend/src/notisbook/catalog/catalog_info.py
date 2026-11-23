@@ -23,15 +23,22 @@ _SENSITIVE = re.compile(r"(?i)secret|password|token|access[.]?key|credential")
 # `user:pass@` (ou `user@`) logo após `://`, em qualquer URI, inclusive `jdbc:...://`.
 _USERINFO = re.compile(r"(?<=://)[^/@\s]+@")
 _WAREHOUSE_KEY = "spark.sql.warehouse.dir"
-_CATALOG_KEY = "spark.sql.catalog."
 
 
 def redact(key: str, value: str) -> tuple[str, bool]:
-    """Valor a expor e se foi mascarado: chave ou valor sensível some inteiro; userinfo de URI vira `***@`."""
-    if _SENSITIVE.search(key) or _SENSITIVE.search(value):
+    """Valor a expor e se foi mascarado: chave sensível some inteira; userinfo de URI vira `***@`.
+
+    Só a chave decide: o valor pode conter o home do usuário (ex. um caminho com "token") sem ser segredo.
+    """
+    if _SENSITIVE.search(key):
         return MASK, True
     masked = _USERINFO.sub("***@", value)
     return masked, masked != value
+
+
+def _conf_name(catalog: str) -> str:
+    """Nome do catálogo na config Spark: o `hudi` (só exibição) vive no `spark_catalog`."""
+    return registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else catalog
 
 
 def _config_for(home: Path, catalog: str) -> list[tuple[str, str]]:
@@ -40,8 +47,8 @@ def _config_for(home: Path, catalog: str) -> list[tuple[str, str]]:
         conf = bundles.catalog_conf(home)
     except bundles.UnsupportedHome:
         return []
-    name = registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else catalog
-    prefix = f"{_CATALOG_KEY}{name}"
+    name = _conf_name(catalog)
+    prefix = f"{bundles.CATALOG_PREFIX}{name}"
     keep = [(k, v) for k, v in conf if k == prefix or k.startswith(f"{prefix}.")]
     if name == registry.SPARK_CATALOG:
         keep += [(k, v) for k, v in conf if k == _WAREHOUSE_KEY]
@@ -75,7 +82,7 @@ def build_catalog_info(home: Path, catalog: str, conn: sqlite3.Connection | None
     status, summary = _summary_or_status(conn, catalog)
     conf = _config_for(home, catalog)
     values = dict(conf)
-    prefix = f"{_CATALOG_KEY}{registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else catalog}"
+    prefix = f"{bundles.CATALOG_PREFIX}{_conf_name(catalog)}"
     is_iceberg = catalog == iceberg_jdbc.ICEBERG_CATALOG
     namespaces = summary["namespaces"]
     config = []
@@ -85,11 +92,11 @@ def build_catalog_info(home: Path, catalog: str, conn: sqlite3.Connection | None
     return {
         "name": catalog,
         "kind": {registry.SPARK_CATALOG: "session", iceberg_jdbc.ICEBERG_CATALOG: "named"}.get(catalog, "display_group"),
-        "backing_catalog": registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else None,
+        "backing_catalog": _conf_name(catalog) if catalog == registry.HUDI_CATALOG else None,
         "status": status,
         "profile": PROFILE,
         "implementation": _safe(prefix, values.get(prefix)),
-        "type": _safe(f"{prefix}.type", values.get(f"{prefix}.type")) if is_iceberg else "delta",
+        "type": _safe(f"{prefix}.type", values.get(f"{prefix}.type")) if is_iceberg else ("delta" if conf else None),
         "warehouse": _safe("warehouse", values.get(f"{prefix}.warehouse" if is_iceberg else _WAREHOUSE_KEY)),
         "uri": _safe("uri", values.get(f"{prefix}.uri")),
         "file_io": _safe("io-impl", values.get(f"{prefix}.io-impl")),
