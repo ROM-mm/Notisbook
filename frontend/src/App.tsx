@@ -7,7 +7,7 @@
  *                recentes), SEM `AppShell`; `/tree/<dir>` idem. Com abas abertas: `AppShell`
  *                com o início no centro. `browsing` sem abas: `AppShell` com painel Notebooks e centro vazio
  * - "notebook" → aba do notebook (abre se preciso) com components/kernel/NotebookPage
- * - "settings" → components/settings/SettingsPage ("Ambientes Spark")
+ * - "settings" → components/settings/SettingsPage ("Runtimes")
  * - "appearance" → components/appearance/AppearancePage (fontes; ⌘, abre de qualquer tela)
  */
 import { lazy, Suspense, useEffect, useState } from "react";

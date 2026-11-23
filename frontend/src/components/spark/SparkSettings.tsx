@@ -1,5 +1,5 @@
 /**
- * Settings → Ambientes Spark: pré-requisitos, instalar versão do catálogo (Local) ou runtime
+ * Settings → Runtimes: pré-requisitos, instalar versão do catálogo (Local) ou runtime
  * Docker com progresso ao vivo, e ambientes instalados (Local e Docker) com remoção.
  */
 import { useState } from "react";

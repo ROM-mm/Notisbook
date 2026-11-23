@@ -1,5 +1,5 @@
 /**
- * Dados da gestão do Spark (Settings → Ambientes Spark) e jobs de instalação.
+ * Dados da gestão do Spark (Settings → Runtimes) e jobs de instalação.
  *
  * - Carrega prereqs, catálogo (PyPI), versões instaladas e sessões ativas.
  * - Sessões são relidas periodicamente: o botão "Remover" fica desabilitado
