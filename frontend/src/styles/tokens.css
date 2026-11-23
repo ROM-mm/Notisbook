@@ -15,7 +15,7 @@
 
   /* Tipografia */
   /* Slots de fonte: o default vive aqui; `state/appearance.ts` os sobrescreve em <html> com a escolha salva. */
-  --pref-font-interface: "VT323", var(--font-content);
+  --pref-font-interface: "VT323", system-ui, -apple-system, "Segoe UI", sans-serif;
   --pref-font-code: "VT323", "Monocode", ui-monospace, SFMono-Regular, Menlo, monospace;
   --pref-font-markdown: "Roboto", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-content: var(--pref-font-markdown);
