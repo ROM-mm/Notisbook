@@ -3,10 +3,9 @@
  * Mostra pastas e notebooks; clicar em pasta expande/recolhe, em notebook abre a aba.
  * Foco por roving tabindex. Rename e rascunho de nova pasta usam `NameInput` inline.
  */
-import { type KeyboardEvent, type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, type MouseEvent, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { ContentEntry } from "../../api";
 import { uniqueName } from "../../lib/paths";
-import { useLayout } from "../../state/layout";
 import { type DirState, useNotebookTree } from "../../state/notebookTree";
 import { activeNotebookPath, openNotebook, useRouter } from "../../state/router";
 import { useWorkspace } from "../../state/workspace";
@@ -25,6 +24,8 @@ export interface NotebookTreeProps {
   onCancelDraft: () => void;
   onStartRename: (entry: ContentEntry) => void;
   onDelete: (entry: ContentEntry) => void;
+  /** Chamado após o commit em que o texto das linhas pode ter mudado de largura. */
+  onContentChange?: () => void;
 }
 
 type Row =
@@ -69,7 +70,7 @@ function buildRows(
   }
 }
 
-export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStartRename, onDelete }: NotebookTreeProps) {
+export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStartRename, onDelete, onContentChange }: NotebookTreeProps) {
   const dirs = useNotebookTree((s) => s.dirs);
   const expanded = useNotebookTree((s) => s.expanded);
   const selected = useNotebookTree((s) => s.selected);
@@ -89,39 +90,14 @@ export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStart
   const activeKey = nav.some((r) => r.key === focusKey) ? focusKey : (nav[0]?.key ?? null);
   const rootEmpty = dirs[""]?.status === "ready" && rows.length === 0;
 
-  // Alarga o painel até caber o nome mais longo (só alarga; respeita o arraste manual).
-  // O excedente é medido no DOM: scrollWidth - clientWidth dos nomes truncados.
-  // `manual` entra nas dependências para remedir quando o duplo clique zera a flag.
-  const namesKey = nav.map((r) => `${r.key}:${r.entry.name}`).join("\n");
-  const manual = useLayout((s) => s.rightPanelWidthManual);
-  const treeRef = useRef<HTMLDivElement>(null);
-  const growToFitNames = useCallback(() => {
-    if (useLayout.getState().rightPanelWidthManual) return;
-    const names = treeRef.current?.querySelectorAll<HTMLElement>(`.${styles.treeName}`);
-    if (!names) return;
-    let overflow = 0;
-    names.forEach((el) => {
-      overflow = Math.max(overflow, el.scrollWidth - el.clientWidth);
-    });
-    if (overflow > 0) {
-      const layout = useLayout.getState();
-      layout.growRightPanelWidth(layout.rightPanelWidth + overflow);
-    }
-  }, []);
+  // Avisa o dono da medição (FileBrowser) quando algo que altera a largura do texto muda: além de chave/nome,
+  // linhas abertas e a ativa ganham peso de fonte maior (ver `.row[data-open|data-active]`).
+  const measureKey = nav
+    .map((r) => `${r.key}:${r.entry.name}:${openSet.has(r.entry.path) ? 1 : 0}:${r.entry.path === activePath ? 1 : 0}`)
+    .join("\n");
   useLayoutEffect(() => {
-    if (manual) return;
-    growToFitNames();
-  }, [namesKey, manual, growToFitNames]);
-  // Remede uma vez após a Roboto carregar: antes dela o excedente sai subestimado.
-  useEffect(() => {
-    let active = true;
-    void document.fonts.ready.then(() => {
-      if (active) growToFitNames();
-    });
-    return () => {
-      active = false;
-    };
-  }, [growToFitNames]);
+    onContentChange?.();
+  }, [measureKey, onContentChange]);
 
   const focusRow = (key: string | undefined) => {
     if (key) refs.current.get(key)?.focus();
@@ -211,7 +187,6 @@ export function NotebookTree({ draft, onCreate, onRename, onCancelDraft, onStart
   return (
     <>
       <div
-        ref={treeRef}
         className={styles.tree}
         role="tree"
         aria-label={`Notebooks in ${root?.name ?? "root"}`}

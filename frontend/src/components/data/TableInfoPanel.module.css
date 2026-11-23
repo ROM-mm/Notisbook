@@ -1,4 +1,4 @@
-/* Painel Table info, encaixado ao lado do conteúdo (ver AppShell). Largura fixa, sem redimensionamento. */
+/* Painel Table info, encaixado ao lado do conteúdo (ver AppShell). A largura inline é medida do conteúdo (mín. 400px); max-width limita a 45vw e o excesso rola. */
 
 .panel {
   display: flex;
@@ -130,7 +130,7 @@
   background: var(--color-bg-hover);
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
-  overflow-wrap: anywhere;
+  overflow-x: auto;
 }
 
 /* Abas */
@@ -170,6 +170,12 @@
   padding: var(--space-3) var(--space-5) var(--space-4);
 }
 
+/* Largura intrínseca do conteúdo da aba, lida pela medição do painel. */
+.content {
+  width: max-content;
+  min-width: 100%;
+}
+
 /* Fatos: grade rótulo/valor como em Spark.module.css (.facts). */
 .facts {
   display: grid;
@@ -191,7 +197,7 @@
   min-width: 0;
   margin: 0;
   font-family: var(--font-mono);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 .na {
@@ -200,7 +206,7 @@
 
 .mono {
   font-family: var(--font-mono);
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 
 /* Tabelas no padrão de Spark.module.css (.pkgTable): cabeçalho fixo e linhas de 1px. */
@@ -228,7 +234,20 @@
   padding: var(--space-1) var(--space-2);
   border-top: 1px solid var(--color-border);
   vertical-align: top;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+/* Texto corrido (comentários): quebra entre palavras e limita a contribuição à largura medida. */
+.prose,
+.grid td.prose {
+  min-width: 30ch;
+  max-width: 60ch;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+span.prose {
+  display: block;
 }
 
 .num {
@@ -254,9 +273,11 @@
 }
 
 .empty {
+  contain: inline-size;
   margin: 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
+  white-space: normal;
 }
 
 .empty p {

@@ -5,7 +5,8 @@
 import { create } from "zustand";
 
 export const DEFAULT_SIDE_PANEL_WIDTH = 288;
-export const DEFAULT_RIGHT_PANEL_WIDTH = 256;
+/** Largura inicial do painel direito, só até a 1ª medição do conteúdo. */
+export const FALLBACK_RIGHT_PANEL_WIDTH = 256;
 
 export const SIDE_PANEL_MIN = 200;
 export const SIDE_PANEL_MAX = 600;
@@ -36,10 +37,10 @@ interface LayoutState {
   cardCollapsed: Record<PanelCard, boolean>;
   setSidePanelWidth: (w: number) => void;
   setRightPanelWidth: (w: number) => void;
-  /** Volta ao padrão e devolve o controle ao ajuste automático. */
+  /** Devolve o controle ao ajuste automático; quem mede o conteúdo reaplica a largura. */
   resetRightPanelWidth: () => void;
-  /** Ajuste automático: só alarga (até SIDE_PANEL_MAX) e só sem arraste manual. */
-  growRightPanelWidth: (w: number) => void;
+  /** Ajuste ao conteúdo: encolhe e alarga até `w` (limitada ao intervalo permitido), só sem arraste manual. */
+  fitRightPanelWidth: (w: number) => void;
   setCardWeights: (weights: Partial<Record<PanelCard, number>>) => void;
   resetCardWeights: () => void;
   toggleCard: (card: PanelCard) => void;
@@ -48,7 +49,7 @@ interface LayoutState {
 
 export const useLayout = create<LayoutState>()((set) => ({
   sidePanelWidth: DEFAULT_SIDE_PANEL_WIDTH,
-  rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH,
+  rightPanelWidth: FALLBACK_RIGHT_PANEL_WIDTH,
   rightPanelWidthManual: false,
   cardWeights: { ...DEFAULT_CARD_WEIGHTS },
   cardCollapsed: { catalog: false, notebooks: false, files: false },
@@ -59,12 +60,12 @@ export const useLayout = create<LayoutState>()((set) => ({
       // Largura inalterada (ex.: clique na alça sem arrastar) não conta como ajuste manual.
       return next === s.rightPanelWidth ? s : { rightPanelWidth: next, rightPanelWidthManual: true };
     }),
-  resetRightPanelWidth: () => set({ rightPanelWidth: DEFAULT_RIGHT_PANEL_WIDTH, rightPanelWidthManual: false }),
-  growRightPanelWidth: (w) =>
+  resetRightPanelWidth: () => set((s) => (s.rightPanelWidthManual ? { rightPanelWidthManual: false } : s)),
+  fitRightPanelWidth: (w) =>
     set((s) => {
       // Mesmo teto do arraste manual (AppShell): metade da janela.
-      const next = clamp(w, SIDE_PANEL_MIN, Math.min(SIDE_PANEL_MAX, window.innerWidth / 2));
-      return s.rightPanelWidthManual || next <= s.rightPanelWidth ? s : { rightPanelWidth: next };
+      const next = clamp(Math.ceil(w), SIDE_PANEL_MIN, Math.min(SIDE_PANEL_MAX, window.innerWidth / 2));
+      return s.rightPanelWidthManual || next === s.rightPanelWidth ? s : { rightPanelWidth: next };
     }),
   setCardWeights: (weights) => set((s) => ({ cardWeights: { ...s.cardWeights, ...weights } })),
   resetCardWeights: () => set({ cardWeights: { ...DEFAULT_CARD_WEIGHTS } }),

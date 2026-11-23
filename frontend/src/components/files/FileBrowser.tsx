@@ -6,11 +6,12 @@
  * Renomear um notebook aberto em aba é bloqueado (a aba e a sessão do kernel
  * apontam para o caminho antigo) — feche a aba antes; excluir segue a mesma regra.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ApiError, type ContentEntry, createEntry, deleteEntry, errorMessage, renameEntry } from "../../api";
 import { chooseDirectory } from "../../api/files";
 import { putNotebooksRoot, validateNotebooksRoot } from "../../api/notebooksRoot";
 import { dirname, joinPath, NOTEBOOK_EXT } from "../../lib/paths";
+import { useLayout } from "../../state/layout";
 import { selectTargetDir, useNotebookTree } from "../../state/notebookTree";
 import { useRecent } from "../../state/recent";
 import { closeAllTabs, isOpenUnder, useWorkspace } from "../../state/workspace";
@@ -39,6 +40,55 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
   const [notice, setNotice] = useState<string | null>(null);
   const [switching, setSwitching] = useState(false);
   const [manual, setManual] = useState(false);
+  const sectionRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const widthManual = useLayout((s) => s.rightPanelWidthManual);
+
+  // Ajusta o painel à largura do conteúdo (encolhe e alarga) enquanto não houver arraste manual.
+  // Necessário = maior entre o cabeçalho (título + ícones no gap de design) e a linha do nome mais longo
+  // (texto sem truncar, medido por Range), mais a folga fixa à direita de cada um. Recolhido não há linhas.
+  const fitToContent = useCallback(() => {
+    const layout = useLayout.getState();
+    const section = sectionRef.current;
+    const panel = section?.closest<HTMLElement>('[data-testid^="side-panel-"]');
+    if (layout.rightPanelWidthManual || !section || !panel) return;
+    const panelRect = panel.getBoundingClientRect();
+    let needed = 0;
+    // `contentRight`: borda direita do conteúdo intrínseco de `box`; a folga até a borda do painel não depende da largura.
+    const consider = (box: Element, contentRight: number) => {
+      needed = Math.max(needed, contentRight - panelRect.left + (panelRect.right - box.getBoundingClientRect().right));
+    };
+    const header = headerRef.current;
+    if (header) {
+      const cs = getComputedStyle(header);
+      const kids = Array.from(header.children);
+      const gaps = (parseFloat(cs.columnGap) || 0) * Math.max(0, kids.length - 1);
+      const kidsWidth = kids.reduce((sum, k) => sum + k.getBoundingClientRect().width, 0);
+      consider(header, header.getBoundingClientRect().left + parseFloat(cs.paddingLeft) + kidsWidth + gaps + parseFloat(cs.paddingRight));
+    }
+    const range = document.createRange();
+    section.querySelectorAll<HTMLElement>(`.${styles.row}`).forEach((row) => {
+      const name = row.querySelector<HTMLElement>(`.${styles.treeName}`);
+      if (!name) return;
+      range.selectNodeContents(name);
+      consider(row, name.getBoundingClientRect().left + range.getBoundingClientRect().width + parseFloat(getComputedStyle(row).paddingRight));
+    });
+    if (needed > 0) layout.fitRightPanelWidth(needed);
+  }, []);
+  // `collapsed` troca as linhas medidas; `widthManual` remede quando o duplo clique zera a flag.
+  useLayoutEffect(() => {
+    fitToContent();
+  }, [collapsed, widthManual, fitToContent]);
+  // Remede uma vez após a Roboto carregar: antes dela o texto sai medido com a fonte reserva.
+  useEffect(() => {
+    let active = true;
+    void document.fonts.ready.then(() => {
+      if (active) fitToContent();
+    });
+    return () => {
+      active = false;
+    };
+  }, [fitToContent]);
 
   useEffect(() => {
     useNotebookTree.getState().ensureRoot();
@@ -187,9 +237,10 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
     <section
       className={`${cardStyles.section} ${collapsed ? cardStyles.sectionCollapsed : ""}`}
       data-testid="file-browser"
+      ref={sectionRef}
       aria-labelledby="notebooks-title"
     >
-      <div className={cardStyles.sectionHeader}>
+      <div className={cardStyles.sectionHeader} ref={headerRef}>
         <CardTitle
           id="notebooks-title"
           label="Notebooks"
@@ -249,6 +300,7 @@ export function FileBrowser({ collapsed, onToggle, onExpand }: { collapsed: bool
           <div className={cardStyles.tree}>
             <NotebookTree
               draft={draft}
+              onContentChange={fitToContent}
               onCreate={handleCreate}
               onRename={handleRename}
               onCancelDraft={() => setDraft(null)}

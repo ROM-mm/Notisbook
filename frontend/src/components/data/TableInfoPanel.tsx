@@ -4,7 +4,7 @@
  * Só dados que não dependem do kernel; `history`/`properties`/`stats` só no Iceberg.
  * Esc fecha apenas com o foco dentro do painel; ao fechar, o foco volta à linha da tabela.
  */
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { ColumnsQuery, TableHistoryEntry, TableInfo, TableVersion } from "../../api/catalog";
 import { TABLE_INFO_PANEL_ID, tableRef, useCatalog } from "../../state/catalog";
 import { formatSize } from "../files/format";
@@ -29,6 +29,41 @@ type TabId = (typeof TABS)[number]["id"];
 const dateFormat = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" });
 const numberFormat = new Intl.NumberFormat("en-US");
 const DASH = "—";
+const MIN_PANEL_WIDTH = 400;
+
+/** Largura do painel que cabe o cabeçalho e o conteúdo da aba sem quebra; o teto (45vw) fica no CSS. */
+function measurePanelWidth(
+  panel: HTMLElement,
+  head: HTMLElement,
+  headText: HTMLElement,
+  texts: HTMLElement[],
+  body: HTMLElement | null,
+  content: HTMLElement | null,
+  callout: HTMLElement | null,
+): number {
+  const border = panel.offsetWidth - panel.clientWidth;
+  const headNeed = head.clientWidth - headText.clientWidth + Math.max(0, ...texts.map((el) => el.scrollWidth));
+  let bodyNeed = 0;
+  if (body && content) {
+    const cs = getComputedStyle(body);
+    const padding = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
+    const scrollbar = body.offsetWidth - body.clientWidth;
+    // min-width:100% prenderia a medição à largura atual; zera só durante a leitura síncrona.
+    const prev = content.style.minWidth;
+    content.style.minWidth = "0";
+    bodyNeed = content.offsetWidth + padding + scrollbar;
+    content.style.minWidth = prev;
+  }
+  let calloutNeed = 0;
+  const code = callout?.querySelector("code");
+  if (callout && code) {
+    const cs = getComputedStyle(callout);
+    const sides = ["marginLeft", "marginRight", "paddingLeft", "paddingRight", "borderLeftWidth", "borderRightWidth"] as const;
+    // `scrollWidth` é 0 em elemento inline; o retângulo dá a largura real do caminho (nowrap).
+    calloutNeed = code.getBoundingClientRect().width + sides.reduce((sum, k) => sum + parseFloat(cs[k]), 0);
+  }
+  return Math.ceil(Math.max(MIN_PANEL_WIDTH, headNeed, bodyNeed, calloutNeed) + border);
+}
 
 /** ISO (ou epoch ms) → data legível; texto não reconhecido é exibido como veio. */
 function formatDate(value: string | number | null): string {
@@ -86,7 +121,7 @@ function Overview({ info }: { info: TableInfo }) {
     ["Type", info.table_type],
     ["Format", tableFormatLabel(info.format)],
     ["Location", info.location ?? DASH],
-    ["Comment", info.description || DASH],
+    ["Comment", info.description ? <span className={styles.prose}>{info.description}</span> : DASH],
     ["Partitions", info.partition_columns.length > 0 ? info.partition_columns.join(", ") : "None"],
     ["Columns", String(info.columns.length)],
     ["Registered at", formatDate(info.created_at)],
@@ -136,7 +171,7 @@ function Columns({ info }: { info: TableInfo }) {
             </td>
             <td>{c.data_type}</td>
             <td>{c.nullable ? "yes" : "no"}</td>
-            <td className={c.description ? undefined : styles.na}>{c.description || DASH}</td>
+            <td className={c.description ? styles.prose : styles.na}>{c.description || DASH}</td>
           </tr>
         ))}
       </tbody>
@@ -264,8 +299,38 @@ export function TableInfoPanel() {
     setTab("overview");
   }
 
+  const panelRef = useRef<HTMLElement>(null);
+  const headRef = useRef<HTMLElement>(null);
+  const headTextRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const pathRef = useRef<HTMLSpanElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const calloutRef = useRef<HTMLParagraphElement>(null);
+  const [width, setWidth] = useState(MIN_PANEL_WIDTH);
+  const loadedData = state?.data ?? null;
+
+  // Remede ao trocar de tabela, dados ou aba, e de novo quando a fonte mono terminar de carregar.
+  useLayoutEffect(() => {
+    let cancelled = false;
+    const measure = () => {
+      const { current: panel } = panelRef;
+      const { current: head } = headRef;
+      const { current: headText } = headTextRef;
+      if (cancelled || !panel || !head || !headText) return;
+      const texts = [titleRef.current, pathRef.current].filter((el): el is HTMLElement => el !== null);
+      setWidth(measurePanelWidth(panel, head, headText, texts, bodyRef.current, contentRef.current, calloutRef.current));
+    };
+    measure();
+    void document.fonts.ready.then(measure);
+    return () => {
+      cancelled = true;
+    };
+  }, [ref, loadedData, tab]);
+
   if (!state) return null;
   const { query, data, loading, error } = state;
+  const fullName = `${query.catalog}.${query.database}.${query.table}`;
   const format = data?.format ?? "";
 
   function close() {
@@ -297,22 +362,26 @@ export function TableInfoPanel() {
 
   return (
     <aside
+      ref={panelRef}
       id={TABLE_INFO_PANEL_ID}
       aria-label="Table info"
       aria-busy={loading}
       className={styles.panel}
+      style={{ width }}
       onKeyDown={onKeyDown}
       data-testid="table-info-panel"
     >
-      <header className={styles.head}>
+      <header ref={headRef} className={styles.head}>
         <span className={styles.headIcon}>
           <TableFormatIcon format={format} size={18} />
         </span>
-        <div className={styles.headText}>
-          <h2 className={styles.title} title={query.table}>
+        <div ref={headTextRef} className={styles.headText}>
+          <h2 ref={titleRef} className={styles.title} title={query.table}>
             {data?.table ?? query.table}
           </h2>
-          <span className={styles.path}>{`${query.catalog}.${query.database}.${query.table}`}</span>
+          <span ref={pathRef} className={styles.path} title={fullName}>
+            {fullName}
+          </span>
         </div>
         <button type="button" className={styles.close} onClick={close} aria-label="Close" title="Close (Esc)">
           <CloseIcon size={14} />
@@ -338,7 +407,7 @@ export function TableInfoPanel() {
               {metadataError}
             </p>
           ) : null}
-          <p className={styles.callout}>{dropSentence(data)}</p>
+          <p ref={calloutRef} className={styles.callout}>{dropSentence(data)}</p>
           <div className={styles.tabs} role="tablist" aria-label="Table info sections">
             {TABS.map((t, i) => (
               <button
@@ -362,13 +431,16 @@ export function TableInfoPanel() {
             ))}
           </div>
           <div
+            ref={bodyRef}
             className={styles.body}
             role="tabpanel"
             id={`${TABLE_INFO_PANEL_ID}-panel`}
             aria-labelledby={`${TABLE_INFO_PANEL_ID}-tab-${tab}`}
             tabIndex={0}
           >
-            <PanelBody info={data} tab={tab} />
+            <div ref={contentRef} className={styles.content}>
+              <PanelBody info={data} tab={tab} />
+            </div>
           </div>
         </>
       ) : (
