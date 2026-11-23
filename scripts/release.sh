@@ -275,7 +275,7 @@ baixar_minio() {
 # Ensaio local: gera a versão pedida e a instala neste Mac. Sem commit, tag, push
 # nem gh release; só backend/pyproject.toml muda durante o build e é restaurado.
 local_install() {
-  local local_dir="$DIST/local-$VERSION" faltando=() i nome sha_arquivo wheels
+  local local_dir="$DIST/local-$VERSION" faltando=() i nome sha_arquivo wheels path_instalador venv_bin uv_bin_dir uv_exe versao_impressa path_exe
 
   WORKDIR="$(mktemp -d)"
 
@@ -365,14 +365,13 @@ local_install() {
   if [ -n "$uv_bin_dir" ] && [ -x "$uv_exe" ]; then
     versao_impressa="$("$uv_exe" --version 2>&1)" || aviso "$uv_exe --version falhou"
     echo "notisbook --version ($uv_exe): $versao_impressa"
-    case "$versao_impressa" in
-      *"$VERSION"*) ;;
-      *) aviso "a versão impressa não contém $VERSION; confira a instalação em $uv_exe" ;;
-    esac
+    if [ "$versao_impressa" != "$VERSION" ]; then
+      aviso "a versão impressa difere de $VERSION; confira a instalação em $uv_exe"
+    fi
     path_exe="$(command -v notisbook 2>/dev/null || true)"
     if [ -z "$path_exe" ]; then
       aviso "notisbook não está no PATH desta shell; abra um novo terminal ou use $uv_exe"
-    elif [ "$path_exe" != "$uv_exe" ]; then
+    elif ! [ "$path_exe" -ef "$uv_exe" ]; then
       aviso "nesta shell, notisbook abre $path_exe (por exemplo, um env ativo), não $uv_exe; use o caminho completo ou abra um novo terminal"
     fi
   else
