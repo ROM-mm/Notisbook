@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { duckdbKernelName } from "../../api/duckdb";
 import { ApiError, errorMessage } from "../../api/http";
 import type { DockerRuntime, DockerRuntimes, DuckDBStatus, Prereqs, SparkCatalog } from "../../api/types";
-import { RuntimeCombo, type RuntimeOption } from "./RuntimeCombo";
+import { RuntimeCombo, type RuntimeCategory, type RuntimeOption } from "./RuntimeCombo";
 import type { Loadable } from "./useSparkData";
 import styles from "./Spark.module.css";
 
@@ -38,6 +38,12 @@ const SPARK = "spark:";
 const DUCKDB = "duckdb:";
 const DOCKER = "docker:";
 
+/** Pedido de pré-seleção vindo de fora (deep-link `?runtime=`): `nonce` novo repete o pedido. */
+export interface InstallTarget {
+  category: RuntimeCategory;
+  nonce: number;
+}
+
 interface Props {
   catalog: Loadable<SparkCatalog>;
   duckdb: Loadable<DuckDBStatus>;
@@ -52,6 +58,8 @@ interface Props {
   /** Abre a janela de instalação do runtime Docker escolhido. */
   onInstallDocker: (runtime: DockerRuntime) => void;
   onReloadCatalog: () => void;
+  /** Deep-link: pré-seleciona o item recomendado (primeiro instalável) da categoria. */
+  target?: InstallTarget | null;
 }
 
 /** Opções do combo, na ordem das categorias; o primeiro habilitado de cada uma é o recomendado. */
@@ -100,7 +108,7 @@ function buildOptions(
   return out;
 }
 
-export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, busyDuckDB, onInstall, onInstallDuckDB, onInstallDocker, onReloadCatalog }: Props) {
+export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, busyDuckDB, onInstall, onInstallDuckDB, onInstallDocker, onReloadCatalog, target }: Props) {
   const options = useMemo(
     () => buildOptions(catalog.data, duckdb.data, docker.data, busyVersions, busyDuckDB),
     [catalog.data, duckdb.data, docker.data, busyVersions, busyDuckDB],
@@ -117,6 +125,17 @@ export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, b
     setSelected(options.find((o) => o.category === "processing" && !o.disabled)?.id ?? null);
     // Só reage a novas opções (catálogos recarregados).
   }, [options]);
+
+  // Deep-link: pré-seleciona o item recomendado da categoria. Só reage a um novo pedido (nonce);
+  // quando ele chega, as listas já carregaram (o pai espera a primeira carga assentar).
+  useEffect(() => {
+    if (!target) return;
+    const first = options.find((o) => o.category === target.category && !o.disabled);
+    if (first) {
+      setSelected(first.id);
+      setError(null);
+    }
+  }, [target?.nonce]);
 
   const chosen = options.find((o) => o.id === selected) ?? null;
   const chosenDocker = chosen?.category === "docker" ? docker.data?.runtimes.find((r) => `${DOCKER}${r.key}` === chosen.id) : undefined;
