@@ -1,14 +1,16 @@
-"""Compatibility matrix of lakehouse libraries (Delta, Iceberg, Hudi) per Spark line.
+"""Compatibility matrix of lakehouse libraries (Delta, Iceberg, Hudi) per Spark line, and S3A jars per Hadoop.
 
 Entries cover a `major.minor` line, optionally narrowed to a patch range (the Delta
 release that fits a line can depend on the patch). Every jar carries a pinned sha256 so the installer can
 verify downloads; bump `revision` whenever an entry changes (`key` is its unique identity, recorded in the kernelspec) so that installed
 environments are reported as `outdated`. Versions without an entry have no bundle.
+The S3A jars do not depend on the bundle: they follow the Hadoop that ships inside the pyspark wheel (`S3A_BY_HADOOP`).
 """
 
 import os
 import re
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -59,10 +61,6 @@ class Bundle:
     artifacts: tuple[Artifact, ...]
     # Jars for the driver JVM classpath (not `spark.jars`): the JDBC catalog finds its driver via DriverManager.
     driver_artifacts: tuple[Artifact, ...] = ()
-    # Hadoop line that the jars of `driver_artifacts` were built against (the pyspark wheel bundles the same one).
-    hadoop: str = ""
-    # Class that only exists in the AWS SDK jar of this bundle; the smoke test loads it to prove the SDK is wired.
-    sdk_probe_class: str = ""
     min_patch: int = 0
     max_patch: int | None = None
 
@@ -77,21 +75,80 @@ SQLITE_JDBC = Artifact(
     "f8dce420a6016278497f4f0560f65602b9db858de141b541cf91a4644ebe4639",
 )
 
-# S3A jars must match the Hadoop that ships inside each pyspark line; mixing versions breaks S3AFileSystem.
-HADOOP_35 = "3.3.4"
-HADOOP_41 = "3.4.2"
-S3A_35 = (
-    Artifact("org.apache.hadoop", "hadoop-aws", HADOOP_35, "53f9ae03c681a30a50aa17524bd9790ab596b28481858e54efd989a826ed3a4a"),
-    Artifact("com.amazonaws", "aws-java-sdk-bundle", "1.12.262", "873fe7cf495126619997bec21c44de5d992544aea7e632fdc77adb1a0915bae5"),
-    Artifact("org.wildfly.openssl", "wildfly-openssl", "1.0.7.Final", "9f7058778978ec2ad90c7224401a4b0013d93e0dd3fa0f72b25244ffa3507ca8"),
-)
-S3A_41 = (
-    Artifact("org.apache.hadoop", "hadoop-aws", HADOOP_41, "d2d24e6b715b5656b9d238bf13b6682a07e2004dd36aad74a73aeb854319f4d9"),
-    Artifact("software.amazon.awssdk", "bundle", "2.29.52", "62638f33045690c6bc5e496b54b0b2e89a9ad38cbedacdf6e017fea6bc85f55c"),
-    Artifact("org.wildfly.openssl", "wildfly-openssl", "2.1.4.Final", "95decbc5d088b40e85f58d7726b8c8f4e3be6312a0f2660c2d714a23cee80279"),
-)
-SDK_PROBE_35 = "com.amazonaws.services.s3.AmazonS3"
-SDK_PROBE_41 = "software.amazon.awssdk.services.s3.S3Client"
+@dataclass(frozen=True)
+class S3aSet:
+    """S3A jars for one Hadoop line; independent of the formats bundle."""
+
+    hadoop: str
+    revision: int
+    artifacts: tuple[Artifact, ...]
+    # Class that only exists in the AWS SDK jar of this set; the smoke test loads it to prove the SDK is wired.
+    sdk_probe_class: str
+    # Extra `spark-defaults.conf` lines (`key value`) this Hadoop needs; emitted right after the S3A defaults.
+    extra_options: tuple[str, ...] = ()
+
+
+# S3A jars must match the Hadoop that ships inside the pyspark wheel; mixing versions breaks S3AFileSystem.
+# SDK v2 and wildfly versions come from the POM of the matching hadoop-aws (hadoop-project properties).
+# Spark 3.5 keeps hadoop-aws 3.3.4 with aws-java-sdk-bundle 1.12.262 (formal exception to that rule).
+SDK_PROBE_V1 = "com.amazonaws.services.s3.AmazonS3"
+SDK_PROBE_V2 = "software.amazon.awssdk.services.s3.S3Client"
+S3A_BY_HADOOP: dict[str, S3aSet] = {
+    "3.3.4": S3aSet(
+        "3.3.4",
+        1,
+        (
+            Artifact("org.apache.hadoop", "hadoop-aws", "3.3.4", "53f9ae03c681a30a50aa17524bd9790ab596b28481858e54efd989a826ed3a4a"),
+            Artifact("com.amazonaws", "aws-java-sdk-bundle", "1.12.262", "873fe7cf495126619997bec21c44de5d992544aea7e632fdc77adb1a0915bae5"),
+            Artifact("org.wildfly.openssl", "wildfly-openssl", "1.0.7.Final", "9f7058778978ec2ad90c7224401a4b0013d93e0dd3fa0f72b25244ffa3507ca8"),
+        ),
+        SDK_PROBE_V1,
+    ),
+    "3.4.1": S3aSet(
+        "3.4.1",
+        1,
+        (
+            Artifact("org.apache.hadoop", "hadoop-aws", "3.4.1", "01334a07e179cae2b7e251f24857f11e3759108c9d6a79dcbe362a4295227da2"),
+            Artifact("software.amazon.awssdk", "bundle", "2.24.6", "890bf9f2a80488f7a8aa8277d64d13a9ea3a3cdff8607ef3b63a878d8b467b41"),
+            Artifact("org.wildfly.openssl", "wildfly-openssl", "1.1.3.Final", "4e7d50a877822ba7561fa6a0109691b30b23a784eba3f3f8fbbf5ea866500786"),
+        ),
+        SDK_PROBE_V2,
+    ),
+    "3.4.2": S3aSet(
+        "3.4.2",
+        1,
+        (
+            Artifact("org.apache.hadoop", "hadoop-aws", "3.4.2", "d2d24e6b715b5656b9d238bf13b6682a07e2004dd36aad74a73aeb854319f4d9"),
+            Artifact("software.amazon.awssdk", "bundle", "2.29.52", "62638f33045690c6bc5e496b54b0b2e89a9ad38cbedacdf6e017fea6bc85f55c"),
+            Artifact("org.wildfly.openssl", "wildfly-openssl", "2.1.4.Final", "95decbc5d088b40e85f58d7726b8c8f4e3be6312a0f2660c2d714a23cee80279"),
+        ),
+        SDK_PROBE_V2,
+    ),
+    "3.5.0": S3aSet(
+        "3.5.0",
+        1,
+        (
+            Artifact("org.apache.hadoop", "hadoop-aws", "3.5.0", "66bd9eefb938b1a1657487324b63c13df2d8b17164a1dd24e0ef37b905bc5baa"),
+            Artifact("software.amazon.awssdk", "bundle", "2.35.4", "db4b55f24ad1b4e70f17eb1717a4de76a8dadc5a27d764be7c44ff67b2c1c677"),
+            Artifact("org.wildfly.openssl", "wildfly-openssl", "2.2.5.Final", "71fb7932f99a727edb23c5a2cb8c6855ac7196fad41aa0669b3998e277165154"),
+        ),
+        SDK_PROBE_V2,
+    ),
+}
+
+_HADOOP_CLIENT_API = re.compile(r"hadoop-client-api-(\d+\.\d+\.\d+)\.jar", re.ASCII)
+
+
+def installed_hadoop(env_dir: Path) -> str | None:
+    """Hadoop version of the pyspark installed in `env_dir`, read from the name of its `hadoop-client-api` jar.
+
+    None when the env has no such jar or more than one (ambiguous): the caller refuses to guess.
+    """
+    jars = list(env_dir.glob("lib/python*/site-packages/pyspark/jars/hadoop-client-api-*.jar"))
+    if len(jars) != 1:
+        return None
+    match = _HADOOP_CLIENT_API.fullmatch(jars[0].name)
+    return match.group(1) if match else None
 
 
 MATRIX: dict[str, Bundle] = {
@@ -120,9 +177,7 @@ MATRIX: dict[str, Bundle] = {
                 "b815831290bb2e9b32001619217e42b5c72c0ca7fb862045c5dc366365de5be2",
             ),
         ),
-        driver_artifacts=(SQLITE_JDBC, *S3A_35),
-        hadoop=HADOOP_35,
-        sdk_probe_class=SDK_PROBE_35,
+        driver_artifacts=(SQLITE_JDBC,),
     ),
     # Scala 2.12 builds; Delta 3.3.x is the Delta line built for Spark 3.5.
     "3.5": Bundle(
@@ -148,9 +203,7 @@ MATRIX: dict[str, Bundle] = {
                 "b815831290bb2e9b32001619217e42b5c72c0ca7fb862045c5dc366365de5be2",
             ),
         ),
-        driver_artifacts=(SQLITE_JDBC, *S3A_35),
-        hadoop=HADOOP_35,
-        sdk_probe_class=SDK_PROBE_35,
+        driver_artifacts=(SQLITE_JDBC,),
     ),
     # Scala 2.13 builds; Delta 4.1.0 is compiled against Spark 4.1.0.
     "4.1": Bundle(
@@ -175,9 +228,7 @@ MATRIX: dict[str, Bundle] = {
                 "dd4cfcc5994fa4889b98b4c07716db0a46a894d31b714e7a6e6579b89e683bb5",
             ),
         ),
-        driver_artifacts=(SQLITE_JDBC, *S3A_41),
-        hadoop=HADOOP_41,
-        sdk_probe_class=SDK_PROBE_41,
+        driver_artifacts=(SQLITE_JDBC,),
     ),
 }
 
@@ -218,8 +269,8 @@ def render_base_defaults() -> list[str]:
     """Lines every managed env gets: the session catalog stays in memory.
 
     Hive's embedded metastore would otherwise create its files in the kernel's cwd (the notebook folder);
-    the persistent registry lives in `catalog.db`. The warehouse and the S3A options are NOT here: they
-    only make sense with a bundle that ships the S3A jars (see `render_s3a_defaults`).
+    the persistent registry lives in `catalog.db`. The warehouse and the S3A options are NOT here
+    (see `render_s3a_defaults`).
     """
     return ["spark.sql.catalogImplementation in-memory"]
 
@@ -269,26 +320,30 @@ def catalog_conf(home: Path) -> list[tuple[str, str]]:
     ]
 
 
-def render_spark_defaults(bundle: Bundle | None, jars_dir: Path, home: Path) -> str:
-    """Content of `spark-defaults.conf`; with a bundle it also wires the three formats, the safety warehouse and the S3A bucket root for Iceberg.
+def render_spark_defaults(bundle: Bundle | None, s3a: S3aSet, resolve_path: Callable[[Artifact], Path], home: Path) -> str:
+    """Content of `spark-defaults.conf`: S3A and the safety warehouse always, the formats only with a bundle.
 
-    Without a bundle (no S3A jars) no `s3a://` or `fs.s3a` line is written: such an env is refused at open.
+    `resolve_path` maps each jar to its location (shared cache or the legacy per-env folder). With a bundle it
+    also wires the three formats and the Iceberg catalog; without one no `spark.sql.extensions` is written.
 
     Iceberg lives in the named `iceberg` catalog (JDBC over `catalog.db`): `spark_catalog` stays
     Delta's, since `SparkSessionCatalog` and `DeltaCatalog` cannot share the session catalog slot.
     Raises UnsupportedHome when `home` cannot go into the JDBC URL.
     """
     lines = render_base_defaults()
-    if bundle is None:
-        return "\n".join(lines) + "\n"
     lines += render_s3a_defaults(home)
-    jars = ",".join(str(jars_dir / artifact.filename) for artifact in bundle.artifacts)
+    lines += s3a.extra_options
+    class_path = (*(bundle.driver_artifacts if bundle else ()), *s3a.artifacts)
     # JVM classpath, not a Spark list: entries are separated by the platform path separator, unlike `spark.jars`.
-    driver_jars = os.pathsep.join(str(jars_dir / artifact.filename) for artifact in bundle.driver_artifacts)
+    driver_jars = os.pathsep.join(str(resolve_path(artifact)) for artifact in class_path)
+    if bundle is None:
+        lines.append(f"spark.driver.extraClassPath {driver_jars}")
+        return "\n".join(lines) + "\n"
+    jars = ",".join(str(resolve_path(artifact)) for artifact in bundle.artifacts)
     extensions = f"{EXT_ICEBERG},{EXT_DELTA},{EXT_HUDI}"
     lines += [
         f"spark.jars {jars}",
-        *([f"spark.driver.extraClassPath {driver_jars}"] if driver_jars else []),
+        f"spark.driver.extraClassPath {driver_jars}",
         f"spark.sql.extensions {extensions}",
         # The warehouse line was already emitted by `render_s3a_defaults`; only the catalog lines go here.
         *(f"{key} {value}" for key, value in catalog_conf(home) if key.startswith(CATALOG_PREFIX)),
