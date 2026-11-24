@@ -41,8 +41,12 @@ ICEBERG_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/iceberg")
 SUBMIT_ARGS = (
     "--conf spark.sql.catalogImplementation=in-memory "
     "--conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
-    "io.delta.sql.DeltaSparkSessionExtension "
+    "io.delta.sql.DeltaSparkSessionExtension,"
+    "org.apache.spark.sql.hudi.HoodieSparkSessionExtension "
     "--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog "
+    # O Hudi exige Kryo; mesma ordem de extensões e registrator do runtime Spark local (`spark/bundles.py`).
+    "--conf spark.serializer=org.apache.spark.serializer.KryoSerializer "
+    "--conf spark.kryo.registrator=org.apache.spark.HoodieSparkKryoRegistrar "
     "pyspark-shell"
 )
 PYSPARK_SHELL = "pyspark-shell"
