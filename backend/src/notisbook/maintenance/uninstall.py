@@ -1,6 +1,6 @@
 """`notisbook uninstall`: remove o software e preserva os dados do usuário.
 
-Remove: container e kernelspecs desta pasta de dados, `envs/`, `run/`, `minio/{bin,logs,run}`, o pacote
+Remove: container e kernelspecs desta pasta de dados, `envs/`, `jars/` (cache compartilhado), `run/`, `minio/{bin,logs,run}`, o pacote
 MinIO e, por último, o próprio `uv tool`. Mantém `minio/data`, credenciais, `catalog.db`, warehouses,
 preferências e notebooks. Cada passo é idempotente (ausente = ok); a remoção do tool é um `execv`
 final porque o Python não sobrevive ao ambiente que o hospeda. As mensagens saem em inglês.
@@ -24,6 +24,7 @@ from ..runtimes.docker.service import ContainerInfo, inspect_container
 from ..runtimes.duckdb import kernelspec as duckdb_kernelspec
 from ..spark import kernelspec as spark_kernelspec
 from ..spark.bundles import SAFETY_WAREHOUSE_DIR, WAREHOUSE_DIR
+from ..spark.jar_cache import JARS_DIR
 from . import toolenv
 
 DOCKER_STOP_GRACE_S = 10
@@ -101,7 +102,7 @@ def _remove_paths(home: Path) -> list[Path]:
     if _home_skip_reason(home) is not None:
         return []
     minio = home / "minio"
-    candidates = [home / spark_kernelspec.ENVS_DIR, *sorted(home.glob(LEGACY_ENV_GLOB)), minio / "bin", minio / "logs"]
+    candidates = [home / spark_kernelspec.ENVS_DIR, home / JARS_DIR, *sorted(home.glob(LEGACY_ENV_GLOB)), minio / "bin", minio / "logs"]
     candidates += [home / lifecycle.RUN_DIR, _lock_dir(home)]
     return [p for p in candidates if p.exists() or p.is_symlink()]
 
