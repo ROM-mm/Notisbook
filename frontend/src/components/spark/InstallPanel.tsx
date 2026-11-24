@@ -1,11 +1,15 @@
 /**
- * Install: combobox agrupado, sem campo de texto livre. LOCAL vem de `GET /api/spark/catalog`
- * (versões já instaladas ficam desabilitadas); DOCKER vem de `GET /api/docker/runtimes` e,
- * ao instalar, abre a janela própria do Docker em vez de disparar o job Local.
+ * Install: combo único (`RuntimeCombo`) com as categorias Data processing (Spark local, de
+ * `GET /api/spark/catalog`), Analytics (DuckDB, de `GET /api/duckdb`) e Docker (Glue, de
+ * `GET /api/docker/runtimes`). Escolher no combo só marca a opção; o botão Install dispara:
+ * Spark → `POST /api/spark/versions`, DuckDB → `POST /api/duckdb/versions`, Docker → abre a
+ * janela própria do Docker (DockerInstallDialog).
  */
-import { useEffect, useState } from "react";
-import { errorMessage } from "../../api/http";
-import type { DockerRuntime, DockerRuntimes, Prereqs, SparkCatalog } from "../../api/types";
+import { useEffect, useMemo, useState } from "react";
+import { duckdbKernelName } from "../../api/duckdb";
+import { ApiError, errorMessage } from "../../api/http";
+import type { DockerRuntime, DockerRuntimes, DuckDBStatus, Prereqs, SparkCatalog } from "../../api/types";
+import { RuntimeCombo, type RuntimeOption } from "./RuntimeCombo";
 import type { Loadable } from "./useSparkData";
 import styles from "./Spark.module.css";
 
@@ -24,63 +28,124 @@ function jdkMissing(version: string, prereqs: Prereqs | null): string | null {
   return null;
 }
 
-const DOCKER_PREFIX = "docker:";
+/** 409 traz o motivo do backend (sessão aberta, job em andamento); mostra-o por inteiro. */
+function installError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 409) return `Blocked: ${err.message}`;
+  return errorMessage(err);
+}
+
+const SPARK = "spark:";
+const DUCKDB = "duckdb:";
+const DOCKER = "docker:";
 
 interface Props {
   catalog: Loadable<SparkCatalog>;
+  duckdb: Loadable<DuckDBStatus>;
   docker: Loadable<DockerRuntimes>;
   prereqs: Prereqs | null;
-  /** Versões com instalação em andamento. */
+  /** Versões Spark com instalação em andamento. */
   busyVersions: Set<string>;
+  /** Versões DuckDB com instalação em andamento (além das que o backend lista em `installing`). */
+  busyDuckDB: Set<string>;
   onInstall: (version: string) => Promise<void>;
+  onInstallDuckDB: (version: string) => Promise<void>;
   /** Abre a janela de instalação do runtime Docker escolhido. */
   onInstallDocker: (runtime: DockerRuntime) => void;
   onReloadCatalog: () => void;
 }
 
-export function InstallPanel({ catalog, docker, prereqs, busyVersions, onInstall, onInstallDocker, onReloadCatalog }: Props) {
-  const versions = catalog.data?.versions ?? [];
-  const runtimes = docker.data?.runtimes ?? [];
-  const [selected, setSelected] = useState("");
+/** Opções do combo, na ordem das categorias; o primeiro habilitado de cada uma é o recomendado. */
+function buildOptions(
+  catalog: SparkCatalog | null,
+  duckdb: DuckDBStatus | null,
+  docker: DockerRuntimes | null,
+  busyVersions: Set<string>,
+  busyDuckDB: Set<string>,
+): RuntimeOption[] {
+  const out: RuntimeOption[] = [];
+  for (const v of catalog?.versions ?? []) {
+    const busy = busyVersions.has(v.version);
+    out.push({
+      id: `${SPARK}${v.version}`,
+      category: "processing",
+      label: `Spark ${v.version}`,
+      description: formatDate(v.released_at),
+      formats: v.formats ?? null,
+      state: v.installed ? "installed" : busy ? "installing" : null,
+      disabled: v.installed || busy,
+    });
+  }
+  const duckdbInstalling = new Set((duckdb?.installing ?? []).filter((i) => i.kind === "duckdb-install").map((i) => i.kernel_name));
+  for (const v of duckdb?.catalog ?? []) {
+    const busy = busyDuckDB.has(v.version) || duckdbInstalling.has(duckdbKernelName(v.version));
+    out.push({
+      id: `${DUCKDB}${v.version}`,
+      category: "analytics",
+      label: `DuckDB ${v.version}`,
+      description: duckdb?.supported ? v.extensions.join(" · ") : "not available on this platform",
+      state: v.installed ? "installed" : busy ? "installing" : null,
+      disabled: v.installed || busy || !duckdb?.supported,
+    });
+  }
+  for (const r of docker?.runtimes ?? []) {
+    out.push({
+      id: `${DOCKER}${r.key}`,
+      category: "docker",
+      label: r.label,
+      description: r.image,
+      state: r.installed ? "installed" : r.busy ? "installing" : !r.available ? "unavailable" : null,
+      disabled: r.installed || r.busy || !r.available,
+    });
+  }
+  return out;
+}
+
+export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, busyDuckDB, onInstall, onInstallDuckDB, onInstallDocker, onReloadCatalog }: Props) {
+  const options = useMemo(
+    () => buildOptions(catalog.data, duckdb.data, docker.data, busyVersions, busyDuckDB),
+    [catalog.data, duckdb.data, docker.data, busyVersions, busyDuckDB],
+  );
+  const [selected, setSelected] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Seleção padrão: a versão mais recente ainda não instalada.
+  // Escolha que ficou indisponível (instalada, instalando) volta ao padrão: o Spark mais novo
+  // ainda não instalado. A escolha do usuário é preservada enquanto continuar instalável.
   useEffect(() => {
-    if (selected.startsWith(DOCKER_PREFIX)) return; // escolha Docker é do usuário; só a Local tem padrão
-    const current = versions.find((v) => v.version === selected);
-    if (current && !current.installed) return;
-    const first = versions.find((v) => !v.installed && !busyVersions.has(v.version));
-    setSelected(first?.version ?? "");
-    // Só reage a um novo catálogo (a escolha do usuário é preservada).
-  }, [catalog.data]);
+    const current = options.find((o) => o.id === selected);
+    if ((current && !current.disabled) || options.length === 0) return;
+    setSelected(options.find((o) => o.category === "processing" && !o.disabled)?.id ?? null);
+    // Só reage a novas opções (catálogos recarregados).
+  }, [options]);
 
-  const chosenDocker = selected.startsWith(DOCKER_PREFIX) ? runtimes.find((r) => r.key === selected.slice(DOCKER_PREFIX.length)) : undefined;
-  const chosen = chosenDocker ? undefined : versions.find((v) => v.version === selected);
-  const dockerReady = !!chosenDocker && chosenDocker.available && !chosenDocker.installed && !chosenDocker.busy;
-  const canInstall = chosenDocker
-    ? dockerReady
-    : !!chosen && !chosen.installed && !busyVersions.has(chosen.version) && !submitting;
-  const warn = chosen ? jdkMissing(chosen.version, prereqs) : null;
+  const chosen = options.find((o) => o.id === selected) ?? null;
+  const chosenDocker = chosen?.category === "docker" ? docker.data?.runtimes.find((r) => `${DOCKER}${r.key}` === chosen.id) : undefined;
+  const sparkVersion = chosen?.id.startsWith(SPARK) ? chosen.id.slice(SPARK.length) : null;
+  const duckdbVersion = chosen?.id.startsWith(DUCKDB) ? chosen.id.slice(DUCKDB.length) : null;
+  const canInstall = !!chosen && !chosen.disabled && !submitting;
+  const warn = sparkVersion ? jdkMissing(sparkVersion, prereqs) : null;
   const fallback = catalog.data && (catalog.data.fallback || catalog.data.source === "fallback");
 
+  /** Handler do botão Install: é o único ponto que dispara instalação. */
   const submit = async () => {
+    if (!chosen || chosen.disabled) return;
+    setError(null);
     if (chosenDocker) {
-      setError(null);
       onInstallDocker(chosenDocker);
       return;
     }
-    if (!chosen) return;
     setSubmitting(true);
-    setError(null);
     try {
-      await onInstall(chosen.version);
+      if (sparkVersion) await onInstall(sparkVersion);
+      else if (duckdbVersion) await onInstallDuckDB(duckdbVersion);
     } catch (err) {
-      setError(errorMessage(err));
+      setError(installError(err));
     } finally {
       setSubmitting(false);
     }
   };
+
+  const allInstalled = options.length > 0 && options.every((o) => o.state === "installed");
 
   return (
     <div className={styles.block} data-testid="spark-install">
@@ -91,58 +156,35 @@ export function InstallPanel({ catalog, docker, prereqs, busyVersions, onInstall
         </button>
       </div>
       <p className={styles.text}>
-        {chosenDocker ? "Runs inside a Docker container; nothing is installed on this machine." : "Stable PySpark releases in the last 180 days (PyPI)."}
+        {chosenDocker
+          ? "Runs inside a Docker container; nothing is installed on this machine."
+          : "Pick a runtime, then press Install. Only stable, complete releases are listed; installed ones are marked ✓."}
       </p>
       {fallback ? (
         <p className={styles.notice} data-testid="spark-catalog-fallback">
           {catalog.data?.source === "fallback"
-            ? "PyPI unavailable — showing the list of known versions."
-            : "No releases in the last 180 days — showing the latest stable versions."}
+            ? "PyPI unavailable — showing the known stable Spark versions."
+            : "Some Spark lines could not be resolved on PyPI — showing their known stable versions."}
         </p>
       ) : null}
       {catalog.error ? <p className={styles.error}>Could not load the catalog: {catalog.error}</p> : null}
+      {duckdb.error ? <p className={styles.error}>Could not load the DuckDB versions: {duckdb.error}</p> : null}
       {docker.error ? <p className={styles.error}>Could not load the Docker runtimes: {docker.error}</p> : null}
       <div className={styles.installRow}>
-        <label className={styles.selectWrap}>
-          <span className="visually-hidden">Runtime to install</span>
-          <select
-            className={`input ${styles.select}`}
-            data-testid="spark-version-select"
-            value={selected}
-            disabled={versions.length === 0 && runtimes.length === 0}
-            onChange={(e) => {
-              setSelected(e.target.value);
-              setError(null);
-            }}
-          >
-            <optgroup label="LOCAL">
-            {versions.map((v) => {
-              const date = formatDate(v.released_at);
-              const busy = busyVersions.has(v.version);
-              const tag = v.installed ? " — installed" : busy ? " — installing" : "";
-              return (
-                <option key={v.version} value={v.version} disabled={v.installed || busy}>
-                  {`Spark ${v.version}${date ? ` · ${date}` : ""}${tag}`}
-                </option>
-              );
-            })}
-            </optgroup>
-            {runtimes.length > 0 ? (
-              <optgroup label="DOCKER">
-                {runtimes.map((r) => (
-                  <option key={r.key} value={`${DOCKER_PREFIX}${r.key}`} disabled={r.installed || r.busy || !r.available}>
-                    {`${r.label} · ${r.image}${r.installed ? " — installed" : r.busy ? " — installing" : !r.available ? " — Docker unavailable" : ""}`}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-          </select>
-        </label>
+        <RuntimeCombo
+          options={options}
+          value={selected}
+          disabled={options.length === 0}
+          onChange={(id) => {
+            setSelected(id);
+            setError(null);
+          }}
+        />
         <button type="button" className="btn btn-primary" data-testid="spark-install-button" disabled={!canInstall} onClick={() => void submit()}>
           {submitting ? "Submitting…" : chosenDocker ? "Install…" : "Install"}
         </button>
       </div>
-      {versions.length > 0 && versions.every((v) => v.installed) && !chosenDocker ? <p className={styles.text}>All catalog versions are already installed.</p> : null}
+      {allInstalled ? <p className={styles.text}>All runtimes in the catalog are already installed.</p> : null}
       {warn ? <p className={styles.notice}>{warn}</p> : null}
       {error ? (
         <p className={styles.error} data-testid="spark-install-error">

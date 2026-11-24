@@ -8,6 +8,7 @@ import type { DockerRuntime } from "../../api/types";
 import { useRouter, type RuntimeKind } from "../../state/router";
 import { DockerInstallDialog } from "./DockerInstallDialog";
 import { DuckDBSettings } from "../duckdb/DuckDBSettings";
+import { useDuckDBData } from "../duckdb/useDuckDBData";
 import { InstalledList } from "./InstalledList";
 import { InstallPanel } from "./InstallPanel";
 import { JobProgress } from "./JobProgress";
@@ -66,7 +67,9 @@ function useRuntimeTarget(ready: boolean): { refs: Record<TargetSection, RefObje
 export function SparkSettings() {
   const { prereqs, catalog, versions, docker, connectionsDir, sessions, jobs, install, remove, installDocker, dockerAction, dismissJob, reloadPrereqs, reloadCatalog, reloadDocker } =
     useSparkData();
+  const duck = useDuckDBData();
   const [dialog, setDialog] = useState<DockerDialogState | null>(null);
+  const busyDuckDB = new Set(duck.job?.status === "running" && duck.job.version ? [duck.job.version] : []);
   const busyVersions = new Set(jobs.filter((j) => j.status === "running" && j.version).map((j) => j.version as string));
   const dialogRuntime = dialog ? docker.data?.runtimes.find((r) => r.key === dialog.key) : undefined;
   const listedJobs = jobs.filter((j) => j.id !== dialog?.jobId);
@@ -84,16 +87,20 @@ export function SparkSettings() {
       <div ref={refs.install} className={targetClass("install")} data-runtime-target="install">
         <InstallPanel
           catalog={catalog}
+          duckdb={duck.status}
           docker={docker}
           prereqs={prereqs.data}
           busyVersions={busyVersions}
+          busyDuckDB={busyDuckDB}
           onInstall={install}
+          onInstallDuckDB={duck.install}
           onInstallDocker={(rt) => openDialog(rt, false)}
           onReloadCatalog={() => void reloadCatalog()}
         />
       </div>
-      {listedJobs.length > 0 ? (
+      {listedJobs.length > 0 || duck.job ? (
         <div className={styles.jobs} data-testid="spark-jobs" aria-live="polite">
+          {duck.job ? <JobProgress job={duck.job} title={`DuckDB ${duck.job.version ?? ""}`.trim()} onDismiss={duck.dismissJob} /> : null}
           {listedJobs.map((j) => (
             <JobProgress key={j.id} job={j} onDismiss={() => dismissJob(j.id)} />
           ))}

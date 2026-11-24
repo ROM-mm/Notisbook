@@ -1,0 +1,196 @@
+/* Combo de runtimes: gatilho no estilo dos inputs; lista herda .list de shell/Menu.module.css. */
+.combo {
+  position: relative;
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.trigger {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto 12px;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.trigger:hover:not(:disabled),
+.trigger[data-open] {
+  background: var(--color-bg-hover);
+}
+
+.trigger:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 0;
+}
+
+.trigger:disabled {
+  color: var(--color-text-subtle);
+  cursor: default;
+}
+
+.triggerLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.placeholder {
+  color: var(--color-text-subtle);
+}
+
+.triggerTag {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.caret {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.icon {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-muted);
+}
+
+/* Ocupa a largura do gatilho; rola quando o catálogo cresce. */
+.popup {
+  right: 0;
+  max-height: 420px;
+  overflow: hidden;
+}
+
+.filter {
+  flex: none;
+  height: 26px;
+  margin: 2px var(--space-2) var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+}
+
+.filter:focus {
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: -1px;
+}
+
+.listbox {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.group {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3) var(--space-1) var(--space-2);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+[role="group"]:first-child > .group {
+  margin-top: 0;
+  border-top: none;
+}
+
+.groupCount {
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.option {
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-3) 0 calc(var(--space-2) + 16px + var(--space-2));
+  color: var(--menu-text);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.option[data-active] {
+  background: var(--color-selection);
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: -1px;
+}
+
+.option[aria-disabled="true"] {
+  color: var(--color-text-subtle);
+  cursor: default;
+}
+
+.option[aria-disabled="true"][data-active] {
+  background: transparent;
+  outline: none;
+}
+
+.optionLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.optionDesc {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow: hidden;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+}
+
+.badge {
+  padding: 0 6px;
+  border: 1px solid currentColor;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+}
+
+.optionState {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+}
+
+.optionState[data-state="installed"] {
+  color: var(--color-success-text);
+}
+
+.optionState[data-state="installing"] {
+  color: var(--color-text);
+}
+
+.optionState[data-state="unavailable"] {
+  color: var(--color-warning);
+}
+
+.empty {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-sm);
+}
