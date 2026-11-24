@@ -1,6 +1,6 @@
 # Notisbook Architecture
 
-This document describes the architecture observed in the source code of Notisbook `0.10.0` (`backend/pyproject.toml`). Every statement cites the files it comes from. Runtime behavior that the code cannot prove (performance, capacity, production use) is listed under [Not established by the code](#not-established-by-the-code).
+This document describes the architecture observed in the source code of Notisbook `0.13.1` (`backend/pyproject.toml`). Every statement cites the files it comes from. Runtime behavior that the code cannot prove (performance, capacity, production use) is listed under [Not established by the code](#not-established-by-the-code).
 
 ## 1. Overview
 
