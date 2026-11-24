@@ -158,7 +158,7 @@ def _display_names(conn: sqlite3.Connection, hudi: bool) -> set[str]:
     names = set()
     for ns in {*locations.LAYERS, *counts, *origins}:
         n_hudi, n_other = counts.get(ns, (0, 0))
-        empty_by_origin = n_hudi + n_other == 0 and ns.lower() != DEFAULT_DATABASE and origins.get(ns, SPARK_CATALOG) == node
+        empty_by_origin = n_hudi + n_other == 0 and ns != DEFAULT_DATABASE and origins.get(ns, SPARK_CATALOG) == node
         if ns in locations.LAYERS or (n_hudi if hudi else n_other) > 0 or empty_by_origin:
             names.add(ns)
     return names
