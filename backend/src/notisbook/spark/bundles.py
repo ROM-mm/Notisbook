@@ -273,13 +273,21 @@ def docker_safety_warehouse_uri(home: Path) -> str:
 
 
 def render_base_defaults() -> list[str]:
-    """Lines every managed env gets: the session catalog stays in memory.
+    """Lines every managed env gets: in-memory session catalog and driver bound to loopback.
 
     Hive's embedded metastore would otherwise create its files in the kernel's cwd (the notebook folder);
-    the persistent registry lives in `catalog.db`. The warehouse and the S3A options are NOT here
-    (see `render_s3a_defaults`).
+    the persistent registry lives in `catalog.db`. The driver listens on all interfaces by default, exposing
+    it to the LAN; the app is local-only. `spark.driver.bindAddress`/`host` pin the RPC and block manager to
+    127.0.0.1. The Web UI ignores them and binds to `SPARK_LOCAL_IP`, which the kernelspec sets
+    (`kernelspec.write_kernelspec`); the UI stays enabled, just without job/stage kill. The warehouse and the
+    S3A options are NOT here (see `render_s3a_defaults`).
     """
-    return ["spark.sql.catalogImplementation in-memory"]
+    return [
+        "spark.sql.catalogImplementation in-memory",
+        "spark.driver.bindAddress 127.0.0.1",
+        "spark.driver.host 127.0.0.1",
+        "spark.ui.killEnabled false",
+    ]
 
 
 def render_s3a_defaults(home: Path) -> list[str]:
