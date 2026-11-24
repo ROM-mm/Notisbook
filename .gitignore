@@ -1,9 +1,9 @@
 backend/dist/
 backend/src/notisbook/_frontend/
 brew.md
-.claude/
+.claude/*
+!.claude/commands/
 .idea/
 .venv/
 guide-build.md
-docs/
 todo/
