@@ -1,4 +1,4 @@
-"""Spark version catalog: one pyspark release per curated bundle line, with offline fallback.
+"""Spark version catalog: newest 3.5 patch plus the newest patch of every 4.x line, with offline fallback.
 
 The PyPI client is stdlib `urllib` run in a worker thread: one short GET per hour
 does not justify a new runtime dependency, and the call stays off the event loop.
@@ -15,10 +15,8 @@ from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-from .bundles import bundle_for, curated_lines
-
-# Offline answer per curated line; a line without an entry here is only listed when PyPI answers.
-SUGGESTED_PATCH = {"3.5": "3.5.10", "4.1": "4.1.4"}
+# Offline answer: one patch per offered line; a line missing here is only listed when PyPI answers.
+FALLBACK_PATCH = {"3.5": "3.5.10", "4.0": "4.0.5", "4.1": "4.1.4", "4.2": "4.2.1", "4.3": "4.3.0"}
 
 CACHE_TTL = 3600.0
 FAILURE_RETRY = 60.0
@@ -53,10 +51,18 @@ def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
+def _line_of(version: str) -> str:
+    return ".".join(version.split(".")[:2])
+
+
+def _is_offered_line(line: str) -> bool:
+    """Only 3.5 and 4.0 onwards are offered; 3.5 is the oldest supported line."""
+    key = _version_key(line)
+    return key == (3, 5) or key >= (4, 0)
+
+
 def _static_entries() -> tuple[CatalogEntry, ...]:
-    return tuple(
-        CatalogEntry(SUGGESTED_PATCH[line], None, line) for line in curated_lines() if line in SUGGESTED_PATCH
-    )
+    return tuple(CatalogEntry(version, None, line) for line, version in FALLBACK_PATCH.items())
 
 
 def _newest_first(entries: list[CatalogEntry]) -> tuple[CatalogEntry, ...]:
@@ -83,9 +89,9 @@ def _release_date(files: Any) -> datetime | None:
 
 
 def parse_pypi(payload: Any) -> Catalog:
-    """Per curated line, the highest stable non-yanked release its bundle covers (newest line first).
+    """Highest stable non-yanked patch of line 3.5 and of every line from 4.0 on, bundle or not (newest first).
 
-    A line PyPI has no usable release for falls back to `SUGGESTED_PATCH` and marks the catalog as fallback.
+    A fallback line PyPI has no usable release for is added from `FALLBACK_PATCH` and marks the catalog as fallback.
     """
     releases = payload.get("releases") if isinstance(payload, dict) else None
     if not isinstance(releases, dict):
@@ -94,14 +100,14 @@ def parse_pypi(payload: Any) -> Catalog:
     for version, files in releases.items():
         if not isinstance(version, str) or not is_valid_version(version):
             continue
-        bundle = bundle_for(version)
-        if bundle is None or bundle.line not in curated_lines() or (released := _release_date(files)) is None:
+        line = _line_of(version)
+        if not _is_offered_line(line) or (released := _release_date(files)) is None:
             continue
-        current = best.get(bundle.line)
+        current = best.get(line)
         if current is None or _version_key(version) > _version_key(current.version):
-            best[bundle.line] = CatalogEntry(version, released, bundle.line)
+            best[line] = CatalogEntry(version, released, line)
     if not best:
-        raise ValueError("no curated stable release in PyPI payload")
+        raise ValueError("no offered stable release in PyPI payload")
     missing = [e for e in _static_entries() if e.line not in best]
     return Catalog("pypi", bool(missing), _newest_first([*best.values(), *missing]))
 
