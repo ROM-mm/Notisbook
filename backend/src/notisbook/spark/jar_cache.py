@@ -126,7 +126,7 @@ class JarCache:
         fd, tmp = tempfile.mkstemp(dir=tmp_dir, prefix=f"{artifact.filename}.", suffix=".part")
         digest = hashlib.sha256()
         try:
-            with urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, os.fdopen(fd, "wb") as out:  # noqa: S310 (scheme checked above)
+            with os.fdopen(fd, "wb") as out, urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response:  # noqa: S310 (scheme checked above)
                 while chunk := response.read(DOWNLOAD_CHUNK):
                     if cancel.is_set():
                         raise JarCancelled(f"download of {artifact.filename} cancelled")

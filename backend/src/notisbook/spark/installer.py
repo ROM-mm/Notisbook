@@ -504,7 +504,7 @@ class SparkInstaller(ManagedInstaller):
             raise InstallError(
                 f"Hadoop {hadoop or 'not detected'} has no pinned S3A jar set; Spark {version} is not supported yet"
             )
-        await job.emit("install", f"S3A: Hadoop {hadoop} do pyspark, conjunto S3A r{s3a.revision}", self._progress("install"))
+        await job.emit("install", f"S3A: pyspark ships Hadoop {hadoop}, S3A set r{s3a.revision}", self._progress("install"))
         return s3a
 
     async def _install_bundle(
