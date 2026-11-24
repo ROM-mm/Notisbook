@@ -31,7 +31,7 @@ CATALOG: tuple[DockerRuntime, ...] = (
         image="notisbook/glue:5.0",
         container="notisbook-glue-5-0",
         kernel_name="notisbook-docker-glue-5-0",
-        formats=("delta", "iceberg"),
+        formats=("delta", "iceberg", "hudi"),
     ),
 )
 

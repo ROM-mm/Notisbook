@@ -260,13 +260,6 @@ export const TempTableIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const ColumnIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M8 3h8v18h-8z" />
-    <path d="M8 8h8" />
-  </Svg>
-);
-
 export const PanelLeftIcon = (p: IconProps) => (
   <Svg shapeRendering="crispEdges" stroke="none" fill="currentColor" {...p}>
     <path fillRule="evenodd" d="M6 4h12v2h2v12h-2v2h-12v-2h-2v-12h2zM6 6v12h12v-12z" />

@@ -52,7 +52,7 @@ NAME_PATTERN = r"^[A-Za-z0-9_][A-Za-z0-9_$-]*$"
 Name = Annotated[str, StringConstraints(pattern=NAME_PATTERN, min_length=1, max_length=128)]
 Location = Annotated[str, StringConstraints(min_length=1, max_length=4096, pattern=r"^[^\x00]*$")]
 Text = Annotated[str, StringConstraints(max_length=20000)]
-Format = Literal["delta", "parquet"]
+Format = Literal["delta", "parquet", "hudi"]
 Grant = Annotated[RuntimeGrant, Depends(require_runtime_token)]
 
 

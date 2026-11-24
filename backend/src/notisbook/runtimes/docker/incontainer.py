@@ -41,11 +41,33 @@ ICEBERG_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/iceberg")
 SUBMIT_ARGS = (
     "--conf spark.sql.catalogImplementation=in-memory "
     "--conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
-    "io.delta.sql.DeltaSparkSessionExtension "
+    "io.delta.sql.DeltaSparkSessionExtension,"
+    "org.apache.spark.sql.hudi.HoodieSparkSessionExtension "
     "--conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog "
+    # O Hudi exige Kryo; mesma ordem de extensões e registrator do runtime Spark local (`spark/bundles.py`).
+    "--conf spark.serializer=org.apache.spark.serializer.KryoSerializer "
+    "--conf spark.kryo.registrator=org.apache.spark.HoodieSparkKryoRegistrar "
     "pyspark-shell"
 )
 PYSPARK_SHELL = "pyspark-shell"
+# Config de log do driver: só erros chegam à saída da célula, como no Spark local (`spark.bundles.render_log4j2`).
+# Raiz e os loggers do limiar do shell em `error`: o Spark imprime "Setting default log level" quando diferem.
+LOG4J2_PATH = os.path.join(RUN_DIR, "jvm-log4j2.properties")
+LOG4J2_CONF = """\
+rootLogger.level = error
+rootLogger.appenderRef.stdout.ref = console
+
+appender.console.type = Console
+appender.console.name = console
+appender.console.target = SYSTEM_ERR
+appender.console.layout.type = PatternLayout
+appender.console.layout.pattern = %d{yy/MM/dd HH:mm:ss} %p %c{1}: %m%n%ex
+
+logger.repl.name = org.apache.spark.repl.Main
+logger.repl.level = error
+logger.pygateway.name = org.apache.spark.api.python.PythonGatewayServer
+logger.pygateway.level = error
+"""
 DELTA_JAR_GLOBS = ("/usr/share/aws/delta/lib/delta-spark_2.12-*.jar", "/usr/share/aws/delta/lib/delta-spark.jar")
 
 
@@ -107,6 +129,23 @@ def _kernel_env() -> None:
             break
     os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
     os.environ.setdefault("AWS_METADATA_SERVICE_NUM_ATTEMPTS", "1")
+
+
+def _jvm_logging() -> None:
+    """Aponta o driver para a config log4j2 acima, via `SPARK_SUBMIT_OPTS`.
+
+    Via env (e não `spark.driver.extraJavaOptions`) para não substituir as opções da imagem (truststore). O arquivo
+    vai por este caminho, sem montagem nova, e é regravado a cada kernel; sem ele o log fica como o da imagem.
+    """
+    try:
+        _write_atomic(LOG4J2_PATH, LOG4J2_CONF)
+    except OSError:
+        sys.stderr.write("notisbook-incontainer: config de log indisponível; usando a da imagem\n")
+        return
+    option = f"-Dlog4j2.configurationFile=file:{LOG4J2_PATH}"
+    current = os.environ.get("SPARK_SUBMIT_OPTS", "")
+    # Com `-D` repetida a JVM usa a última: a nossa vai depois para não ser anulada por um valor pré-existente.
+    os.environ["SPARK_SUBMIT_OPTS"] = f"{current} {option}" if current else option
 
 
 def _fail(code: int, message: str) -> NoReturn:
@@ -252,6 +291,7 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
                 "notisbook-incontainer: pasta do notebook indisponível no container; usando a padrão\n"
             )
     _kernel_env()
+    _jvm_logging()
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
         options.get("--warehouse-dir"),
         options.get("--iceberg-uri"),

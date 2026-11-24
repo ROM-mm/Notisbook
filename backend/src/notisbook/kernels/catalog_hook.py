@@ -41,7 +41,7 @@ TOKEN = CONFIG.get("token")
 ROOTS = tuple(CONFIG.get("roots") or ())
 WATCHED = ("pyspark.context", "pyspark.sql.session", "pyspark.sql.classic.session", "pyspark.sql.readwriter", "pyspark.sql.classic.readwriter",
            "pyspark.sql.catalog", "pyspark.sql.classic.catalog")
-SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
+SUPPORTED = ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
@@ -1898,11 +1898,54 @@ def close_quietly(fd):
         pass
 
 
+class JvmNoiseFilter:
+    """Drops whole JVM lines that start with a known library-noise marker; everything else passes byte for byte.
+
+    One instance per pipe, used by a single reader thread. The decision is taken at line start, so a partial
+    line is held back only while it is still a proper prefix of a marker (at most `len(marker) - 1` bytes).
+    """
+
+    MARKERS = (b"SLF4J: ", b"# WARNING: Unable to ")  # relocated slf4j 1.7 in the AWS bundle; JOL (Hudi) attach notices
+
+    def __init__(self):
+        self.pending = b""
+        self.dropping = False
+        self.at_start = True
+
+    def process(self, data):
+        data = self.pending + data
+        self.pending = b""
+        out, pos = bytearray(), 0
+        while pos < len(data):
+            if self.at_start:
+                rest = data[pos:]
+                if any(rest.startswith(m) for m in self.MARKERS):
+                    self.dropping, self.at_start = True, False
+                elif any(m.startswith(rest) for m in self.MARKERS):
+                    self.pending = rest  # could still become a marker once more bytes arrive
+                    break
+                else:
+                    self.dropping, self.at_start = False, False
+                continue
+            newline = data.find(b"\n", pos)
+            end = len(data) if newline < 0 else newline + 1
+            if not self.dropping:
+                out += data[pos:end]
+            pos = end
+            self.at_start = newline >= 0
+        return bytes(out)
+
+    def flush(self):
+        # End of stream: a held partial line never completed a marker, so it is real output.
+        tail, self.pending = self.pending, b""
+        return tail
+
+
 class GatewayRelay:
     """Owns the pipes of the JVM spawned by `launch_gateway`.
 
     The JVM keeps the fds it was born with for its whole life, so two daemon readers forward everything
-    (stdout to fd 1, stderr to fd 2) forever; only the startup output is held back until `finish` has seen the Ivy block.
+    (stdout to fd 1, stderr to fd 2) forever, minus `JvmNoiseFilter` lines; only the startup output is held back until `finish` has seen the Ivy block.
     """
 
     def __init__(self):
@@ -1936,6 +1979,7 @@ class GatewayRelay:
             self.can_select = False  # e.g. Windows: select only works on sockets; fall back to a blocking read
 
     def pump(self, fd, rfd):
+        noise = JvmNoiseFilter()
         try:
             while True:
                 self.wait_readable(rfd)
@@ -1943,8 +1987,9 @@ class GatewayRelay:
                     self.reading += 1  # counted before the chunk leaves the pipe, so `finish` cannot miss it
                 try:
                     data = os.read(rfd, 65536)
-                    if data:
-                        self.feed(fd, data)
+                    kept = noise.process(data) if data else noise.flush()
+                    if kept:
+                        self.feed(fd, kept)
                 finally:
                     with self.lock:
                         self.reading -= 1

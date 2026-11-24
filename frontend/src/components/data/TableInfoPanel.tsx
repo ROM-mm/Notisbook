@@ -5,7 +5,7 @@
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
  */
 import type { ReactNode } from "react";
-import type { ColumnsQuery, TableHistoryEntry, TableInfo, TableVersion } from "../../api/catalog";
+import type { TableHistoryEntry, TableInfo, TableQuery, TableVersion } from "../../api/catalog";
 import { TABLE_INFO_PANEL_ID, tableRef, useCatalog } from "../../state/catalog";
 import { formatSize } from "../files/format";
 import { TableIcon } from "../shell/icons";
@@ -223,7 +223,7 @@ function Properties({ info }: { info: TableInfo }) {
 }
 
 /** Devolve o foco à linha da tabela na árvore do Catalog (se ainda estiver visível). */
-function focusTreeRow(query: ColumnsQuery) {
+function focusTreeRow(query: TableQuery) {
   const ref = tableRef(query);
   const rows = document.querySelectorAll<HTMLElement>('[role="treeitem"][data-table-ref]');
   for (const el of rows) {

@@ -1,10 +1,10 @@
 /**
- * Seção Catalog do painel Dados: catálogo → banco → tabela → colunas, lidos do
+ * Seção Catalog do painel Dados: catálogo → banco → tabela, lidos do
  * catálogo persistente (`catalog.db`), sem depender de kernel ou notebook.
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
  * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
- * Linha de tabela: clique (ou Enter) abre o painel Table info; o chevron (ou Space) só expande as colunas.
+ * Linha de tabela é folha (sem chevron): clique (ou Enter) abre o painel Table info, que mostra as colunas.
  * Linha de catálogo: clique (ou Enter) abre o painel Catalog info e expande o nó se recolhido (nunca recolhe);
  * o chevron (ou Space/setas) segue expandindo/recolhendo. Um painel lateral por vez.
  */
@@ -18,9 +18,9 @@ import {
   schemaReasonMessage,
   type CatalogNode,
   type CatalogTable,
-  type ColumnsQuery,
   type SchemaDeletion,
   type SchemaPreview,
+  type TableQuery,
 } from "../../api/catalog";
 import {
   CATALOG_INFO_PANEL_ID,
@@ -31,13 +31,11 @@ import {
   TABLE_INFO_PANEL_ID,
   tableRef,
   useCatalog,
-  type ColumnsState,
 } from "../../state/catalog";
 import { activeNotebookPath, useRouter } from "../../state/router";
 import { getEntry, useWorkspace, type NotebookEntry } from "../../state/workspace";
 import {
   ChevronRightIcon,
-  ColumnIcon,
   DatabaseIcon,
   ExternalTableIcon,
   FolderIcon,
@@ -83,7 +81,7 @@ const CATALOG_ERRORS: Record<string, string> = {
 
 interface Row {
   key: string;
-  kind: "catalog" | "schema" | "table" | "column";
+  kind: "catalog" | "schema" | "table";
   /** Nome real do catálogo (catálogo e schema). */
   catalog?: string;
   /** Nome real do schema (kind "schema"). */
@@ -98,13 +96,13 @@ interface Row {
   detail?: string;
   title?: string;
   icon: ReactNode;
-  /** Expansível (catálogo, banco e tabela). */
+  /** Expansível (catálogo e banco; a tabela é folha). */
   expandable: boolean;
   /** Aberto na tela (expandido no estado do store). */
   open: boolean;
   /** Tabela cujos arquivos não existem mais. */
   unavailable?: boolean;
-  table?: ColumnsQuery;
+  table?: TableQuery;
 }
 
 type StatusRow = { status: true; key: string; level: number; text: string; error: boolean };
@@ -136,40 +134,12 @@ function tableTitle(t: CatalogTable): string {
   return lines.join("\n");
 }
 
-function columnItems(key: string, level: number, col: ColumnsState | undefined, out: Item[]): void {
-  if (!col || col.loading) {
-    out.push({ status: true, key: `loading:${key}`, level, text: "Loading…", error: false });
-  } else if (col.error) {
-    out.push({ status: true, key: `error:${key}`, level, text: col.error, error: true });
-  } else if (col.items) {
-    if (col.items.length === 0) out.push({ status: true, key: `empty:${key}`, level, text: "No columns", error: false });
-    col.items.forEach((c, i) => {
-      const flags = [c.is_partition ? "partition" : "", c.is_bucket ? "bucket" : "", c.nullable ? "" : "not null"].filter(Boolean);
-      out.push({
-        key: `${key}\u0000col:${c.name}`,
-        kind: "column",
-        parent: key,
-        level,
-        pos: i + 1,
-        size: col.items?.length ?? 0,
-        label: c.name,
-        detail: c.data_type,
-        title: [c.name, c.data_type, ...flags, c.description ?? ""].filter(Boolean).join(" · "),
-        icon: <ColumnIcon size={14} />,
-        expandable: false,
-        open: false,
-      });
-    });
-  }
-}
-
 function tableRows(
   catalog: string,
   tables: CatalogTable[],
   parent: string,
   level: number,
   database: string,
-  s: { expanded: Record<string, true>; columns: Record<string, ColumnsState> },
   out: Item[],
 ): void {
   tables.forEach((t, i) => {
@@ -185,20 +155,16 @@ function tableRows(
       detail: tableDetail(t),
       title: tableTitle(t),
       icon: tableIcon(t),
-      expandable: true,
-      open: Boolean(s.expanded[key]),
+      expandable: false,
+      open: false,
       unavailable: t.available === false,
       table: { catalog, database, table: t.name },
     });
-    if (s.expanded[key]) columnItems(key, level + 1, s.columns[key], out);
   });
 }
 
-/** Árvore plana: catálogo → schema → tabela → colunas, abrindo conforme `expanded` do store. */
-function buildItems(
-  catalogs: CatalogNode[],
-  s: { expanded: Record<string, true>; columns: Record<string, ColumnsState> },
-): Item[] {
+/** Árvore plana: catálogo → schema → tabela (folha), abrindo conforme `expanded` do store. */
+function buildItems(catalogs: CatalogNode[], s: { expanded: Record<string, true> }): Item[] {
   const out: Item[] = [];
 
   catalogs.forEach((c, ci) => {
@@ -231,7 +197,7 @@ function buildItems(
       out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
-        tableRows(c.name, tables, dkey, 3, d.name, s, out);
+        tableRows(c.name, tables, dkey, 3, d.name, out);
         if (d.truncated) {
           out.push({ status: true, key: `truncated:${dkey}`, level: 3, text: "Limited list: not all tables are shown.", error: false });
         }
@@ -375,7 +341,7 @@ interface MenuState {
 
 function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: string) => void }) {
   const { toggle: storeToggle, expand: storeExpand, collapse, openInfo, openCatalogInfo } = useCatalog.getState();
-  const toggle = (row: Row) => storeToggle(row.key, row.table);
+  const toggle = (row: Row) => storeToggle(row.key);
   const infoQuery = useCatalog((s) => openTableQuery(s.info));
   const infoCatalog = useCatalog((s) => openCatalogName(s.info));
   /** Variante suave: abre o Catalog info e expande o nó se recolhido; nunca recolhe. */
@@ -397,7 +363,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  /** Itens do menu de contexto; tabelas e colunas não têm menu. */
+  /** Itens do menu de contexto; tabelas não têm menu. */
   function menuItems(row: Row): MenuItem[] | null {
     if (row.kind === "catalog" && row.catalog) {
       const catalog = row.catalog;
@@ -405,8 +371,11 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
-      const isDefault = (catalog === SPARK_CATALOG || catalog === HUDI_CATALOG) && schema.toLowerCase() === DEFAULT_SCHEMA;
-      return [{ label: "Delete Schema…", danger: true, disabled: isDefault, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
+      const sparkNode = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
+      const key = schema.toLowerCase();
+      // `default` e as camadas são protegidos no backend (`cannot_drop_default`/`cannot_drop_layer`).
+      const isProtected = sparkNode && (key === DEFAULT_SCHEMA || LAYER_ORDER.includes(key));
+      return [{ label: "Delete Schema…", danger: true, disabled: isProtected, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
     }
     return null;
   }
@@ -435,7 +404,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     } else {
       forgetSchema(catalog, schema);
     }
-    // Única releitura após a exclusão: árvore, colunas expandidas e o Catalog info aberto.
+    // Única releitura após a exclusão: árvore e o painel lateral aberto.
     refresh();
     setDeleting(null);
     setNotice(deletionNotice(schema, res));
@@ -462,7 +431,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
         break;
       case "ArrowRight":
         if (row.expandable) {
-          if (!row.open) storeExpand(row.key, row.table);
+          if (!row.open) storeExpand(row.key);
           else {
             const next = nav[index + 1];
             if (next && next.level > row.level) focusRow(next.key);
@@ -551,9 +520,9 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
               className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
               aria-hidden="true"
               onClick={
-                isTable || isCatalog
+                isCatalog
                   ? (e) => {
-                      // Chevron da tabela/catálogo só expande/recolhe; o resto da linha abre o Table info/Catalog info.
+                      // Chevron do catálogo só expande/recolhe; o resto da linha abre o Catalog info.
                       e.stopPropagation();
                       setFocusKey(item.key);
                       toggle(item);
@@ -620,7 +589,6 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   const data = useCatalog((s) => s.data);
   const error = useCatalog((s) => s.error);
   const expanded = useCatalog((s) => s.expanded);
-  const columns = useCatalog((s) => s.columns);
   // O painel só monta depois de `bootstrapAuth()` "ok": a primeira leitura é segura aqui.
   useEffect(() => {
     useCatalog.getState().refresh();
@@ -629,7 +597,7 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const items = data ? buildItems(data.catalogs, { expanded, columns }) : [];
+  const items = data ? buildItems(data.catalogs, { expanded }) : [];
 
   let body: ReactNode;
   if (!data) {
@@ -659,12 +627,16 @@ function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 
-/** Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós. */
+/**
+ * Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós.
+ * Nesses nós o `default` vazio fica oculto, mas sempre existe no backend: é incluído para o diálogo recusá-lo.
+ */
 function existingSchemas(catalogs: CatalogNode[] | undefined, catalog: string): string[] {
   const shared = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
-  return (catalogs ?? [])
+  const names = (catalogs ?? [])
     .filter((c) => (shared ? c.name === SPARK_CATALOG || c.name === HUDI_CATALOG : c.name === catalog))
     .flatMap((c) => c.databases.map((d) => d.name));
+  return shared && !names.some((n) => n.toLowerCase() === DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
 }
 
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {

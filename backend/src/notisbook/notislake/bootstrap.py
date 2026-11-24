@@ -12,10 +12,11 @@ import urllib.request
 from collections.abc import Callable
 
 from .credentials import Credentials
-from .locations import BUCKET, LAYERS
+from .locations import BUCKET, LANDING, LAYERS
 from .ports import LOOPBACK
 
-PREFIXES = tuple(f"{layer}/" for layer in LAYERS)
+# `landing` é zona externa (não é camada de catálogo); por isso fica fora de `LAYERS`.
+PREFIXES = tuple(f"{zone}/" for zone in (LANDING, *LAYERS))
 READY_TIMEOUT_S = 30.0
 _POLL_INTERVAL_S = 0.25
 _PROBE_TIMEOUT_S = 2.0
@@ -55,7 +56,7 @@ def wait_ready(
 
 
 def ensure_layout(port: int, credentials: Credentials) -> None:
-    """Cria o bucket `notislake` e os prefixos `bronze/ silver/ gold/`, de forma idempotente.
+    """Cria o bucket `notislake` e os prefixos `landing/ bronze/ silver/ gold/`, de forma idempotente.
 
     Os prefixos são marcadores de 0 byte; repetir a chamada não altera objetos existentes além deles.
     """
