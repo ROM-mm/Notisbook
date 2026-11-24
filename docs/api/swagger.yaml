@@ -1,0 +1,3450 @@
+openapi: 3.0.3
+info:
+  title: Notisbook local backend API
+  version: 0.9.0
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+  description: |
+    HTTP API of the Notisbook local backend (FastAPI), derived by static analysis of
+    `backend/src/notisbook/app.py`, `backend/src/notisbook/security.py` and
+    `backend/src/notisbook/api/*.py`. The running application does NOT expose an OpenAPI
+    document: `docs_url`, `redoc_url` and `openapi_url` are all disabled in `create_app`.
+
+    ## Server
+    The backend listens on loopback only (`127.0.0.1`, default port `8765`).
+    Every HTTP response carries the unauthenticated marker header `X-Notisbook: 1`
+    (added by the `identify` middleware) so that launchers can tell a Notisbook backend
+    from another process on the same port.
+
+    ## Credentials
+    Three disjoint credentials exist; none is accepted on another credential's routes.
+
+    1. **UI token** (`require_token`): protects the UI API under `/api/**` (except
+       `/api/runtime-catalog/**` and `/api/lifecycle/**`). Accepted as
+       `Authorization: Bearer <token>`, as the `notisbook_token` cookie, or as the
+       `?token=` query parameter. When the query parameter is valid, the response sets the
+       `notisbook_token` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/`). Missing or invalid
+       token: `401 {"detail": "Unauthorized"}`.
+    2. **Runtime token** (`require_runtime_token`): one per Docker or DuckDB kernel session,
+       generated in memory by the backend and revoked with the session. Only
+       `Authorization: Bearer <token>` is accepted. Protects `/api/runtime-catalog/**` and
+       `/iceberg/**`.
+    3. **Shutdown token** (`LifecycleControl`): one per backend run, written to
+       `<home>/run/backend.json` (mode 0600). Only `Authorization: Bearer <token>` on
+       `POST /api/lifecycle/shutdown`, from a loopback client.
+
+    ## Host guards
+    Several routers add a DNS-rebinding guard after the token check (401 first, then 403):
+    `require_trusted_host` accepts only `Host: 127.0.0.1:<port>` or `localhost:<port>`;
+    `require_runtime_host` additionally accepts `host.lima.internal:<port>` (the host through
+    which the Docker container reaches the backend). A rejected Host yields
+    `403 {"detail": "Forbidden host"}`.
+
+    ## Error bodies
+    FastAPI routes answer errors as `{"detail": ...}` where `detail` is a string, an object
+    `{"code", "message"}`, or a list of validation items. The Iceberg REST catalog
+    (`/iceberg/**`) always answers errors as the Iceberg `ErrorModel`
+    `{"error": {"message", "type", "code"}}`, including 401/403 authentication failures.
+
+    ## Root generation
+    Mutating `/api/contents/{path}` routes and `POST /api/sessions` accept the optional header
+    `X-Notisbook-Root-Generation`. When it is present and differs from the current notebooks-root
+    generation, the request fails with `409 {"detail": "root_changed"}`.
+
+    ## WebSockets (not representable in OpenAPI 3.0)
+    All WebSocket routes run `guard_websocket` before `accept()`: the UI token (Bearer header,
+    `notisbook_token` cookie or `?token=`), an `Origin` in
+    `http://127.0.0.1:<port>` / `http://localhost:<port>` and a trusted `Host` are all required;
+    otherwise the handshake is refused (close code 1008, seen by the client as HTTP 403).
+
+    - `WS /api/ws/ping`: accepts, sends the text frame `pong` and closes.
+    - `WS /api/jobs/{job_id}/events`: streams the job log as JSON frames
+      `{"phase": string, "line": string, "progress"?: number}` (accumulated log first, then
+      live events) and closes after the terminal event (`phase: "done"`). Unknown job:
+      accepted and closed with code `4404`.
+    - `WS /api/sessions/{session_id}/channel`: kernel channel, protocol v1
+      (`kernels/protocol.py`). Unknown session: accepted and closed with code `4404`. A newer
+      connection to the same session replaces the previous one, which is closed with code `4409`.
+      On connect the server sends a `status` frame (and, if pending, an `error` frame with the
+      S3A notice). Every frame is a JSON object with `v: 1` and a `type` discriminator.
+      - Client -> server:
+        - `{"v": 1, "type": "execute", "cell_id": string, "code": string, "language": "python" | "sql" | "duckdb"}` (`language` defaults to `python`)
+        - `{"v": 1, "type": "interrupt"}`
+        - `{"v": 1, "type": "restart"}`
+      - Server -> client:
+        - `{"v": 1, "type": "status", "state": "starting" | "idle" | "busy" | "restarting" | "dead"}`
+        - `{"v": 1, "type": "execute_input", "cell_id": string, "execution_count": integer | null}`
+        - `{"v": 1, "type": "output", "cell_id": string, "output": object}`
+        - `{"v": 1, "type": "clear_output", "cell_id": string, "wait": boolean}`
+        - `{"v": 1, "type": "execute_reply", "cell_id": string, "status": "ok" | "error" | "aborted", "execution_count": integer | null}`
+        - `{"v": 1, "type": "error", "code": string, "message": string}`; an invalid client frame
+          yields `code: "bad_message"`.
+
+    ## Frontend
+    `mount_frontend` registers the static mount `/assets` (Starlette `StaticFiles`, not a
+    FastAPI route) and the public SPA fallback `/{path}` (`include_in_schema=False`), which is
+    documented below for completeness.
+  x-notisbook-coverage:
+    source: static analysis of backend/src/notisbook (app.py, security.py, api/*.py, kernels/protocol.py, static.py)
+    version-source: backend/pyproject.toml [project].version
+    http-operations: 85
+    websockets:
+      - /api/ws/ping
+      - /api/jobs/{job_id}/events
+      - /api/sessions/{session_id}/channel
+    dynamic-routes:
+      - route: /api/contents/{path:path}
+        note: Starlette `path` converter; `path` may contain `/`. Represented as `/api/contents/{path}`.
+      - route: /iceberg/{rest:path}
+        note: Catch-all for unknown Iceberg REST routes (GET, HEAD, POST, PUT, DELETE, PATCH), always 404 NoSuchRouteException. Represented as `/iceberg/{rest}`; `rest` may contain `/`.
+      - route: /{path:path}
+        note: SPA fallback registered by `mount_frontend` (GET, HEAD, include_in_schema=False, public). Represented as `/{path}`; `path` may contain `/`.
+      - route: /assets
+        note: Static files mount (Starlette `StaticFiles`), only registered when `frontend/dist/assets` exists; file names are build artifacts and are not resolvable statically. Not listed under `paths`.
+    limitations:
+      - Many handlers return untyped `dict[str, Any]`; their response schemas list only the keys built literally in the router and fall back to free-form objects where the payload comes from service layers (Docker runtime describe/details, catalog readers, DuckDB installed entry, Spark installed entries, Iceberg table metadata).
+      - Error status codes are those raised in the routers and in the security dependencies; errors raised inside service layers beyond the mapped exceptions are not enumerated.
+      - Iceberg REST request bodies are read as raw JSON (not Pydantic models); their schemas reflect the fields read by the handlers.
+servers:
+  - url: http://127.0.0.1:{port}
+    description: Local Notisbook backend (loopback only)
+    variables:
+      port:
+        default: '8765'
+tags:
+  - name: system
+    description: Health, prerequisites and host resources.
+  - name: appearance
+    description: Appearance helpers.
+  - name: contents
+    description: Notebooks and folders under the notebooks root.
+  - name: export
+    description: Stateless notebook export.
+  - name: files
+    description: File-system shortcuts, listing and native folder picker.
+  - name: notebooks-root
+    description: Notebooks root folder.
+  - name: samples
+    description: Bundled sample notebooks present in the root.
+  - name: sessions
+    description: Kernelspecs and kernel sessions.
+  - name: catalog
+    description: Persistent catalog (catalog.db) read and schema operations for the UI.
+  - name: runtime-catalog
+    description: Catalog registry for the Docker runtime kernel (runtime token).
+  - name: iceberg
+    description: Iceberg REST catalog for the Docker runtime kernel (runtime token).
+  - name: spark
+    description: Local Spark versions and libraries.
+  - name: docker
+    description: Docker runtimes.
+  - name: duckdb
+    description: DuckDB runtime.
+  - name: jobs
+    description: Background job status.
+  - name: notislake
+    description: Local MinIO (notislake) status, manual S3 configuration and bucket listing.
+  - name: lifecycle
+    description: Ordered backend shutdown.
+  - name: frontend
+    description: Built frontend (SPA) serving.
+paths:
+  /api/health:
+    get:
+      tags: [system]
+      operationId: getHealth
+      summary: Health check
+      security: &ui
+        - uiBearer: []
+        - uiCookie: []
+        - uiQuery: []
+      responses:
+        '200':
+          description: Backend is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/system/prereqs:
+    get:
+      tags: [system]
+      operationId: getPrereqs
+      summary: Check local prerequisites (uv, Java)
+      security: *ui
+      responses:
+        '200':
+          description: Prerequisite report.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Prereqs'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/system/resources:
+    get:
+      tags: [system]
+      operationId: getSystemResources
+      summary: Host memory, CPU and disk usage
+      description: Each metric is `null` when it cannot be collected.
+      security: *ui
+      responses:
+        '200':
+          description: Resource snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemResources'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+  /api/appearance/system-fonts:
+    get:
+      tags: [appearance]
+      operationId: getSystemFonts
+      summary: List installed system font families
+      security: *ui
+      parameters:
+        - name: refresh
+          in: query
+          required: false
+          description: Bypass the in-memory cache.
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Font families.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemFonts'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/contents:
+    get:
+      tags: [contents]
+      operationId: listContents
+      summary: List a folder under the notebooks root
+      security: *ui
+      parameters:
+        - name: path
+          in: query
+          required: false
+          description: Folder path relative to the notebooks root (empty for the root).
+          schema:
+            type: string
+            default: ''
+      responses:
+        '200':
+          description: Folder entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContentEntry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/contents/{path}:
+    parameters:
+      - $ref: '#/components/parameters/ContentPath'
+    get:
+      tags: [contents]
+      operationId: readNotebook
+      summary: Read a notebook
+      security: *ui
+      responses:
+        '200':
+          description: Notebook document (nbformat v4).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Notebook'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+    put:
+      tags: [contents]
+      operationId: saveNotebook
+      summary: Save a notebook
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Notebook'
+      responses:
+        '200':
+          description: Saved entry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentEntry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [contents]
+      operationId: createItem
+      summary: Create a notebook or a folder
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContentBody'
+      responses:
+        '201':
+          description: Created entry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentEntry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    patch:
+      tags: [contents]
+      operationId: renameItem
+      summary: Rename or move a notebook or folder
+      description: 409 `Notebook is open in a running kernel` when a session is open under the path.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameBody'
+      responses:
+        '200':
+          description: Renamed entry.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentEntry'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+    delete:
+      tags: [contents]
+      operationId: deleteItem
+      summary: Delete a notebook or folder
+      description: 409 `Notebook is open in a running kernel` when a session is open under the path.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/export/{fmt}:
+    post:
+      tags: [export]
+      operationId: exportNotebook
+      summary: Convert the notebook in the body into a downloadable file
+      description: Stateless; nothing is read from or written to disk. The body is limited to 50 MB.
+      security: *ui
+      parameters:
+        - name: fmt
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [py, ipynb, html]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportBody'
+      responses:
+        '200':
+          description: 'Exported file. `html` responses also carry `Content-Security-Policy: sandbox; default-src ''none''`.'
+          headers:
+            Content-Disposition:
+              description: Attachment with ASCII and RFC 5987 UTF-8 file names.
+              schema:
+                type: string
+            X-Content-Type-Options:
+              schema:
+                type: string
+                enum: [nosniff]
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            text/x-python:
+              schema:
+                type: string
+            application/x-ipynb+json:
+              schema:
+                type: string
+            text/html:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/fs/choose-dir:
+    post:
+      tags: [files]
+      operationId: chooseDir
+      summary: Open the native folder picker
+      security: *ui
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChooseDirBody'
+      responses:
+        '200':
+          description: 'Chosen folder, or `{"cancelled": true}`.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChooseDirResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      x-notisbook-note: Picker failures are mapped to `PickerError.status_code` (service-defined).
+  /api/fs/places:
+    get:
+      tags: [files]
+      operationId: getPlaces
+      summary: List folder shortcuts
+      security: *ui
+      responses:
+        '200':
+          description: Shortcuts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Place'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+  /api/fs/list:
+    get:
+      tags: [files]
+      operationId: listPath
+      summary: List one directory level by absolute path (metadata only)
+      security: *ui
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 200
+      responses:
+        '200':
+          description: Directory page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+      x-notisbook-note: Browse failures are mapped to `BrowseError.status_code` (service-defined).
+  /api/fs/dir:
+    delete:
+      tags: [files]
+      operationId: deleteDir
+      summary: Delete a folder recursively, or only a symlink
+      description: |
+        409 with codes `open_kernel`, `contains_catalog_tables` (with `tables` and `table_count`) or
+        `delete_failed`; 500 `partial_delete`. Other refusals come from `browser.check_dir_delete`.
+      security: *ui
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/notebooks-root:
+    get:
+      tags: [notebooks-root]
+      operationId: getNotebooksRoot
+      summary: Current notebooks root
+      security: *ui
+      responses:
+        '200':
+          description: Root description.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotebooksRoot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+    put:
+      tags: [notebooks-root]
+      operationId: putNotebooksRoot
+      summary: Change the notebooks root (persisted)
+      description: |
+        With `dry_run=true` only validates and returns `{path, name}`. 409 `locked` when the root is
+        locked, 409 `sessions_active` when kernel sessions exist; 403 `Folder is not usable`;
+        500 `Could not save the preference`. Other validation refusals come from `RootRejected`.
+      security: *ui
+      parameters:
+        - name: dry_run
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RootBody'
+      responses:
+        '200':
+          description: New root description (or `{path, name}` on dry run).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotebooksRoot'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/samples:
+    get:
+      tags: [samples]
+      operationId: listSamples
+      summary: Bundled samples present in the notebooks root
+      security: *ui
+      responses:
+        '200':
+          description: Samples sorted by name.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Sample'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+  /api/kernelspecs:
+    get:
+      tags: [sessions]
+      operationId: listKernelspecs
+      summary: List available kernelspecs
+      security: *ui
+      responses:
+        '200':
+          description: Kernelspecs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/KernelSpecInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/sessions:
+    get:
+      tags: [sessions]
+      operationId: listSessions
+      summary: List kernel sessions
+      security: *ui
+      responses:
+        '200':
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SessionInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [sessions]
+      operationId: createSession
+      summary: Start a kernel session for a notebook
+      description: |
+        404 unknown kernel; 409 `root_changed`, Spark libraries being changed, runtime busy/missing,
+        `{code: <CONFIG_INVALID_CODE>}` or `{code: <SPARK_ENV_OUTDATED_CODE>}`; 503 notislake
+        unavailable (`{code: <NOTISLAKE_UNAVAILABLE_CODE>}`) or Docker unavailable.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/RootGeneration'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionBody'
+      responses:
+        '201':
+          description: Session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCreated'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/sessions/{session_id}:
+    delete:
+      tags: [sessions]
+      operationId: deleteSession
+      summary: Stop a kernel session
+      security: *ui
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Session stopped.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/catalog:
+    get:
+      tags: [catalog]
+      operationId: getCatalog
+      summary: Catalog tree (spark_catalog, iceberg, hudi)
+      security: *ui
+      responses:
+        '200':
+          description: Catalog tree.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogTree'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/columns:
+    get:
+      tags: [catalog]
+      operationId: getCatalogColumns
+      summary: Columns of a table
+      description: 404 table not found; 409 unsupported Iceberg schema or table metadata unavailable; 503 catalog database or object store unavailable.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - $ref: '#/components/parameters/DatabaseName'
+        - $ref: '#/components/parameters/TableName'
+      responses:
+        '200':
+          description: Columns.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FreeObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/table:
+    get:
+      tags: [catalog]
+      operationId: getCatalogTable
+      summary: Table metadata (read only)
+      description: A failure reading only the Iceberg `metadata.json` returns 200 with `metadata_error`.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - $ref: '#/components/parameters/DatabaseName'
+        - $ref: '#/components/parameters/TableName'
+      responses:
+        '200':
+          description: Table metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/info:
+    get:
+      tags: [catalog]
+      operationId: getCatalogInfo
+      summary: Overview of one catalog
+      description: Without `catalog.db` returns `status` `empty`; secrets are masked.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+      responses:
+        '200':
+          description: Catalog overview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/schemas:
+    post:
+      tags: [catalog]
+      operationId: createCatalogSchema
+      summary: Create a schema without a SparkSession
+      description: 400 invalid name or catalog; 409 already exists; 503 `catalog_busy` or `catalog_unavailable`.
+      security: *ui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSchemaBody'
+      responses:
+        '201':
+          description: Schema created.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [catalog]
+      operationId: deleteCatalogSchema
+      summary: Delete a schema in cascade
+      description: |
+        Requires the `etag` returned by the preview. 409 `cannot_drop_default`, `kernel_busy` or
+        schema errors; 503 `catalog_busy` / `catalog_unavailable`.
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - $ref: '#/components/parameters/SchemaName'
+        - name: etag
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+      responses:
+        '200':
+          description: Deletion result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeObject'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/catalog/schemas/preview:
+    get:
+      tags: [catalog]
+      operationId: previewCatalogSchemaDelete
+      summary: Preview what deleting a schema would remove
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/CatalogName'
+        - $ref: '#/components/parameters/SchemaName'
+      responses:
+        '200':
+          description: Preview, including the `etag` required by DELETE.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeObject'
+        '400':
+          $ref: '#/components/responses/Error'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/runtime-catalog/generation:
+    get:
+      tags: [runtime-catalog]
+      operationId: getRuntimeCatalogGeneration
+      summary: Current registry generation
+      security: &runtime
+        - runtimeBearer: []
+      responses:
+        '200':
+          description: Generation (0 when the catalog does not exist yet).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  generation:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/runtime-catalog/registry:
+    get:
+      tags: [runtime-catalog]
+      operationId: getRuntimeCatalogRegistry
+      summary: Registry snapshot for the runtime hook
+      security: *runtime
+      responses:
+        '200':
+          description: Snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeRegistry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/runtime-catalog/plan:
+    post:
+      tags: [runtime-catalog]
+      operationId: postRuntimeCatalogPlan
+      summary: Apply a catalog plan from the runtime hook
+      description: |
+        Body limited to 8 MB (413 `body_too_large`). Malformed body: 422 (`invalid_json`,
+        `plan_too_large` or a validation list) and nothing is written. Items invalid by rule or
+        limit are returned in `rejected` with a `reason`. 503 `catalog_busy` / `catalog_unavailable`.
+      security: *runtime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimePlanBody'
+      responses:
+        '200':
+          description: Plan result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimePlanResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /iceberg/v1/config:
+    get:
+      tags: [iceberg]
+      operationId: icebergGetConfig
+      summary: Iceberg REST catalog configuration
+      security: &iceberg
+        - runtimeBearer: []
+      responses:
+        '200':
+          description: Catalog config (no `prefix`; explicit `endpoints`; `io-impl` override).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergConfig'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+  /iceberg/v1/namespaces:
+    get:
+      tags: [iceberg]
+      operationId: icebergListNamespaces
+      summary: List namespaces
+      security: *iceberg
+      parameters:
+        - name: parent
+          in: query
+          required: false
+          description: Parent namespace, levels separated by 0x1F.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Namespaces.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  namespaces:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IcebergNamespace'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '500':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+    post:
+      tags: [iceberg]
+      operationId: icebergCreateNamespace
+      summary: Create a namespace
+      security: *iceberg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergCreateNamespaceRequest'
+      responses:
+        '200':
+          description: Namespace created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergNamespaceResponse'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '409':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+  /iceberg/v1/namespaces/{namespace}:
+    parameters:
+      - $ref: '#/components/parameters/IcebergNamespace'
+    get:
+      tags: [iceberg]
+      operationId: icebergLoadNamespace
+      summary: Load namespace properties
+      security: *iceberg
+      responses:
+        '200':
+          description: Namespace.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergNamespaceResponse'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '500':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+    head:
+      tags: [iceberg]
+      operationId: icebergNamespaceExists
+      summary: Check that a namespace exists
+      security: *iceberg
+      responses:
+        '204':
+          description: Namespace exists.
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+    delete:
+      tags: [iceberg]
+      operationId: icebergDropNamespace
+      summary: Drop an empty namespace
+      description: The notislake layers cannot be dropped (403 `cannot_drop_layer`); 409 NamespaceNotEmptyException.
+      security: *iceberg
+      responses:
+        '204':
+          description: Namespace dropped.
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '409':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+  /iceberg/v1/namespaces/{namespace}/properties:
+    parameters:
+      - $ref: '#/components/parameters/IcebergNamespace'
+    post:
+      tags: [iceberg]
+      operationId: icebergUpdateNamespaceProperties
+      summary: Update or remove namespace properties
+      security: *iceberg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergUpdateNamespacePropertiesRequest'
+      responses:
+        '200':
+          description: Properties updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergUpdateNamespacePropertiesResponse'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+  /iceberg/v1/namespaces/{namespace}/register:
+    parameters:
+      - $ref: '#/components/parameters/IcebergNamespace'
+    post:
+      tags: [iceberg]
+      operationId: icebergRegisterTable
+      summary: Register table (not supported)
+      description: Always refused with 403 ForbiddenException.
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+  /iceberg/v1/namespaces/{namespace}/tables:
+    parameters:
+      - $ref: '#/components/parameters/IcebergNamespace'
+    get:
+      tags: [iceberg]
+      operationId: icebergListTables
+      summary: List tables of a namespace
+      security: *iceberg
+      responses:
+        '200':
+          description: Table identifiers.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  identifiers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/IcebergTableIdentifier'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '500':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+    post:
+      tags: [iceberg]
+      operationId: icebergCreateTable
+      summary: Create (or stage-create) a table
+      description: |
+        Default location is `s3a://notislake/<layer>/<table>`. Destination refusals return 400 with
+        the stable code in parentheses at the end of the message. With `stage-create: true` the
+        response omits `metadata-location`.
+      security: *iceberg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergCreateTableRequest'
+      responses:
+        '200':
+          description: Table metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergLoadTableResult'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '409':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          $ref: '#/components/responses/IcebergError'
+        '500':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+  /iceberg/v1/namespaces/{namespace}/tables/{table}:
+    parameters:
+      - $ref: '#/components/parameters/IcebergNamespace'
+      - $ref: '#/components/parameters/IcebergTable'
+    get:
+      tags: [iceberg]
+      operationId: icebergLoadTable
+      summary: Load a table
+      description: The returned metadata always carries `gc.enabled=false` in `properties`.
+      security: *iceberg
+      responses:
+        '200':
+          description: Table metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergLoadTableResult'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '500':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+    head:
+      tags: [iceberg]
+      operationId: icebergTableExists
+      summary: Check that a table exists
+      security: *iceberg
+      responses:
+        '204':
+          description: Table exists.
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+    post:
+      tags: [iceberg]
+      operationId: icebergCommitTable
+      summary: Commit table updates
+      description: 409 CommitFailedException for a violated requirement or lost CAS; 500 CommitStateUnknownException when the state is unknown.
+      security: *iceberg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergCommitTableRequest'
+      responses:
+        '200':
+          description: Committed metadata (without `config`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IcebergCommitTableResponse'
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '409':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          $ref: '#/components/responses/IcebergError'
+        '500':
+          $ref: '#/components/responses/IcebergError'
+    delete:
+      tags: [iceberg]
+      operationId: icebergDropTable
+      summary: Drop a table (catalog row only)
+      description: The backend never deletes table files; purge of an `s3a` table is refused with 400.
+      security: *iceberg
+      parameters:
+        - name: purgeRequested
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '204':
+          description: Table dropped from the catalog.
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          description: Unsupported catalog format (Iceberg ErrorModel) or invalid query parameter (FastAPI validation body).
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/IcebergErrorModel'
+                  - $ref: '#/components/schemas/HTTPValidationError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+  /iceberg/v1/namespaces/{namespace}/tables/{table}/metrics:
+    parameters:
+      - $ref: '#/components/parameters/IcebergNamespace'
+      - $ref: '#/components/parameters/IcebergTable'
+    post:
+      tags: [iceberg]
+      operationId: icebergReportMetrics
+      summary: Report metrics (accepted and discarded)
+      security: *iceberg
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FreeObject'
+      responses:
+        '204':
+          description: Accepted.
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+  /iceberg/v1/tables/rename:
+    post:
+      tags: [iceberg]
+      operationId: icebergRenameTable
+      summary: Rename a table
+      security: *iceberg
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IcebergRenameTableRequest'
+      responses:
+        '204':
+          description: Renamed.
+        '400':
+          $ref: '#/components/responses/IcebergError'
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+        '409':
+          $ref: '#/components/responses/IcebergError'
+        '422':
+          $ref: '#/components/responses/IcebergError'
+        '503':
+          $ref: '#/components/responses/IcebergError'
+  /iceberg/v1/transactions/commit:
+    post:
+      tags: [iceberg]
+      operationId: icebergCommitTransaction
+      summary: Multi-table transaction (not supported)
+      description: Always refused with 403 ForbiddenException.
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+  /iceberg/{rest}:
+    parameters:
+      - name: rest
+        in: path
+        required: true
+        description: Any unmatched sub-path (Starlette `path` converter; may contain `/`).
+        schema:
+          type: string
+    get:
+      tags: [iceberg]
+      operationId: icebergNotFoundGet
+      summary: Unknown Iceberg route (GET)
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+    head:
+      tags: [iceberg]
+      operationId: icebergNotFoundHead
+      summary: Unknown Iceberg route (HEAD)
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+    post:
+      tags: [iceberg]
+      operationId: icebergNotFoundPost
+      summary: Unknown Iceberg route (POST)
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+    put:
+      tags: [iceberg]
+      operationId: icebergNotFoundPut
+      summary: Unknown Iceberg route (PUT)
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+    delete:
+      tags: [iceberg]
+      operationId: icebergNotFoundDelete
+      summary: Unknown Iceberg route (DELETE)
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+    patch:
+      tags: [iceberg]
+      operationId: icebergNotFoundPatch
+      summary: Unknown Iceberg route (PATCH)
+      security: *iceberg
+      responses:
+        '401':
+          $ref: '#/components/responses/IcebergUnauthorized'
+        '403':
+          $ref: '#/components/responses/IcebergForbidden'
+        '404':
+          $ref: '#/components/responses/IcebergError'
+  /api/spark/catalog:
+    get:
+      tags: [spark]
+      operationId: getSparkCatalog
+      summary: Installable Spark versions
+      security: *ui
+      responses:
+        '200':
+          description: Version catalog.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SparkCatalog'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/spark/versions:
+    get:
+      tags: [spark]
+      operationId: listSparkVersions
+      summary: Installed versions, catalog versions and running jobs
+      security: *ui
+      responses:
+        '200':
+          description: Versions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SparkVersions'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [spark]
+      operationId: installSparkVersion
+      summary: Install a Spark version (background job)
+      security: *ui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SparkInstallBody'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/spark/versions/{version}:
+    parameters:
+      - $ref: '#/components/parameters/SparkVersion'
+    delete:
+      tags: [spark]
+      operationId: removeSparkVersion
+      summary: Remove an installed Spark version
+      security: *ui
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}/packages:
+    parameters:
+      - $ref: '#/components/parameters/SparkVersion'
+    get:
+      tags: [spark]
+      operationId: listSparkPackages
+      summary: User libraries of a Spark version
+      security: *ui
+      responses:
+        '200':
+          description: Libraries (core libraries are excluded).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SparkPackages'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      tags: [spark]
+      operationId: addSparkPackages
+      summary: Add libraries (background job)
+      description: 422 with per-row errors for invalid, protected or repeated names.
+      security: *ui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SparkAddBody'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}/packages/upgrade:
+    parameters:
+      - $ref: '#/components/parameters/SparkVersion'
+    post:
+      tags: [spark]
+      operationId: upgradeSparkPackages
+      summary: Upgrade libraries (background job)
+      security: *ui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SparkNamesBody'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/spark/versions/{version}/packages/uninstall:
+    parameters:
+      - $ref: '#/components/parameters/SparkVersion'
+    post:
+      tags: [spark]
+      operationId: uninstallSparkPackages
+      summary: Uninstall libraries (background job)
+      security: *ui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SparkNamesBody'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/docker/runtimes:
+    get:
+      tags: [docker]
+      operationId: listDockerRuntimes
+      summary: State of every Docker runtime in the catalog
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/ConnectionsDir'
+      responses:
+        '200':
+          description: Runtimes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DockerRuntimes'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/docker/runtimes/{key}:
+    parameters:
+      - $ref: '#/components/parameters/DockerKey'
+    delete:
+      tags: [docker]
+      operationId: removeDockerRuntime
+      summary: Remove a Docker runtime
+      security: *ui
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/docker/runtimes/{key}/install:
+    parameters:
+      - $ref: '#/components/parameters/DockerKey'
+    post:
+      tags: [docker]
+      operationId: installDockerRuntime
+      summary: Install or recreate a Docker runtime (background job)
+      security: *ui
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DockerInstallBody'
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/docker/runtimes/{key}/stop:
+    parameters:
+      - $ref: '#/components/parameters/DockerKey'
+    post:
+      tags: [docker]
+      operationId: stopDockerRuntime
+      summary: Stop a Docker runtime
+      security: *ui
+      responses:
+        '204':
+          description: Stopped.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/docker/runtimes/{key}/restart:
+    parameters:
+      - $ref: '#/components/parameters/DockerKey'
+    post:
+      tags: [docker]
+      operationId: restartDockerRuntime
+      summary: Restart a Docker runtime
+      security: *ui
+      responses:
+        '204':
+          description: Restarted.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /api/docker/runtimes/{key}/details:
+    parameters:
+      - $ref: '#/components/parameters/DockerKey'
+    get:
+      tags: [docker]
+      operationId: getDockerRuntimeDetails
+      summary: Details of a Docker runtime
+      security: *ui
+      parameters:
+        - $ref: '#/components/parameters/ConnectionsDir'
+      responses:
+        '200':
+          description: Runtime details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FreeObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenHost'
+        '404':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/duckdb:
+    get:
+      tags: [duckdb]
+      operationId: getDuckdbStatus
+      summary: DuckDB runtime status
+      security: *ui
+      responses:
+        '200':
+          description: Status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuckdbStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [duckdb]
+      operationId: removeDuckdb
+      summary: Remove the DuckDB runtime
+      security: *ui
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/duckdb/extensions:
+    get:
+      tags: [duckdb]
+      operationId: listDuckdbExtensions
+      summary: DuckDB extensions and their install state
+      security: *ui
+      responses:
+        '200':
+          description: Extensions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DuckdbExtensions'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '500':
+          $ref: '#/components/responses/Error'
+  /api/duckdb/install:
+    post:
+      tags: [duckdb]
+      operationId: installDuckdb
+      summary: Install the DuckDB runtime (background job)
+      security: *ui
+      responses:
+        '202':
+          $ref: '#/components/responses/JobAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+  /api/jobs/{job_id}:
+    get:
+      tags: [jobs]
+      operationId: getJob
+      summary: Job status and accumulated log
+      security: *ui
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/Error'
+  /api/notislake/status:
+    get:
+      tags: [notislake]
+      operationId: getNotislakeStatus
+      summary: Configuration mode and local MinIO state
+      security: *ui
+      responses:
+        '200':
+          description: Status.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotislakeStatus'
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+  /api/notislake/retry:
+    post:
+      tags: [notislake]
+      operationId: retryNotislake
+      summary: Retry the local MinIO after a failure
+      security: *ui
+      responses:
+        '202':
+          description: Retry started.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+        '409':
+          $ref: '#/components/responses/NoStoreError'
+  /api/notislake/local/credentials:
+    get:
+      tags: [notislake]
+      operationId: getNotislakeLocalCredentials
+      summary: Local MinIO credentials (on demand, for copying)
+      description: Deliberate exception to the no-secret rule; 409 `not_running` when MinIO is not running.
+      security: *ui
+      responses:
+        '200':
+          description: Credentials.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    type: string
+                  password:
+                    type: string
+                    format: password
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+        '409':
+          $ref: '#/components/responses/NoStoreError'
+  /api/notislake/config:
+    get:
+      tags: [notislake]
+      operationId: getNotislakeConfig
+      summary: Current S3 configuration (secret never returned)
+      security: *ui
+      responses:
+        '200':
+          description: 'Manual view, automatic view or `{mode: invalid, field}`.'
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotislakeConfigView'
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+    put:
+      tags: [notislake]
+      operationId: putNotislakeConfig
+      summary: Save the manual S3 configuration
+      description: 422 for field errors or `secret_required` when endpoint or access key changed without a secret.
+      security: *ui
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotislakeConfigBody'
+      responses:
+        '200':
+          description: Saved manual view.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotislakeConfigView'
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+        '422':
+          $ref: '#/components/responses/NoStoreError'
+    delete:
+      tags: [notislake]
+      operationId: deleteNotislakeConfig
+      summary: Remove the manual S3 configuration
+      security: *ui
+      responses:
+        '204':
+          description: Removed.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+  /api/notislake/objects:
+    get:
+      tags: [notislake]
+      operationId: listNotislakeObjects
+      summary: List one page of the notislake bucket
+      description: 409 `config_invalid`; 503 `notislake_unavailable`; upstream failures 400 (invalid token), 502 or 504.
+      security: *ui
+      parameters:
+        - name: prefix
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 1024
+            default: ''
+        - name: max_keys
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+        - name: continuation_token
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+      responses:
+        '200':
+          description: Object page.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotislakeObjectsPage'
+        '400':
+          $ref: '#/components/responses/NoStoreError'
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+        '409':
+          $ref: '#/components/responses/NoStoreError'
+        '422':
+          $ref: '#/components/responses/NoStoreError'
+        '502':
+          $ref: '#/components/responses/NoStoreError'
+        '503':
+          $ref: '#/components/responses/NoStoreError'
+        '504':
+          $ref: '#/components/responses/NoStoreError'
+  /api/notislake/test:
+    post:
+      tags: [notislake]
+      operationId: testNotislakeConnection
+      summary: Probe a draft configuration (or the current connection, without a body)
+      description: 409 `test_in_progress`, `config_invalid`; 503 `notislake_unavailable`; 422 field errors.
+      security: *ui
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NotislakeConfigBody'
+      responses:
+        '200':
+          description: Categorical result.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotislakeTestResult'
+        '401':
+          $ref: '#/components/responses/NoStoreUnauthorized'
+        '403':
+          $ref: '#/components/responses/NoStoreError'
+        '409':
+          $ref: '#/components/responses/NoStoreError'
+        '422':
+          $ref: '#/components/responses/NoStoreError'
+        '503':
+          $ref: '#/components/responses/NoStoreError'
+  /api/lifecycle/shutdown:
+    post:
+      tags: [lifecycle]
+      operationId: shutdownBackend
+      summary: Trigger an ordered backend shutdown
+      description: |
+        Loopback clients only and only with the shutdown token from `backend.json`:
+        401 without a Bearer token, 403 wrong token, non-loopback client or untrusted Host,
+        404 when the app runs without lifecycle control.
+      security:
+        - shutdownBearer: []
+      responses:
+        '202':
+          description: Shutdown requested.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [stopping]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+  /{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: Any path not matched by another route (Starlette `path` converter; may contain `/`).
+        schema:
+          type: string
+    get:
+      tags: [frontend]
+      operationId: spaGet
+      summary: SPA fallback (public)
+      description: |
+        Serves a file of the built frontend or `index.html` (with a Content-Security-Policy header).
+        Paths `api` and `api/*` answer 404. Without a frontend build, answers 503 with an HTML page.
+      security: []
+      responses:
+        '200':
+          description: Frontend file or `index.html`.
+          content:
+            text/html:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/Error'
+        '503':
+          description: Frontend not built.
+          content:
+            text/html:
+              schema:
+                type: string
+    head:
+      tags: [frontend]
+      operationId: spaHead
+      summary: SPA fallback (public, HEAD)
+      security: []
+      responses:
+        '200':
+          description: Frontend file or `index.html` headers.
+        '404':
+          description: Paths `api` and `api/*`.
+        '503':
+          description: Frontend not built.
+components:
+  securitySchemes:
+    uiBearer:
+      type: http
+      scheme: bearer
+      description: 'UI token as `Authorization: Bearer <token>`.'
+    uiCookie:
+      type: apiKey
+      in: cookie
+      name: notisbook_token
+      description: UI token as the `notisbook_token` cookie.
+    uiQuery:
+      type: apiKey
+      in: query
+      name: token
+      description: UI token as `?token=`; a valid value sets the `notisbook_token` cookie (HttpOnly, SameSite=Strict).
+    runtimeBearer:
+      type: http
+      scheme: bearer
+      description: Per-session runtime token of a Docker or DuckDB kernel; header only.
+    shutdownBearer:
+      type: http
+      scheme: bearer
+      description: Per-run shutdown token stored in `<home>/run/backend.json`; header only.
+  headers:
+    NoStore:
+      description: Set on every notislake response, including errors.
+      schema:
+        type: string
+        enum: [no-store]
+  parameters:
+    RootGeneration:
+      name: X-Notisbook-Root-Generation
+      in: header
+      required: false
+      description: Expected notebooks-root generation; a mismatch yields 409 `root_changed`.
+      schema:
+        type: string
+    ContentPath:
+      name: path
+      in: path
+      required: true
+      description: Path relative to the notebooks root (Starlette `path` converter; may contain `/`).
+      schema:
+        type: string
+    CatalogName:
+      name: catalog
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    DatabaseName:
+      name: database
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    TableName:
+      name: table
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    SchemaName:
+      name: schema
+      in: query
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 256
+    SparkVersion:
+      name: version
+      in: path
+      required: true
+      description: Spark version such as `3.5.9`.
+      schema:
+        type: string
+    DockerKey:
+      name: key
+      in: path
+      required: true
+      description: Docker runtime key from the runtime catalog.
+      schema:
+        type: string
+    ConnectionsDir:
+      name: connections_dir
+      in: query
+      required: false
+      description: Client Connections folder.
+      schema:
+        type: string
+        maxLength: 4096
+    IcebergNamespace:
+      name: namespace
+      in: path
+      required: true
+      description: Namespace levels separated by 0x1F (max 255 characters).
+      schema:
+        type: string
+        maxLength: 255
+    IcebergTable:
+      name: table
+      in: path
+      required: true
+      schema:
+        type: string
+        maxLength: 255
+  responses:
+    Unauthorized:
+      description: Missing or invalid token.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+          example:
+            detail: Unauthorized
+    ForbiddenHost:
+      description: Host header outside the allowed hosts.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+          example:
+            detail: Forbidden host
+    Error:
+      description: Error raised with `HTTPException`.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+    ValidationError:
+      description: Request validation error (FastAPI).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPValidationError'
+    NoStoreUnauthorized:
+      description: Missing or invalid token.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+    NoStoreError:
+      description: Error with `Cache-Control` no-store; 422 bodies never echo input values.
+      headers:
+        Cache-Control:
+          $ref: '#/components/headers/NoStore'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/HTTPError'
+    JobAccepted:
+      description: Job started; follow it via `GET /api/jobs/{job_id}` or the job events WebSocket.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [job_id]
+            properties:
+              job_id:
+                type: string
+    IcebergError:
+      description: Iceberg REST error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IcebergErrorModel'
+    IcebergUnauthorized:
+      description: Missing or invalid runtime token (NotAuthorizedException).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IcebergErrorModel'
+    IcebergForbidden:
+      description: Untrusted Host or refused operation (ForbiddenException).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IcebergErrorModel'
+  schemas:
+    FreeObject:
+      type: object
+      description: Free-form object (built by a service layer; not resolved statically).
+      additionalProperties: true
+    HTTPError:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          oneOf:
+            - type: string
+            - $ref: '#/components/schemas/CodedError'
+            - type: array
+              items:
+                $ref: '#/components/schemas/ValidationErrorItem'
+    CodedError:
+      type: object
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+      additionalProperties: true
+    ValidationErrorItem:
+      type: object
+      properties:
+        loc:
+          type: array
+          items:
+            oneOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: '#/components/schemas/ValidationErrorItem'
+    Prereqs:
+      type: object
+      properties:
+        uv:
+          type: object
+          properties:
+            found:
+              type: boolean
+            version:
+              type: string
+              nullable: true
+        java:
+          type: object
+          properties:
+            version:
+              type: string
+              nullable: true
+            ok:
+              type: boolean
+            jdks:
+              type: array
+              items:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  home:
+                    type: string
+            spark3_ok:
+              type: boolean
+            spark4_ok:
+              type: boolean
+        java_home:
+          type: string
+          nullable: true
+    UsedTotal:
+      type: object
+      nullable: true
+      properties:
+        used:
+          type: integer
+        total:
+          type: integer
+    SystemResources:
+      type: object
+      properties:
+        memory:
+          $ref: '#/components/schemas/UsedTotal'
+        cpu:
+          type: object
+          nullable: true
+          properties:
+            percent:
+              type: number
+            cores:
+              type: integer
+        disk:
+          $ref: '#/components/schemas/UsedTotal'
+    SystemFonts:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, unsupported, unavailable]
+        families:
+          type: array
+          items:
+            type: string
+    ContentEntry:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        type:
+          type: string
+          enum: [dir, notebook, file]
+        mtime:
+          type: number
+        size:
+          type: integer
+          nullable: true
+    Notebook:
+      type: object
+      description: Jupyter notebook document (nbformat 4).
+      additionalProperties: true
+    CreateContentBody:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [notebook, directory]
+          default: notebook
+    RenameBody:
+      type: object
+      required: [new_path]
+      properties:
+        new_path:
+          type: string
+    ExportBody:
+      type: object
+      required: [notebook]
+      properties:
+        notebook:
+          $ref: '#/components/schemas/Notebook'
+        filename:
+          type: string
+          default: ''
+          description: Only names the download.
+    ChooseDirBody:
+      type: object
+      properties:
+        default_path:
+          type: string
+          nullable: true
+        purpose:
+          type: string
+          enum: [data, notebooks]
+          default: data
+    ChooseDirResult:
+      type: object
+      properties:
+        path:
+          type: string
+        cancelled:
+          type: boolean
+    Place:
+      type: object
+      properties:
+        label:
+          type: string
+        path:
+          type: string
+    RootBody:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+    NotebooksRoot:
+      type: object
+      properties:
+        path:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        locked:
+          type: boolean
+        generation:
+          type: integer
+    Sample:
+      type: object
+      properties:
+        name:
+          type: string
+        path:
+          type: string
+        kernel_name:
+          type: string
+        runtime_kind:
+          type: string
+          enum: [duckdb, docker, local]
+        display_name:
+          type: string
+    KernelSpecInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        display_name:
+          type: string
+        language:
+          type: string
+        cell_languages:
+          type: array
+          items:
+            type: string
+            enum: [python, sql, duckdb]
+    SessionInfo:
+      type: object
+      properties:
+        session_id:
+          type: string
+        path:
+          type: string
+        kernel_name:
+          type: string
+        state:
+          type: string
+          enum: [starting, idle, busy, restarting, dead]
+    CreateSessionBody:
+      type: object
+      required: [path, kernel_name]
+      properties:
+        path:
+          type: string
+        kernel_name:
+          type: string
+    SessionCreated:
+      type: object
+      required: [session_id]
+      properties:
+        session_id:
+          type: string
+        notice_code:
+          type: string
+        notice_message:
+          type: string
+    CatalogTree:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        catalogs:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeObject'
+    CreateSchemaBody:
+      type: object
+      required: [catalog, name]
+      properties:
+        catalog:
+          type: string
+        name:
+          type: string
+    RuntimeRegistry:
+      type: object
+      properties:
+        generation:
+          type: integer
+        tables:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeObject'
+        namespaces:
+          type: array
+          items:
+            type: string
+        iceberg:
+          type: array
+          items:
+            type: object
+            properties:
+              db:
+                type: string
+              name:
+                type: string
+              loc:
+                type: string
+                nullable: true
+    RuntimeColumn:
+      type: object
+      additionalProperties: false
+      required: [name, data_type]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 256
+        data_type:
+          type: string
+          maxLength: 20000
+        nullable:
+          type: boolean
+          default: true
+        is_partition:
+          type: boolean
+          default: false
+        description:
+          type: string
+          maxLength: 4096
+          nullable: true
+    RuntimeTableInfo:
+      type: object
+      required: [fmt, loc, cols, parts]
+      properties:
+        fmt:
+          type: string
+          enum: [delta, parquet]
+        loc:
+          type: string
+          minLength: 1
+          maxLength: 4096
+        cols:
+          type: array
+          maxItems: 2000
+          items:
+            $ref: '#/components/schemas/RuntimeColumn'
+        parts:
+          type: array
+          maxItems: 2000
+          items:
+            type: string
+            maxLength: 256
+        dv:
+          type: integer
+          minimum: 0
+          nullable: true
+        hi:
+          type: string
+          maxLength: 64
+          nullable: true
+    RuntimeName:
+      type: string
+      pattern: '^[A-Za-z0-9_][A-Za-z0-9_$-]*$'
+      minLength: 1
+      maxLength: 128
+    RuntimeCreated:
+      allOf:
+        - $ref: '#/components/schemas/RuntimeTableInfo'
+        - type: object
+          required: [db, name, type]
+          properties:
+            db:
+              $ref: '#/components/schemas/RuntimeName'
+            name:
+              $ref: '#/components/schemas/RuntimeName'
+            type:
+              type: string
+              enum: [MANAGED, EXTERNAL]
+            description:
+              type: string
+              maxLength: 4096
+              nullable: true
+    RuntimeUpdated:
+      allOf:
+        - $ref: '#/components/schemas/RuntimeTableInfo'
+        - type: object
+          required: [db, name, expected_loc]
+          properties:
+            db:
+              $ref: '#/components/schemas/RuntimeName'
+            name:
+              $ref: '#/components/schemas/RuntimeName'
+            expected_loc:
+              type: string
+              minLength: 1
+              maxLength: 4096
+    RuntimeRenamed:
+      allOf:
+        - $ref: '#/components/schemas/RuntimeTableInfo'
+        - type: object
+          required: [old_db, old_name, new_db, new_name, expected_loc]
+          properties:
+            old_db:
+              $ref: '#/components/schemas/RuntimeName'
+            old_name:
+              $ref: '#/components/schemas/RuntimeName'
+            new_db:
+              $ref: '#/components/schemas/RuntimeName'
+            new_name:
+              $ref: '#/components/schemas/RuntimeName'
+            expected_loc:
+              type: string
+              minLength: 1
+              maxLength: 4096
+    RuntimeDropped:
+      type: object
+      additionalProperties: false
+      required: [db, name, expected_loc]
+      properties:
+        db:
+          $ref: '#/components/schemas/RuntimeName'
+        name:
+          $ref: '#/components/schemas/RuntimeName'
+        expected_loc:
+          type: string
+          minLength: 1
+          maxLength: 4096
+    RuntimePlanBody:
+      type: object
+      additionalProperties: false
+      description: |
+        `created`, `updated` and `renamed` items are validated one by one; an item that only
+        exceeds size/pattern limits is rejected (`item_limits`) without failing the plan.
+        At most 1000 table items in total.
+      properties:
+        created:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/RuntimeCreated'
+        updated:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/RuntimeUpdated'
+        renamed:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/RuntimeRenamed'
+        dropped:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/RuntimeDropped'
+        unregistered:
+          type: array
+          maxItems: 1000
+          items:
+            $ref: '#/components/schemas/RuntimeDropped'
+        new_dbs:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/RuntimeName'
+        gone_dbs:
+          type: array
+          maxItems: 200
+          items:
+            $ref: '#/components/schemas/RuntimeName'
+    RuntimeKey:
+      type: array
+      description: '[db, name]'
+      items:
+        type: string
+    RuntimePlanResult:
+      type: object
+      properties:
+        changed:
+          type: boolean
+        adopted:
+          $ref: '#/components/schemas/FreeObject'
+        conflicts:
+          $ref: '#/components/schemas/FreeObject'
+        rejected:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                $ref: '#/components/schemas/RuntimeKey'
+              reason:
+                type: string
+        updated_ok:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                $ref: '#/components/schemas/RuntimeKey'
+              type:
+                type: string
+        renamed_ok:
+          type: array
+          items:
+            type: object
+            properties:
+              old:
+                $ref: '#/components/schemas/RuntimeKey'
+              new:
+                $ref: '#/components/schemas/RuntimeKey'
+        dropped_ok:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuntimeKey'
+        files_kept:
+          type: array
+          items:
+            $ref: '#/components/schemas/RuntimeKey'
+        deletions:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                $ref: '#/components/schemas/RuntimeKey'
+              loc:
+                type: string
+        generation_before:
+          type: integer
+        generation:
+          type: integer
+      x-notisbook-note: Types of `changed`, `adopted`, `conflicts` and `dropped_ok` come from `registry.commit_plan` and were not fully resolved statically.
+    IcebergErrorModel:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [message, type, code]
+          properties:
+            message:
+              type: string
+            type:
+              type: string
+              example: NoSuchTableException
+            code:
+              type: integer
+    IcebergConfig:
+      type: object
+      properties:
+        defaults:
+          type: object
+          additionalProperties:
+            type: string
+        overrides:
+          type: object
+          properties:
+            io-impl:
+              type: string
+              enum: [org.apache.iceberg.hadoop.HadoopFileIO]
+        endpoints:
+          type: array
+          items:
+            type: string
+    IcebergNamespace:
+      type: array
+      items:
+        type: string
+    IcebergNamespaceResponse:
+      type: object
+      properties:
+        namespace:
+          $ref: '#/components/schemas/IcebergNamespace'
+        properties:
+          type: object
+          additionalProperties:
+            type: string
+    IcebergCreateNamespaceRequest:
+      type: object
+      required: [namespace]
+      properties:
+        namespace:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            type: string
+            pattern: '^[A-Za-z0-9_][A-Za-z0-9_$-]{0,127}$'
+        properties:
+          type: object
+          description: At most 200 entries; the key `exists` is reserved.
+          additionalProperties:
+            type: string
+            maxLength: 1000
+    IcebergUpdateNamespacePropertiesRequest:
+      type: object
+      properties:
+        updates:
+          type: object
+          additionalProperties:
+            type: string
+            maxLength: 1000
+        removals:
+          type: array
+          items:
+            type: string
+            maxLength: 255
+    IcebergUpdateNamespacePropertiesResponse:
+      type: object
+      properties:
+        updated:
+          type: array
+          items:
+            type: string
+        removed:
+          type: array
+          items:
+            type: string
+        missing:
+          type: array
+          items:
+            type: string
+    IcebergTableIdentifier:
+      type: object
+      required: [namespace, name]
+      properties:
+        namespace:
+          $ref: '#/components/schemas/IcebergNamespace'
+        name:
+          type: string
+    IcebergCreateTableRequest:
+      type: object
+      required: [name, schema]
+      properties:
+        name:
+          type: string
+          pattern: '^[A-Za-z0-9_][A-Za-z0-9_$-]{0,127}$'
+        location:
+          type: string
+        schema:
+          $ref: '#/components/schemas/FreeObject'
+        partition-spec:
+          $ref: '#/components/schemas/FreeObject'
+        write-order:
+          $ref: '#/components/schemas/FreeObject'
+        stage-create:
+          type: boolean
+        properties:
+          type: object
+          description: '`format-version` must be `1` or `2`.'
+          additionalProperties:
+            type: string
+    IcebergCommitTableRequest:
+      type: object
+      properties:
+        requirements:
+          type: array
+          description: Allowed types are assert-create, assert-table-uuid, assert-ref-snapshot-id, assert-last-assigned-field-id, assert-current-schema-id, assert-last-assigned-partition-id, assert-default-spec-id and assert-default-sort-order-id.
+          items:
+            $ref: '#/components/schemas/FreeObject'
+        updates:
+          type: array
+          maxItems: 1000
+          description: Allowed actions are assign-uuid, upgrade-format-version, add-schema, set-current-schema, add-spec, set-default-spec, add-sort-order, set-default-sort-order, set-location, set-properties, remove-properties, add-snapshot, set-snapshot-ref, remove-snapshots, remove-snapshot-ref, remove-partition-specs and remove-schemas.
+          items:
+            $ref: '#/components/schemas/FreeObject'
+    IcebergLoadTableResult:
+      type: object
+      required: [metadata]
+      properties:
+        metadata-location:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/FreeObject'
+        config:
+          type: object
+          additionalProperties:
+            type: string
+    IcebergCommitTableResponse:
+      type: object
+      required: [metadata]
+      properties:
+        metadata-location:
+          type: string
+        metadata:
+          $ref: '#/components/schemas/FreeObject'
+    IcebergRenameTableRequest:
+      type: object
+      required: [source, destination]
+      properties:
+        source:
+          $ref: '#/components/schemas/IcebergTableIdentifier'
+        destination:
+          $ref: '#/components/schemas/IcebergTableIdentifier'
+    SparkInstallBody:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+          description: Must look like `3.5.9`.
+    SparkRequirementRow:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        spec:
+          type: string
+          default: ''
+    SparkAddBody:
+      type: object
+      required: [requirements]
+      properties:
+        requirements:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/SparkRequirementRow'
+    SparkNamesBody:
+      type: object
+      required: [names]
+      properties:
+        names:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            type: string
+    SparkCatalog:
+      type: object
+      properties:
+        source:
+          type: string
+        fallback:
+          type: boolean
+        versions:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: string
+              released_at:
+                type: string
+                format: date-time
+                nullable: true
+              installed:
+                type: boolean
+              formats:
+                type: array
+                nullable: true
+                items:
+                  type: string
+    SparkVersions:
+      type: object
+      properties:
+        installed:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeObject'
+        catalog:
+          type: array
+          items:
+            type: string
+        installing:
+          type: array
+          items:
+            type: object
+            properties:
+              kernel_name:
+                type: string
+              job_id:
+                type: string
+              kind:
+                type: string
+    SparkPackages:
+      type: object
+      properties:
+        version:
+          type: string
+        kernel_name:
+          type: string
+        env_dir:
+          type: string
+        job_id:
+          type: string
+          nullable: true
+        job_action:
+          type: string
+          nullable: true
+        packages:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeObject'
+    DockerInstallBody:
+      type: object
+      properties:
+        connections_dir:
+          type: string
+          nullable: true
+        recreate:
+          type: boolean
+          default: false
+    DockerRuntimes:
+      type: object
+      properties:
+        available:
+          type: boolean
+        runtimes:
+          type: array
+          items:
+            $ref: '#/components/schemas/FreeObject'
+    DuckdbStatus:
+      type: object
+      properties:
+        kernel_name:
+          type: string
+        supported:
+          type: boolean
+        version:
+          type: string
+          nullable: true
+        installed:
+          type: object
+          nullable: true
+          description: Installed runtime entry (built by `InstalledRuntime.as_dict`), or null.
+          additionalProperties: true
+        installing:
+          type: object
+          nullable: true
+          properties:
+            job_id:
+              type: string
+            kind:
+              type: string
+    DuckdbExtensions:
+      type: object
+      properties:
+        version:
+          type: string
+        extensions:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              installed:
+                type: boolean
+    JobEvent:
+      type: object
+      required: [phase, line]
+      properties:
+        phase:
+          type: string
+        line:
+          type: string
+        progress:
+          type: number
+    JobInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+        version:
+          type: string
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed]
+        error:
+          type: string
+          nullable: true
+        log:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobEvent'
+    NotislakeStatus:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [automatic, manual, invalid]
+        local:
+          type: object
+          nullable: true
+          properties:
+            state:
+              type: string
+            since:
+              type: string
+              format: date-time
+            restarts:
+              type: integer
+            api_port:
+              type: integer
+              nullable: true
+            console_port:
+              type: integer
+              nullable: true
+            console_url:
+              type: string
+              nullable: true
+            error:
+              type: object
+              nullable: true
+              properties:
+                code:
+                  type: string
+                message:
+                  type: string
+    NotislakeConfigBody:
+      type: object
+      description: Manual connection draft; type and value validation is done by `settings_store`.
+      properties:
+        name:
+          type: string
+          nullable: true
+        endpoint:
+          type: string
+          nullable: true
+        access_key:
+          type: string
+          nullable: true
+        secret_key:
+          type: string
+          format: password
+          nullable: true
+        region:
+          type: string
+          default: us-east-1
+        timeout_s:
+          type: integer
+          default: 10
+    NotislakeConfigView:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [manual, automatic, invalid]
+        name:
+          type: string
+        endpoint:
+          type: string
+        access_key:
+          type: string
+        region:
+          type: string
+        timeout_s:
+          type: integer
+        has_secret:
+          type: boolean
+        field:
+          type: string
+          nullable: true
+        local:
+          type: object
+          nullable: true
+          properties:
+            endpoint:
+              type: string
+            access_key:
+              type: string
+            region:
+              type: string
+    NotislakeObjectsPage:
+      type: object
+      properties:
+        source:
+          type: string
+        bucket:
+          type: string
+        prefix:
+          type: string
+        prefixes:
+          type: array
+          items:
+            type: string
+        objects:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              size:
+                type: integer
+              last_modified:
+                type: string
+                format: date-time
+                nullable: true
+        is_truncated:
+          type: boolean
+        next_continuation_token:
+          type: string
+          nullable: true
+    NotislakeTestResult:
+      type: object
+      required: [ok, source]
+      properties:
+        ok:
+          type: boolean
+        source:
+          type: string
+        code:
+          type: string
+        message:
+          type: string

@@ -1,0 +1,58 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    SPA["Frontend SPA<br/>React"]
+
+    subgraph BACKEND["Backend process notisbook"]
+        SEC["security<br/>Tokens, Host, Origin"]
+        ROUTERS["api routers<br/>REST and WebSocket"]
+        KSVC["kernels.service<br/>Sessions, protocol v1"]
+        HOOK["catalog_hook<br/>Hidden kernel module"]
+        CATREG["catalog<br/>Registry and store"]
+        ICEREST["iceberg_rest<br/>Iceberg REST catalog"]
+        RTCAT["runtime_catalog<br/>Docker catalog API"]
+        INST["Installers<br/>spark, duckdb, docker"]
+        JOBS["jobs<br/>Background progress"]
+        SUP["notislake.supervisor<br/>MinIO lifecycle"]
+        EXP["export<br/>py, ipynb, html"]
+        LIFE["lifecycle<br/>Instance record"]
+        MAINT["maintenance<br/>update, uninstall"]
+    end
+
+    CATDB[("catalog.db<br/>SQLite")]
+    MINIO["notislake<br/>MinIO"]
+    KERNELS["Kernels<br/>Spark, DuckDB, Glue"]
+
+    SPA -->|"Bearer token"| SEC
+    SEC -->|"Authorized requests"| ROUTERS
+    ROUTERS -->|"Sessions and channel"| KSVC
+    ROUTERS -->|"Catalog, info, schemas"| CATREG
+    ROUTERS -->|"Install requests"| INST
+    INST -->|"Progress events"| JOBS
+    ROUTERS -->|"Export body in memory"| EXP
+    ROUTERS -->|"Shutdown"| LIFE
+    KSVC -->|"Silent execute"| HOOK
+    KSVC -->|"jupyter_client"| KERNELS
+    HOOK -->|"Reconcile plan"| CATDB
+    KERNELS -->|"Runtime token"| RTCAT
+    KERNELS -->|"Runtime token"| ICEREST
+    RTCAT -->|"apply plan"| CATREG
+    ICEREST -->|"iceberg tables"| CATREG
+    CATREG -->|"SQL"| CATDB
+    SUP -->|"Start and monitor"| MINIO
+    MAINT -->|"Stops instance"| LIFE
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class SPA integration
+    class SEC,ROUTERS,KSVC,HOOK,CATREG,ICEREST,RTCAT,INST,JOBS,EXP,LIFE,MAINT processing
+    class KERNELS processing
+    class SUP,MINIO support
+    class CATDB persistence

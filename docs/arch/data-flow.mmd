@@ -1,0 +1,36 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    CELL["Notebook cell<br/>python, sql, duckdb"]
+    WS["WebSocket channel<br/>Protocol v1"]
+    KSVC["Kernel service<br/>Backend"]
+    KERNEL["Kernel<br/>Spark, DuckDB, Glue"]
+    CHECK["Destination check<br/>Catalog hook"]
+    LAKE[("notislake bucket<br/>bronze, silver, gold")]
+    PLAN["Reconcile plan<br/>post_run_cell"]
+    CATDB[("catalog.db<br/>SQLite")]
+    PANEL["Catalog panel<br/>No kernel needed"]
+
+    CELL -->|"execute"| WS
+    WS -->|"cell_id, code, language"| KSVC
+    KSVC -->|"execute_request"| KERNEL
+    KERNEL -->|"Before write"| CHECK
+    CHECK -->|"s3a://notislake/layer/table"| LAKE
+    KERNEL -->|"After cell"| PLAN
+    PLAN -->|"SQLite or backend API"| CATDB
+    CATDB -->|"GET /api/catalog"| PANEL
+    KERNEL -->|"iopub outputs"| KSVC
+    KSVC -->|"output, execute_reply"| WS
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class CELL,PANEL integration
+    class WS,KSVC,KERNEL,CHECK,PLAN processing
+    class LAKE,CATDB persistence

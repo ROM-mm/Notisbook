@@ -1,0 +1,37 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    GH["GitHub Releases<br/>5 assets per version"]
+
+    subgraph MAC["Mac with Apple silicon"]
+        INSTALLER["install.sh<br/>sha256 check"]
+        UVTOOL["uv tool env<br/>notisbook wheel"]
+        PKG[("MinIO package<br/>~/.local/share/notisbook")]
+        PROC["notisbook process<br/>127.0.0.1:8765"]
+        DATA[("Data folder<br/>~/.notisbook")]
+        JDK["JDK 17 or 21<br/>For Spark kernels"]
+        DOCKERVM["Docker engine<br/>Colima or Desktop"]
+    end
+
+    GH -->|"curl over HTTPS"| INSTALLER
+    INSTALLER -->|"uv tool install --no-build"| UVTOOL
+    INSTALLER -->|"Copies tarball"| PKG
+    UVTOOL -->|"Runs"| PROC
+    PROC -->|"Installs MinIO binary"| PKG
+    PROC -->|"envs, catalog.db, minio data"| DATA
+    PROC -->|"JAVA_HOME in kernelspec"| JDK
+    PROC -->|"Glue container"| DOCKERVM
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class GH external
+    class INSTALLER,UVTOOL,PROC processing
+    class JDK,DOCKERVM support
+    class PKG,DATA persistence

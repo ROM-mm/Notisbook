@@ -1,0 +1,45 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    USER["User<br/>Browser"]
+
+    subgraph MAC["Mac with Apple silicon"]
+        SPA["Frontend SPA<br/>React + Vite"]
+        API["Backend<br/>FastAPI + Uvicorn"]
+        SPARK["Spark kernel<br/>ipykernel + PySpark"]
+        DUCK["DuckDB kernel<br/>ipykernel + DuckDB"]
+        MINIO["notislake<br/>Local MinIO"]
+        CATDB[("catalog.db<br/>SQLite")]
+        HOME[("Data folder<br/>NOTISBOOK_HOME")]
+        GLUE["Glue container<br/>AWS Glue 5.0"]
+    end
+
+    USER -->|"HTTP on loopback, token"| SPA
+    SPA -->|"REST and WebSocket"| API
+    API -->|"jupyter_client"| SPARK
+    API -->|"jupyter_client"| DUCK
+    API -->|"docker exec ipykernel"| GLUE
+    API -->|"Supervises"| MINIO
+    API -->|"Reads and writes"| CATDB
+    API -->|"Notebooks, envs, prefs"| HOME
+    SPARK -->|"Catalog hook, SQLite"| CATDB
+    SPARK -->|"S3A"| MINIO
+    DUCK -->|"Iceberg REST"| API
+    DUCK -->|"S3"| MINIO
+    GLUE -->|"runtime-catalog and Iceberg REST"| API
+    GLUE -->|"S3A via host.lima.internal"| MINIO
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class USER external
+    class SPA integration
+    class API,SPARK,DUCK,GLUE processing
+    class MINIO support
+    class CATDB,HOME persistence

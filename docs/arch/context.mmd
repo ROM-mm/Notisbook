@@ -1,0 +1,31 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    USER["User<br/>Browser on the Mac"]
+    NB["Notisbook<br/>Local data workstation"]
+    GH["GitHub Releases<br/>Wheel, MinIO, install.sh"]
+    PYPI["PyPI<br/>pyspark, duckdb, libraries"]
+    MAVEN["Maven Central<br/>Lakehouse jars"]
+    DUCKEXT["DuckDB extensions<br/>extensions.duckdb.org"]
+    DOCKER["Docker engine<br/>AWS Glue 5.0 image"]
+    S3["S3 endpoint<br/>Optional manual mode"]
+
+    USER -->|"HTTP and WebSocket on 127.0.0.1"| NB
+    NB -->|"install.sh and update"| GH
+    NB -->|"Runtime and library install"| PYPI
+    NB -->|"Bundle jars, sha256"| MAVEN
+    NB -->|"Extensions, sha256"| DUCKEXT
+    NB -->|"Build image and docker exec"| DOCKER
+    NB -->|"S3A when configured"| S3
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class USER,GH,PYPI,MAVEN,DUCKEXT,DOCKER,S3 external
+    class NB processing
