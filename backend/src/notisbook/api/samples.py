@@ -1,14 +1,22 @@
 """Exemplos empacotados que ainda existem na raiz de notebooks atual."""
 
 import json
+from pathlib import PurePosixPath
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
 from ..kernels.service import DUCKDB_KERNEL_NAME, DUCKDB_METADATA_KEY, runtime_kind
 from ..notebooks.store import NotebookStore, StoreError
-from ..onboarding import SAMPLES_DIR, bundled_samples
+from ..onboarding import SAMPLES_DIR
 from ..security import require_token, require_trusted_host
+
+# Exemplos exibidos na Home, na ordem de exibição; os demais empacotados são semeados mas não listados.
+FEATURED_SAMPLES: tuple[str, ...] = (
+    "spark/delta.ipynb",
+    "duckdb/duckdb.ipynb",
+    "glue/iceberg.ipynb",
+)
 
 router = APIRouter(
     prefix="/api/samples",
@@ -51,12 +59,16 @@ def _describe(name: str, rel: str) -> dict[str, str]:
 
 @router.get("")
 def list_samples(request: Request) -> list[dict[str, str]]:
-    """Lista os exemplos empacotados presentes na raiz, ordenados pelo caminho relativo.
+    """Lista apenas os exemplos em destaque (`FEATURED_SAMPLES`) presentes na raiz, na ordem da constante.
 
     O exemplo é identificado SOMENTE pelo caminho (subpasta + arquivo), nunca pelo conteúdo: executar
     e salvar um exemplo grava saídas no .ipynb, e uma comparação por hash deixaria de reconhecê-lo.
     Consequência: um notebook do usuário no mesmo caminho de um exemplo é tratado como exemplo.
+    Destaque ausente da raiz do usuário ou do pacote é omitido.
     """
     store: NotebookStore = request.app.state.store
-    rels = [(rel.stem, rel.as_posix()) for rel in bundled_samples()]
-    return [_describe(name, path) for name, path in rels if _present_in_root(store, path)]
+    return [
+        _describe(PurePosixPath(rel).stem, rel)
+        for rel in FEATURED_SAMPLES
+        if (SAMPLES_DIR / rel).is_file() and _present_in_root(store, rel)
+    ]
