@@ -1,0 +1,61 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    SPA["Web UI<br/>React SPA"]
+
+    subgraph BACKEND["Backend process"]
+        STATIC["static<br/>SPA + CSP"]
+        SEC["security<br/>Tokens, Host/Origin"]
+        ROUTERS["api routers<br/>REST + WebSocket"]
+        ICEREST["iceberg_rest<br/>Iceberg REST catalog"]
+        RTCAT["runtime_catalog<br/>Docker registry API"]
+        KERN["kernels<br/>KernelService"]
+        HOOKS["hidden modules<br/>display + catalog hook"]
+        SPARKI["spark<br/>Installer + bundles"]
+        DUCKI["runtimes.duckdb<br/>Installer + kernelspec"]
+        DOCKR["runtimes.docker<br/>Glue runtime"]
+        CATALOG["catalog<br/>Store + registry"]
+        NOTISLAKE["notislake<br/>Supervisor + creds"]
+        NBSTORE["notebooks<br/>NotebookStore"]
+        EXPORT["export<br/>py, ipynb, html"]
+        JOBS["jobs<br/>JobRegistry"]
+        MAINT["maintenance<br/>update, uninstall"]
+        LIFE["lifecycle<br/>Version handover"]
+    end
+
+    CATDB[("catalog.db<br/>SQLite")]
+    MINIO["notislake<br/>MinIO"]
+
+    SPA -->|"HTML, assets"| STATIC
+    SPA -->|"REST, WS"| ROUTERS
+    ROUTERS -->|"Checks"| SEC
+    ROUTERS -->|"Sessions"| KERN
+    ROUTERS -->|"Install jobs"| JOBS
+    JOBS -->|"Runs"| SPARKI
+    JOBS -->|"Runs"| DUCKI
+    JOBS -->|"Runs"| DOCKR
+    ROUTERS -->|"Contents"| NBSTORE
+    ROUTERS -->|"Export"| EXPORT
+    ROUTERS -->|"Catalog tree"| CATALOG
+    ROUTERS -->|"Status, objects"| NOTISLAKE
+    ROUTERS -->|"Shutdown"| LIFE
+    KERN -->|"Silent install"| HOOKS
+    KERN -->|"Launches"| DOCKR
+    ICEREST -->|"CAS metadata"| CATALOG
+    RTCAT -->|"Registry, plan"| CATALOG
+    CATALOG -->|"SQL"| CATDB
+    NOTISLAKE -->|"Child process"| MINIO
+    MAINT -->|"Stops via"| LIFE
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class SPA integration
+    class STATIC,SEC,ROUTERS,ICEREST,RTCAT,KERN,HOOKS,SPARKI,DUCKI,DOCKR,CATALOG,NOTISLAKE,NBSTORE,EXPORT,JOBS,MAINT,LIFE processing
+    class CATDB,MINIO persistence

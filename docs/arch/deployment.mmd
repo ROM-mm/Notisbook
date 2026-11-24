@@ -1,0 +1,44 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    GH["GitHub Releases<br/>wheel, MinIO, install.sh"]
+
+    subgraph MAC["Mac with Apple silicon"]
+        BROWSER["Browser<br/>127.0.0.1:8765"]
+        UVTOOL["uv tool env<br/>notisbook wheel"]
+        BACKEND["notisbook process<br/>FastAPI + uvicorn"]
+        MINIOBIN["MinIO binary<br/>~/.notisbook/minio/bin"]
+        MINIOPROC["MinIO process<br/>Loopback dynamic ports"]
+        ENVS[("Runtime envs<br/>~/.notisbook/envs")]
+        DATA[("Data root<br/>~/.notisbook")]
+        DIST[("MinIO package<br/>~/.local/share/notisbook")]
+    end
+
+    subgraph COLIMA["Colima VM"]
+        GLUEC["notisbook-glue<br/>Container"]
+    end
+
+    GH -->|"install.sh verifies SHA256SUMS"| UVTOOL
+    GH -->|"Tarball"| DIST
+    UVTOOL -->|"Runs"| BACKEND
+    DIST -->|"Verified install"| MINIOBIN
+    MINIOBIN -->|"Supervised child"| MINIOPROC
+    BROWSER -->|"HTTP, WS"| BACKEND
+    BACKEND -->|"Kernel processes"| ENVS
+    BACKEND -->|"State"| DATA
+    BACKEND -->|"Docker CLI"| GLUEC
+    GLUEC -->|"host.lima.internal"| BACKEND
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class GH external
+    class BROWSER integration
+    class UVTOOL,BACKEND,MINIOBIN,MINIOPROC,GLUEC processing
+    class ENVS,DATA,DIST persistence
