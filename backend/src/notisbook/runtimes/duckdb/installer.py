@@ -179,9 +179,9 @@ class DuckDBInstaller(ManagedInstaller):
             raise NotInstalled(version)
         for entry in entries:
             try:
-                remove_kernelspec(entry.kernel_name)
+                remove_kernelspec(self.base_dir, entry.kernel_name)
             except OSError as exc:
-                raise RemoveFailed([str(kernels_dir() / entry.kernel_name)]) from exc
+                raise RemoveFailed([str(kernels_dir(self.base_dir) / entry.kernel_name)]) from exc
         self.try_acquire(name, "", "remove")
         return self._spawn(self._remove_envs(name, version, {e.env_dir for e in entries}))
 
@@ -265,7 +265,7 @@ class DuckDBInstaller(ManagedInstaller):
             await job.emit("kernelspec", f"writing kernelspec {name}", self._progress("kernelspec"))
             current = await asyncio.to_thread(self.entries_of, manifest.duckdb_version)
             previous = {e.env_dir for e in current}
-            await asyncio.to_thread(write_kernelspec, manifest.duckdb_version, env_dir, manifest.names)
+            await asyncio.to_thread(write_kernelspec, self.base_dir, manifest.duckdb_version, env_dir, manifest.names)
             installed, env_dir = env_dir, None  # switched: the new env must survive from here on
             await self._supersede_legacy(job, current)
             await self._cleanup(job, manifest.duckdb_version, installed, previous, {e.kernel_name for e in current})
@@ -377,7 +377,7 @@ class DuckDBInstaller(ManagedInstaller):
             if entry.kernel_name == KERNEL_NAME:
                 await job.emit("cleanup", f"replacing legacy kernelspec {KERNEL_NAME}", self._progress("cleanup"))
                 try:
-                    await asyncio.to_thread(remove_kernelspec, KERNEL_NAME)
+                    await asyncio.to_thread(remove_kernelspec, self.base_dir, KERNEL_NAME)
                 except OSError:
                     log.warning("could not remove the legacy kernelspec %s", KERNEL_NAME, exc_info=True)
 

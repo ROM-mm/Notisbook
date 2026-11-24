@@ -24,6 +24,7 @@ from .static import mount_frontend
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     kernels: KernelService = app.state.kernels
     kernels.cleanup_orphans()
+    await asyncio.to_thread(kernels.reconcile_kernelspecs)
     kernels.start_docker_sweep()
     installer: SparkInstaller = app.state.installer
     docker: DockerRuntimes = app.state.docker

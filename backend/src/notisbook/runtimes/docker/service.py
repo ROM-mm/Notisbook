@@ -285,8 +285,8 @@ class DockerRuntimes:
     async def describe(self, runtime: catalog.DockerRuntime, connections_dir: str | None = None) -> dict[str, Any]:
         """Estado do runtime para a UI; sem Docker, só o que o disco informa (nunca levanta por isso)."""
         available = await asyncio.to_thread(cli.is_available)
-        registration = await asyncio.to_thread(kernelspec.read_registration, runtime)
-        saved = await asyncio.to_thread(kernelspec.read_packages, runtime) or {}
+        registration = await asyncio.to_thread(kernelspec.read_registration, self._home, runtime)
+        saved = await asyncio.to_thread(kernelspec.read_packages, self._home, runtime) or {}
         held = self.active_job(runtime.kernel_name)
         state: dict[str, Any] = {
             "key": runtime.key,
@@ -348,7 +348,7 @@ class DockerRuntimes:
     async def details(self, runtime: catalog.DockerRuntime, connections_dir: str | None = None) -> dict[str, Any]:
         """`describe` mais python e pacotes gravados na instalação (somente leitura)."""
         state = await self.describe(runtime, connections_dir)
-        saved = await asyncio.to_thread(kernelspec.read_packages, runtime) or {}
+        saved = await asyncio.to_thread(kernelspec.read_packages, self._home, runtime) or {}
         state["python"] = saved.get("python")
         state["packages"] = saved.get("packages") or []
         return state
@@ -522,7 +522,7 @@ class DockerRuntimes:
         await self._emit(job, "kernelspec", f"Gravando o kernelspec {runtime.kernel_name}")
         data = await asyncio.to_thread(launch.packages, runtime)
         data["versions"] = _versions(checks)
-        await asyncio.to_thread(kernelspec.write_kernelspec, runtime, data)
+        await asyncio.to_thread(kernelspec.write_kernelspec, self._home, runtime, data)
 
     # --- stop / restart / remove ---
 
@@ -563,12 +563,12 @@ class DockerRuntimes:
         """Apaga o container e o kernelspec; a imagem é mantida."""
 
         def act(info: ContainerInfo | None) -> None:
-            registered = kernelspec.read_registration(runtime) is not None
+            registered = kernelspec.read_registration(self._home, runtime) is not None
             if info is None and not registered:
                 raise ContainerMissing(runtime.container)
             if info is not None:
                 self._docker_must(["rm", "-f", runtime.container], STOP_TIMEOUT_S, "remover")
-            kernelspec.remove_kernelspec(runtime)
+            kernelspec.remove_kernelspec(self._home, runtime)
 
         await self._control(runtime, "remove", act)
 

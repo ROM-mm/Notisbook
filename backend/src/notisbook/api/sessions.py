@@ -28,6 +28,8 @@ from ..kernels.service import (
     CONFIG_INVALID_CODE,
     CONFIG_INVALID_MESSAGE,
     NOTISLAKE_UNAVAILABLE_CODE,
+    RUNTIME_NOT_INSTALLED_CODE,
+    RUNTIME_NOT_INSTALLED_MESSAGE,
     SPARK_ENV_OUTDATED_CODE,
     SPARK_ENV_OUTDATED_MESSAGE,
     DockerRuntimeError,
@@ -35,6 +37,7 @@ from ..kernels.service import (
     KernelService,
     KernelSpecInfo,
     NotislakeUnavailable,
+    RuntimeNotInstalled,
     SessionNotFound,
     SparkEnvOutdated,
 )
@@ -105,6 +108,8 @@ async def create_session(
         raise HTTPException(409, detail={"code": CONFIG_INVALID_CODE, "message": CONFIG_INVALID_MESSAGE}) from None
     except NotislakeUnavailable as exc:
         raise HTTPException(503, detail={"code": NOTISLAKE_UNAVAILABLE_CODE, "message": exc.message}) from exc
+    except RuntimeNotInstalled:
+        raise HTTPException(409, detail={"code": RUNTIME_NOT_INSTALLED_CODE, "message": RUNTIME_NOT_INSTALLED_MESSAGE}) from None
     except SparkEnvOutdated:
         raise HTTPException(409, detail={"code": SPARK_ENV_OUTDATED_CODE, "message": SPARK_ENV_OUTDATED_MESSAGE}) from None
     except DockerRuntimeError as exc:

@@ -1,12 +1,11 @@
 """`notisbook uninstall`: remove o software e preserva os dados do usuário.
 
-Remove: container e kernelspecs desta pasta de dados, `envs/`, `jars/` (cache compartilhado), `run/`, `minio/{bin,logs,run}`, o pacote
+Remove: container e kernelspecs desta pasta de dados (`kernels/` dela e os legados da pasta global do Jupyter), `envs/`, `jars/` (cache compartilhado), `run/`, `minio/{bin,logs,run}`, o pacote
 MinIO e, por último, o próprio `uv tool`. Mantém `minio/data`, credenciais, `catalog.db`, warehouses,
 preferências e notebooks. Cada passo é idempotente (ausente = ok); a remoção do tool é um `execv`
 final porque o Python não sobrevive ao ambiente que o hospeda. As mensagens saem em inglês.
 """
 
-import json
 import os
 import shutil
 import sys
@@ -102,7 +101,7 @@ def _remove_paths(home: Path) -> list[Path]:
     if _home_skip_reason(home) is not None:
         return []
     minio = home / "minio"
-    candidates = [home / spark_kernelspec.ENVS_DIR, home / JARS_DIR, *sorted(home.glob(LEGACY_ENV_GLOB)), minio / "bin", minio / "logs"]
+    candidates = [home / spark_kernelspec.ENVS_DIR, spark_kernelspec.kernels_dir(home), home / JARS_DIR, *sorted(home.glob(LEGACY_ENV_GLOB)), minio / "bin", minio / "logs"]
     candidates += [home / lifecycle.RUN_DIR, _lock_dir(home)]
     return [p for p in candidates if p.exists() or p.is_symlink()]
 
@@ -167,22 +166,21 @@ def _remove_container(home: Path) -> str | None:
     return state
 
 
-def _docker_spec_is_ours() -> bool:
-    """O kernelspec Docker aponta para o Python deste ambiente (que está prestes a sumir)."""
-    runtime = docker_catalog.CATALOG[0]
-    if docker_kernelspec.read_registration(runtime) is None:
-        return False
-    try:
-        spec = json.loads((docker_kernelspec.kernelspec_dir(runtime) / "kernel.json").read_text(encoding="utf-8"))
-        python = Path(os.path.abspath(spec["argv"][0]))
-    except (OSError, ValueError, KeyError, IndexError, TypeError):
-        return False
-    return python.is_relative_to(Path(sys.prefix).absolute())
+def _docker_spec_is_ours(spec_dir: Path) -> bool:
+    """O kernelspec Docker em `spec_dir` aponta para o Python deste ambiente (que está prestes a sumir)."""
+    return docker_kernelspec.is_ours_at(spec_dir, docker_catalog.CATALOG[0])
+
+
+def _owned_spec_dirs(home: Path, root: Path) -> list[Path]:
+    """Pastas dos specs Spark e DuckDB de `root` que apontam para este home, instalados ou órfãos."""
+    dirs = [spec_dir for spec_dir, _entry, _installed in spark_kernelspec.owned_specs(home, root)]
+    dirs.extend(spec_dir for spec_dir, _entry, _installed in duckdb_kernelspec.owned_specs(home, root))
+    return dirs
 
 
 def _kernel_names(home: Path) -> list[str]:
-    names = [entry.kernel_name for entry in spark_kernelspec.discover(home)]
-    names.extend(entry.kernel_name for entry in duckdb_kernelspec.discover(home))
+    names = [spec_dir.name for spec_dir in _owned_spec_dirs(home, spark_kernelspec.kernels_dir(home))]
+    names.extend(f"{spec_dir.name}, legacy global folder" for spec_dir in _owned_spec_dirs(home, spark_kernelspec.legacy_kernels_dir()))
     return names
 
 
@@ -246,22 +244,30 @@ def _clean_container(home: Path, failures: list[str]) -> None:
         )
     elif state == "ours":
         print(f"Removed container {runtime.container}.")
+    if state not in ("ours", "absent"):
+        return
     # Sem container nosso por perto, só o kernelspec que aponta para este ambiente é do app.
-    if state in ("ours", "absent") and (state == "ours" or _docker_spec_is_ours()):
-        try:
-            docker_kernelspec.remove_kernelspec(runtime)
-        except OSError as exc:
-            failures.append(f"{docker_kernelspec.kernelspec_dir(runtime)}: {exc.strerror}")
+    home_spec = docker_kernelspec.kernelspec_dir(home, runtime)
+    legacy_spec = spark_kernelspec.legacy_kernels_dir() / runtime.kernel_name
+    for spec_dir in (home_spec, legacy_spec):
+        # Na pasta global só se apaga o que está registrado como Docker do Notisbook.
+        if spec_dir == legacy_spec and docker_kernelspec.read_registration_at(spec_dir, runtime) is None:
+            continue
+        if state == "ours" or _docker_spec_is_ours(spec_dir):
+            try:
+                _rm(spec_dir)
+            except OSError as exc:
+                failures.append(f"{spec_dir}: {exc.strerror}")
 
 
 def _clean_kernels(home: Path, failures: list[str]) -> None:
-    try:
-        for entry in spark_kernelspec.discover(home):
-            spark_kernelspec.remove_kernelspec(entry.kernel_name)
-        for entry in duckdb_kernelspec.discover(home):
-            duckdb_kernelspec.remove_kernelspec(entry.kernel_name)
-    except OSError as exc:
-        failures.append(f"Jupyter kernels: {exc.strerror}")
+    # Leitor "pertencente" (inclui órfãos), nunca `discover`: ele esconde specs cujo env já sumiu.
+    for root in (spark_kernelspec.kernels_dir(home), spark_kernelspec.legacy_kernels_dir()):
+        for spec_dir in _owned_spec_dirs(home, root):
+            try:
+                _rm(spec_dir)
+            except OSError as exc:
+                failures.append(f"Jupyter kernels: {exc.strerror}")
 
 
 def _clean_paths(paths: list[Path], failures: list[str]) -> None:

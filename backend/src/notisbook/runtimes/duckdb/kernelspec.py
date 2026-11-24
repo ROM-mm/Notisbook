@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...spark.kernelspec import ENVS_DIR, TRASH_PREFIX, kernels_dir
+from ...spark.kernelspec import ENVS_DIR, TRASH_PREFIX, PythonState, kernels_dir, python_state
 from .manifest import is_valid_version, version_key
 
 # Nome legado e alias: sem kernelspec instalado com este nome, o serviço de kernels resolve para o `duckdb-*` mais novo.
@@ -69,7 +69,7 @@ def extension_dir(env_dir: Path) -> Path:
     return env_dir / EXTENSIONS_SUBDIR
 
 
-def write_kernelspec(version: str, env_dir: Path, extensions: tuple[str, ...]) -> Path:
+def write_kernelspec(home: Path, version: str, env_dir: Path, extensions: tuple[str, ...]) -> Path:
     """Create or atomically replace `kernel.json`; the previous file survives any failure."""
     python = str(env_dir / "bin" / "python")
     spec = {
@@ -84,7 +84,7 @@ def write_kernelspec(version: str, env_dir: Path, extensions: tuple[str, ...]) -
             }
         },
     }
-    target = kernels_dir() / kernel_name(version)
+    target = kernels_dir(home) / kernel_name(version)
     target.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=target, prefix=".kernel.", suffix=".tmp")
     try:
@@ -99,7 +99,7 @@ def write_kernelspec(version: str, env_dir: Path, extensions: tuple[str, ...]) -
     return target / "kernel.json"
 
 
-def remove_kernelspec(name: str) -> None:
+def remove_kernelspec(home: Path, name: str) -> None:
     """Apaga o kernelspec `name` (legado ou por versão); quem chama escolhe só os gerenciados via `discover`.
 
     Já ausente é ok, qualquer outra falha de E/S sobe como OSError.
@@ -107,13 +107,12 @@ def remove_kernelspec(name: str) -> None:
     if not is_duckdb_kernel_name(name):
         raise ValueError(f"not a DuckDB kernel name: {name!r}")
     try:
-        shutil.rmtree(kernels_dir() / name)
+        shutil.rmtree(kernels_dir(home) / name)
     except FileNotFoundError:
         pass
 
 
-def _spec_dirs() -> list[Path]:
-    root = kernels_dir()
+def _spec_dirs(root: Path) -> list[Path]:
     try:
         return sorted(p for p in root.iterdir() if is_duckdb_kernel_name(p.name) and p.is_dir())
     except OSError:
@@ -129,7 +128,8 @@ def is_removable_env(base_dir: Path, env_dir: Path) -> bool:
     return env_dir.parent == base_dir / ENVS_DIR and env_dir.name.startswith((ENV_PREFIX, f"{TRASH_PREFIX}{ENV_PREFIX}"))
 
 
-def _read(spec_dir: Path, base_dir: Path) -> InstalledRuntime | None:
+def _read(spec_dir: Path, base_dir: Path) -> tuple[InstalledRuntime, Path] | None:
+    """Spec que aponta para `base_dir` e o interpretador que ele nomeia; sem checar se o interpretador existe."""
     try:
         spec = json.loads((spec_dir / "kernel.json").read_text(encoding="utf-8"))
         python = Path(os.path.abspath(spec["argv"][0]))
@@ -147,13 +147,26 @@ def _read(spec_dir: Path, base_dir: Path) -> InstalledRuntime | None:
     env_dir = python.parent.parent
     if not is_managed_env(base_dir, env_dir):
         return None
-    return InstalledRuntime(version, spec_dir.name, display, env_dir, extension_dir(env_dir), extensions)
+    return InstalledRuntime(version, spec_dir.name, display, env_dir, extension_dir(env_dir), extensions), python
+
+
+def owned_specs(base_dir: Path, root: Path) -> list[tuple[Path, InstalledRuntime, PythonState]]:
+    """`(spec_dir, entry, state)` dos specs de `root` que apontam para `base_dir/envs/duckdb-*`.
+
+    Órfãos e envs bloqueados entram com `state` não utilizável; reconciliação e uninstall dependem disso.
+    """
+    found = []
+    for spec_dir in _spec_dirs(root):
+        read = _read(spec_dir, base_dir)
+        if read is not None:
+            found.append((spec_dir, read[0], python_state(read[1])))
+    return found
 
 
 def discover(base_dir: Path) -> list[InstalledRuntime]:
-    """Runtimes registrados cujo interpretador vive em `base_dir/envs/duckdb-*`, do mais novo ao mais antigo.
+    """Runtimes instalados: o spec aponta para `base_dir/envs/duckdb-*` e o interpretador existe, do mais novo ao mais antigo.
 
     Inclui o kernelspec legado `duckdb`, se existir.
     """
-    found = [entry for d in _spec_dirs() if (entry := _read(d, base_dir)) is not None]
+    found = [entry for _spec_dir, entry, state in owned_specs(base_dir, kernels_dir(base_dir)) if state is PythonState.USABLE]
     return sorted(found, key=lambda e: (version_key(e.version), e.kernel_name), reverse=True)

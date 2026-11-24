@@ -351,9 +351,9 @@ class SparkInstaller(ManagedInstaller):
             raise InstallInProgress(version)
         entry = self.find(version)
         try:
-            remove_kernelspec(entry.kernel_name)
+            remove_kernelspec(self.base_dir, entry.kernel_name)
         except OSError as exc:
-            raise RemoveFailed([str(kernels_dir() / entry.kernel_name)]) from exc
+            raise RemoveFailed([str(kernels_dir(self.base_dir) / entry.kernel_name)]) from exc
         self.try_acquire(name, "", "remove")
         return self._spawn(self._remove_envs(name, version, entry.env_dir))
 
@@ -446,7 +446,7 @@ class SparkInstaller(ManagedInstaller):
             await self._validate(job, python, version, env_dir, java_home, bundle, s3a)
             await job.emit("kernelspec", f"writing kernelspec {name}", self._progress("kernelspec"))
             previous = {e.env_dir for e in discover(self.base_dir) if e.kernel_name == name}
-            await asyncio.to_thread(write_kernelspec, version, env_dir, java_home, s3a)
+            await asyncio.to_thread(write_kernelspec, self.base_dir, version, env_dir, java_home, s3a)
             installed, env_dir = env_dir, None  # switched: the new env must survive from here on
             await self._cleanup(job, version, installed, previous)
             self._jars.unpin(job.id)
