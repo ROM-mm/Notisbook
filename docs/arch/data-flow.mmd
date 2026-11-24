@@ -4,26 +4,24 @@
     "fontSize":"14px","lineColor":"#1F2937",
     "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
 graph TB
-    CELL["Notebook cell<br/>python, sql, duckdb"]
-    WS["WebSocket channel<br/>Protocol v1"]
-    KSVC["Kernel service<br/>Backend"]
+    CELL["Notebook cell<br/>Python, SQL, DuckDB"]
+    UI["Web UI<br/>WebSocket v1"]
+    API["Backend<br/>KernelService"]
     KERNEL["Kernel<br/>Spark, DuckDB, Glue"]
-    CHECK["Destination check<br/>Catalog hook"]
-    LAKE[("notislake bucket<br/>bronze, silver, gold")]
-    PLAN["Reconcile plan<br/>post_run_cell"]
-    CATDB[("catalog.db<br/>SQLite")]
-    PANEL["Catalog panel<br/>No kernel needed"]
+    HOOK["Catalog hook<br/>Destination rules"]
+    CATDB[("catalog.db<br/>Registry + Iceberg")]
+    MINIO[("notislake bucket<br/>landing, bronze, silver, gold")]
+    OUT["Outputs<br/>Sanitized in browser"]
 
-    CELL -->|"execute"| WS
-    WS -->|"cell_id, code, language"| KSVC
-    KSVC -->|"execute_request"| KERNEL
-    KERNEL -->|"Before write"| CHECK
-    CHECK -->|"s3a://notislake/layer/table"| LAKE
-    KERNEL -->|"After cell"| PLAN
-    PLAN -->|"SQLite or backend API"| CATDB
-    CATDB -->|"GET /api/catalog"| PANEL
-    KERNEL -->|"iopub outputs"| KSVC
-    KSVC -->|"output, execute_reply"| WS
+    CELL -->|"execute"| UI
+    UI -->|"execute frame"| API
+    API -->|"Jupyter execute_request"| KERNEL
+    KERNEL -->|"Write table"| HOOK
+    HOOK -->|"Registers table"| CATDB
+    KERNEL -->|"Data files via S3A or httpfs"| MINIO
+    KERNEL -->|"IOPub messages"| API
+    API -->|"output, execute_reply"| UI
+    UI -->|"Renders"| OUT
 
     classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
     classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
@@ -31,6 +29,6 @@ graph TB
     classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
     classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
 
-    class CELL,PANEL integration
-    class WS,KSVC,KERNEL,CHECK,PLAN processing
-    class LAKE,CATDB persistence
+    class CELL,UI,OUT integration
+    class API,KERNEL,HOOK processing
+    class CATDB,MINIO persistence

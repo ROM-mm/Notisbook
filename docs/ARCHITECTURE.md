@@ -1,302 +1,277 @@
 # Notisbook Architecture
 
-## Scope and sources
+This document describes the architecture observed in the source code of Notisbook `0.10.0` (`backend/pyproject.toml`). Every statement cites the files it comes from. Runtime behavior that the code cannot prove (performance, capacity, production use) is listed under [Not established by the code](#not-established-by-the-code).
 
-This document describes the structure observed in the repository's code and configuration (`backend/`,
-`frontend/`, `install.sh`, `start.sh` and `scripts/`), by static reading. It does not prove runtime behavior:
-Notisbook is a local desktop application and the repository holds no server deployment definition. Items without
-evidence are marked as `Not identified in the analyzed code`. Paths below are relative to
-`backend/src/notisbook/` unless they start with a top-level folder.
+## 1. Overview
 
-Diagrams (Mermaid, in `docs/arch/`):
+Notisbook is a local data workstation for macOS on Apple silicon. One Python process:
+
+- serves a React single-page app and a REST/WebSocket API on `127.0.0.1`;
+- manages Jupyter kernels for local Spark, DuckDB and an AWS Glue 6.0 Docker runtime;
+- keeps a persistent table catalog in SQLite (Delta, Parquet and Hudi in `spark_catalog`; Iceberg in a JDBC catalog named `iceberg`);
+- supervises a local MinIO object store called **notislake**.
+
+Diagrams (Mermaid source):
 
 | View | File |
 |---|---|
-| Context | [context.mmd](arch/context.mmd) |
-| Containers | [container.mmd](arch/container.mmd) |
-| Backend components | [component.mmd](arch/component.mmd) |
-| Local deployment | [deployment.mmd](arch/deployment.mmd) |
-| Data flow | [data-flow.mmd](arch/data-flow.mmd) |
+| System context | [`docs/arch/context.mmd`](arch/context.mmd) |
+| Containers | [`docs/arch/container.mmd`](arch/container.mmd) |
+| Backend components | [`docs/arch/component.mmd`](arch/component.mmd) |
+| Deployment (supporting view) | [`docs/arch/deployment.mmd`](arch/deployment.mmd) |
+| Cell execution data flow (supporting view) | [`docs/arch/data-flow.mmd`](arch/data-flow.mmd) |
 
-Architectural decisions are in [docs/adr/](adr/) and the HTTP contract is in [docs/api/swagger.yaml](api/swagger.yaml).
+The HTTP API is described in [`docs/api/swagger.yaml`](api/swagger.yaml) (OpenAPI 3.0). Architectural decisions are recorded in [`docs/adr/`](adr/).
 
-## Overview
-
-Notisbook is one Python process (FastAPI + Uvicorn, Python ≥ 3.12) that serves a compiled React SPA and exposes a
-REST API and WebSockets on `127.0.0.1`. The same process:
-
-- starts and supervises a local MinIO, the **notislake** (`notislake/supervisor.py`);
-- starts Jupyter kernels through `jupyter_client` for three runtimes: local Spark, DuckDB and AWS Glue in Docker
-  (`kernels/service.py`);
-- keeps the table catalog in SQLite (`catalog.db`, `catalog/store.py`) and serves an Iceberg REST catalog over it
-  (`api/iceberg_rest.py`);
-- installs runtimes and Python libraries as background jobs with progress over WebSocket (`jobs.py`, `api/jobs.py`).
-
-Supported platform: macOS on Apple silicon, native or Python under Rosetta (`platform_support.py:12-27`). On an
-Intel Mac the MinIO package is refused (`notislake/binary.py:112-121`) and startup exits with an error
-(`__main__.py:197-206`, chain inferred statically).
-
-## Components
-
-### Backend (`backend/src/notisbook/`)
-
-| Module | Responsibility |
-|---|---|
-| `__main__.py` | CLI (`notisbook`, `update`, `uninstall`), startup/shutdown sequence |
-| `app.py`, `static.py` | FastAPI app, routers, `X-Notisbook: 1` header, SPA serving with CSP; `/docs`, `/redoc` and `/openapi.json` disabled |
-| `config.py`, `security.py` | Data folder, bind/port, UI token, runtime tokens, Host/Origin checks |
-| `api/` | REST and WebSocket routers (contents, sessions, catalog, runtime-catalog, iceberg, spark, duckdb, docker, notislake, files, export, samples, system, appearance, notebooks-root, lifecycle, jobs) |
-| `kernels/` | Kernel sessions (`service.py`), WebSocket protocol v1 (`protocol.py`), cell languages, hidden display module (`sql_cell.py`) and catalog hook (`catalog_hook.py`) |
-| `spark/` | Spark version catalog, lakehouse bundle matrix, JDK detection, environment installer, kernelspecs, library management |
-| `runtimes/duckdb/` | DuckDB environment, pinned extensions (`extensions.json`), kernelspec and bootstrap hook |
-| `runtimes/docker/`, `runtimes/glue/` | AWS Glue 5.0 image (`Dockerfile`), shared container, `docker exec` launcher |
-| `catalog/` | `catalog.db` schema and migrations, registry (reconcile plans), Iceberg JDBC tables, schemas, Catalog info |
-| `notislake/` | MinIO binary install from a sha256 manifest, supervisor, ports, credentials, bucket bootstrap, S3A configuration, manual connection settings |
-| `notebooks/`, `files/` | Contents store confined to the notebooks root; folder browser and native macOS folder picker |
-| `export/` | `.py` (Databricks source), `.ipynb` and HTML report |
-| `maintenance/` | `update` and `uninstall` commands, `uv tool` environment detection |
-| `onboarding.py`, `preferences.py`, `samples/` | First run, notebooks root preference, bundled sample notebooks |
-
-### Frontend (`frontend/`)
-
-React 19 + TypeScript built by Vite 8, state in `zustand`, editor on CodeMirror 6, Markdown via `marked` +
-`dompurify`, ANSI via `ansi_up` (`frontend/package.json`). Routing uses the History API (`src/state/router.ts`):
-`/` (Home), `/tree/<dir>`, `/notebooks/<path>`, `/settings` (Runtimes; `/spark` is a legacy alias) and
-`/settings/appearance`.
-
-- **Home** (`src/App.tsx`): examples from `/api/samples` with the runtime each one needs, *Get started* only while
-  no runtime is installed, *New notebook*, the 5 most recent notebooks per root and *Browse notebooks…*.
-- **AppShell** (`src/components/shell/`): banner with the menu (File, Edit, View, Run, Settings, Help), notebook
-  tabs and the kernel toolbar; left sidebar (Catalog, Notislake), right sidebar (Notebooks), Catalog info / Table
-  info panel, footer with shortcuts and RAM/CPU/Disk; focus mode (⌘.) hides both sidebars.
-- **Settings › Runtimes** (`src/components/spark/SparkSettings.tsx`): prerequisites/JDK, Spark versions and
-  libraries, AWS Glue Docker runtime and DuckDB.
-- **Settings › Appearance** (`src/components/appearance/`): Interface, Code cell and Markdown fonts, saved only in
-  `localStorage` (`notisbook.appearance`); system fonts come from `/api/appearance/system-fonts`.
-- Output rendering order: `text/html` > PNG > JPEG > SVG > `text/markdown` > `text/plain`; JavaScript and ipywidgets
-  outputs are not rendered (`src/components/outputs/mime.ts`).
-- Local folders in the files browser are disabled in the UI (`LOCAL_FOLDERS_ENABLED = false`,
-  `src/state/files.ts:11`); the `/api/fs/*` routes remain in the backend.
-
-The compiled frontend is copied into `backend/src/notisbook/_frontend/` and shipped inside the wheel
-(`scripts/build_release.py`). `NOTISBOOK_FRONTEND_DIST` or an existing `frontend/dist` take precedence in
-development (`config.py:39-47`).
-
-## Runtimes
-
-| Runtime | Environment | Cell languages | Catalog access |
-|---|---|---|---|
-| Local Spark | `<home>/envs/spark-<version>-<id>/`, Python 3.12, `pyspark`, `ipykernel`, `duckdb==2.0.0`, bundle jars | `python`, `sql`, `duckdb` | Catalog hook writes `catalog.db` (SQLite); Iceberg via JDBC catalog |
-| DuckDB | `<home>/envs/duckdb-<version>-<id>/`, `duckdb==2.0.1`, `ipykernel`, pinned extensions | `python`, `duckdb` | Iceberg REST at `http://127.0.0.1:<port>/iceberg` |
-| AWS Glue 5.0 (Docker) | Image `notisbook/glue:5.0` from the pinned AWS Glue base image; container `notisbook-glue-5-0` | `python`, `sql` | HTTP `/api/runtime-catalog` and Iceberg REST `/iceberg` via `host.lima.internal` |
-
-Cell languages come from one backend table exposed as `cell_languages` in `/api/kernelspecs`
-(`kernels/service.py:186-193`); an unsupported language is refused before reaching the kernel.
-
-### Local Spark
-
-- Version list: stable `pyspark` releases from PyPI in the last 180 days, with a static fallback
-  (`spark/catalog.py`).
-- JDK: 17 for Spark 3.x; 21 (or 17) for other lines; searched in `JAVA_HOME`, `/usr/libexec/java_home` and Homebrew
-  `openjdk@<major>` (`spark/prereqs.py:132-203`).
-- Install phases: prereqs → python → venv → install → bundle → validate → kernelspec → cleanup. Validation runs a
-  smoke test with a throwaway `catalog.db`; the kernelspec is switched only after validation and a failure deletes
-  the new environment (`spark/installer.py:380-401`).
-- Bundle matrix (`spark/bundles.py:97-182`, revision 4), every artifact checked by sha256 before use:
-
-  | Line | Delta | Iceberg | Hudi | S3A |
-  |---|---|---|---|---|
-  | 3.5.0–3.5.2 | 3.2.0 | 1.10.1 | 1.2.1 | `hadoop-aws` 3.3.4, AWS SDK v1 1.12.262 |
-  | 3.5.3+ | 3.3.3 | 1.10.1 | 1.2.1 | `hadoop-aws` 3.3.4, AWS SDK v1 1.12.262 |
-  | 4.1 | 4.1.0 | 1.12.0 | 1.2.1 | `hadoop-aws` 3.4.2, AWS SDK v2 2.29.52 |
-
-  A version without a bundle installs Spark only and its kernel is refused with `spark_env_outdated`
-  (`spark/installer.py:436-442`, `kernels/service.py:915-922`). Observed: the static fallback suggests `4.3.0`, which
-  has no bundle (`spark/catalog.py:18`).
-- `spark-defaults.conf` and `log4j2.properties` are rewritten when a kernel opens: in-memory Spark catalog, Delta,
-  Iceberg and Hudi extensions, closed S3A defaults and Spark logs reduced to errors (`spark/bundles.py`).
-- Libraries: `uv pip install/uninstall` with a filtered environment; URLs, extras and direct references are refused
-  and base libraries are protected; no change is allowed while a session is active (`spark/packages.py`,
-  `spark/requirements.py`, `api/spark.py`).
-
-### DuckDB
-
-Own kernel named `duckdb`. Extensions httpfs, iceberg, avro, excel, sqlite_scanner, postgres_scanner and spatial
-are downloaded for `osx_arm64` and checked by sha256 (`runtimes/duckdb/extensions.json`); autoinstall and autoload
-are off. At kernel start a silent execute creates S3 and Iceberg secrets and runs
-`ATTACH 'notislake' (TYPE iceberg, ENDPOINT http://127.0.0.1:<port>/iceberg)` with a per-session token
-(`runtimes/duckdb/hook.py`).
-
-### AWS Glue 5.0 in Docker
-
-- Base image `public.ecr.aws/glue/aws-glue-libs:5@sha256:a54bd25f…4f01` (Spark 3.5, Python 3.11, Java 17); the
-  derived image adds `ipykernel` and runs as `hadoop` (`runtimes/glue/Dockerfile`). The build needs about 15 GiB.
-- One shared container: `docker run -d --init --network host --cap-drop ALL --security-opt no-new-privileges`,
-  owner labels, bind mounts at the same Mac paths for the notebooks root and `<home>/warehouse`
-  (`runtimes/docker/service.py:472-488`). A container with the same name but without the labels is left untouched.
-  `$HOME` itself, folders outside it, `.aws`, `.ssh` and the data folder are refused as mounts.
-- Each session is a `docker exec` of an ipykernel inside the container (`runtimes/docker/launch.py`).
-- Formats: Delta and Iceberg; Hudi is not registered by this runtime (`kernels/catalog_hook.py:44`).
-
-## Kernels and the catalog hook
-
-- `jupyter_client` (`AsyncKernelManager`) is used only in `kernels/service.py`. Connection files go to
-  `jupyter_runtime_dir()/notisbook/` (0700). `SPARK_HOME`, `PYTHONPATH` and `PYSPARK_*` are removed from the kernel
-  environment.
-- WebSocket protocol v1 at `/api/sessions/{id}/channel` (`kernels/protocol.py`): the client sends `execute`
-  (`cell_id`, `code`, `language`), `interrupt` and `restart`; the server sends `status`, `execute_input`, `output`,
-  `clear_output`, `execute_reply` and `error`. A new socket replaces the previous one; streams are capped at 1 MB per
-  cell.
-- When a kernel is ready, a silent execute installs the hidden modules `_notisbook_display` and
-  `_notisbook_catalog` (reinstalled only when their sha1 changes):
-  - `echo(df, n=...)` renders DataFrames (default 50 rows, max 1000); `display` is not available in cells. SQL cells
-    use the active session and never call `getOrCreate` (`kernels/sql_cell.py`).
-  - The catalog hook patches `SparkSession` creation, DataFrame writers, `Catalog.createTable` and `SparkSession.sql`,
-    checks the destination before writing and reconciles the catalog after each cell (`post_run_cell`); before each
-    cell it imports what other kernels recorded (`pre_run_cell`). It applies the real S3A credential after
-    `getOrCreate`, never in argv (`kernels/catalog_hook.py`).
-  - Spark/JVM startup output is held back and the Ivy resolution log is summarized.
-
-## Catalog
-
-`<home>/catalog.db` (SQLite, WAL, migrations by `PRAGMA user_version`, created at startup):
-
-| Table | Content |
-|---|---|
-| `iceberg_tables`, `iceberg_namespace_properties` | Iceberg JDBC catalog (schema V1) |
-| `nb_namespaces` | Schemas of `spark_catalog`, with a display group (`spark_catalog` or `hudi`) |
-| `nb_tables` | Delta, Parquet and Hudi tables, `MANAGED` or `EXTERNAL`, with Delta version / Hudi instant |
-| `nb_meta` | `generation` counter that sessions use to reconcile |
-
-- Catalogs: `spark_catalog` (`DeltaCatalog`) for Delta, Parquet and Hudi; `iceberg` named catalog (JDBC over
-  `catalog.db`, warehouse `s3a://notislake`, `gc.enabled=false`); `hudi` is a display node only
-  (`catalog/registry.py:18-19`, `spark/bundles.py:254-269`).
-- Layers: schemas `bronze`, `silver` and `gold` are seeded in both catalogs and cannot be dropped; a managed table
-  lives at `s3a://notislake/<layer>/<table>`; `landing` is a free zone, not a layer (`notislake/locations.py`).
-- DROP by format: Delta/Parquet/Hudi `MANAGED` → the registry returns the folder and the **kernel** deletes it;
-  `EXTERNAL` → only the registry row is removed; Iceberg → registry only unless `PURGE`; through Iceberg REST, purging
-  an `s3a` table is refused. The backend itself never deletes table files.
-- Catalog info (`GET /api/catalog/info`) and Table info (`GET /api/catalog/table`) work without a kernel; sensitive
-  configuration values are masked by the backend (`catalog/catalog_info.py`).
-- Writers: local kernels write SQLite directly; the Docker runtime and DuckDB go through the backend
-  (`/api/runtime-catalog/plan`, `/iceberg`), so the container never opens `catalog.db`.
-
-## notislake (local MinIO)
-
-- Binary: `minio` and `mc` built by `scripts/build_minio.py` for `darwin-arm64`, shipped as a tarball described by
-  `notislake/minio_manifest.json` (tag, commits, sha256). The backend installs only from `NOTISBOOK_MINIO_DIST` or
-  `${XDG_DATA_HOME:-~/.local/share}/notisbook/notislake`, checking the tarball and binaries, into
-  `<home>/minio/bin/` (`notislake/binary.py`).
-- Supervisor: one per data folder (`flock` on `<home>/minio/run/notislake.lock`), started in `main()`; two free
-  loopback ports (API and console); readiness on `/minio/health/ready` (30 s); restarts with backoff 1–16 s; log at
-  `<home>/minio/logs/minio.log` rotated at 10 MB (`notislake/supervisor.py`).
-- Bucket `notislake` with prefixes `bronze/`, `silver/` and `gold/`, created with boto3 (`notislake/bootstrap.py`).
-- Credentials in `<home>/minio/credentials.json` (0600), passed to MinIO only through the process environment.
-  `GET /api/notislake/local/credentials` returns them to the UI (*Copy credentials* in the Notislake panel menu).
-- Automatic vs. manual: a valid `<home>/notislake-connection.json` (0600) selects a manual S3 endpoint; otherwise the
-  local MinIO is used. In automatic mode a new session fails closed if MinIO is not `running`
-  (`notislake/objectstore.py`, `kernels/service.py:773-793`).
-- S3A uses only per-bucket keys `fs.s3a.bucket.notislake.*`; for the Docker runtime the loopback endpoint is
-  rewritten to `host.lima.internal` (`notislake/sparkconf.py`).
-
-## Configuration and data folder
-
-| Variable | Effect |
-|---|---|
-| `NOTISBOOK_HOME` | Data folder (default `~/.notisbook`) |
-| `NOTISBOOK_MINIO_DIST` | MinIO package folder or tarball |
-| `XDG_DATA_HOME` | Base of the default MinIO package folder (absolute values only) |
-| `NOTISBOOK_FRONTEND_DIST` | Frontend folder served |
-| `NOTISBOOK_PYPI_URL` | PyPI URL (default `https://pypi.org`) |
-| `NOTISBOOK_MAVEN_URL` | Maven repository for bundle jars (default Maven Central) |
-| `NOTISBOOK_INSTALL_FROM` | Local folder with release assets for `install.sh` and `notisbook update` |
-
-Data folder layout (`<home>`):
+## 2. Repository layout
 
 | Path | Content |
 |---|---|
-| `envs/` | Spark and DuckDB environments |
-| `catalog.db` | Table catalog |
-| `notebooks/` | Default notebooks root, seeded with samples on the first run |
-| `warehouse/`, `spark-warehouse/` | Local warehouse paths (mounted in the Glue container / safety fallback) |
-| `minio/` | `bin/`, `data/`, `logs/`, `run/`, `credentials.json` |
-| `notislake-connection.json` | Manual S3 connection (0600) |
-| `preferences.json` | Notebooks root and `samples_seeded` (0600) |
-| `run/backend.json` | Running instance record `{pid, port, version, token}` (0600) |
+| `backend/` | Python package `notisbook` (hatchling build, Python ≥ 3.12) |
+| `backend/src/notisbook/` | Backend source (see section 4) |
+| `frontend/` | React 19 + TypeScript SPA built with Vite |
+| `scripts/` | `release.sh`, `build_release.py`, `build_minio.py`, `clean.py` |
+| `install.sh` | End-user installer and uninstaller |
+| `start.sh` | Runs the app from a source checkout |
+| `site/` | Static landing page deployed to GitHub Pages (`.github/workflows/pages.yml`) |
 
-Notebooks root precedence: `--root` (locks the UI), saved preference, `<home>/notebooks`. First run (no
-`preferences.json`): an existing `~/notebooks` with notebooks is adopted when `NOTISBOOK_HOME` is not set; otherwise
-the bundled samples are copied without overwriting (`onboarding.py`).
+## 3. Technology stack
 
-## Lifecycle
+| Layer | Technology | Evidence |
+|---|---|---|
+| Backend | FastAPI on uvicorn, `jupyter_client`, nbformat, pyiceberg 0.12.0, boto3, nh3, psutil | `backend/pyproject.toml`, `backend/src/notisbook/__main__.py` |
+| Frontend | React 19, CodeMirror 6 (Python, SQL, Markdown), zustand 5, DOMPurify, marked, ansi_up, Vite 8, TypeScript 6 | `frontend/package.json` |
+| Local Spark | PySpark per environment, built with `uv` (Python 3.12) | `backend/src/notisbook/spark/installer.py` |
+| Table formats | Delta Lake, Apache Iceberg, Apache Hudi (pinned jars) | `backend/src/notisbook/spark/bundles.py` |
+| DuckDB | Own runtime with offline extensions | `backend/src/notisbook/runtimes/duckdb/` |
+| AWS Glue | Docker image `notisbook/glue:6.0` from `aws-glue-libs:6.0` | `backend/src/notisbook/runtimes/docker/catalog.py`, `backend/src/notisbook/runtimes/glue/Dockerfile` |
+| Object storage | MinIO (`RELEASE.2025-10-15T17-29-55Z`) | `backend/src/notisbook/notislake/minio_manifest.json` |
+| Catalog | SQLite (`catalog.db`) | `backend/src/notisbook/catalog/store.py` |
 
-Startup (`__main__.py:296-366`): create the data folder and `catalog.db` → onboarding → resolve the notebooks root →
-stop a previous instance → bind `127.0.0.1:<port>` → start the notislake → write `run/backend.json` → print the URL
-with the token and open the browser → run Uvicorn (access log off so the token is not printed).
+## 4. Backend components
 
-Version handover (`api/lifecycle.py:212-231`): a stale record is removed; a running instance of a **different**
-version receives `POST /api/lifecycle/shutdown` with its own token and Notisbook waits up to 60 s for it to exit; the
-**same** version running makes startup fail. `--stop-running` stops the registered instance of any version.
+See [`docs/arch/component.mmd`](arch/component.mmd).
 
-Shutdown: installers, kernels and Docker runtimes are stopped, catalog containers are stopped (not removed), MinIO is
-stopped and the instance record is removed only by its own process.
-
-## Distribution and maintenance
-
-- Release assets: wheel `notisbook-<v>-py3-none-any.whl` (frontend embedded), `constraints-<v>.txt` exported from
-  `uv.lock`, the MinIO tarball for `darwin-arm64`, `SHA256SUMS` and `install.sh` (`scripts/release.sh`). The build
-  enforces binary wheels for `aarch64-apple-darwin` so nothing is compiled on the user's Mac
-  (`scripts/build_release.py`).
-- `install.sh`: macOS Apple silicon only; verifies sha256 before changing anything; installs with
-  `uv tool install --force --managed-python --no-build -c constraints` on Python 3.12; places the MinIO tarball and
-  runs `notisbook --check-notislake`.
-- `notisbook update [--version]` (`maintenance/update.py`): works only inside the `uv tool` environment, resolves the
-  target release, refuses downgrades (because of the `catalog.db` schema), downloads `install.sh` and `SHA256SUMS`
-  over HTTPS, verifies `install.sh` and executes it.
-- `notisbook uninstall [--yes]` (`maintenance/uninstall.py`): lists what is removed and kept, asks for confirmation,
-  stops the instance, removes the app-owned Glue container, kernelspecs, `envs/`, MinIO binaries/logs and run files,
-  then runs `uv tool uninstall notisbook`. Kept: `minio/data`, credentials, `catalog.db`, warehouses, preferences,
-  notebooks, manual connection and Docker images.
-- `scripts/release.sh --local-install <X.Y.Z>` builds a version and installs it on the developer's Mac through
-  `install.sh` from `backend/dist/local-<X.Y.Z>/`, outside the active Python environment, without committing,
-  tagging or publishing.
-- The landing page in `site/` is published to GitHub Pages by `.github/workflows/pages.yml`, independently of app
-  releases.
-
-## Security controls
-
-| Control | Evidence |
+| Package | Responsibility |
 |---|---|
-| Fixed bind on `127.0.0.1` | `config.py:11-12` |
-| UI token per startup (`Authorization: Bearer`, `notisbook_token` cookie `HttpOnly; SameSite=Strict`, or `?token=`), compared in constant time | `security.py:14-46` |
-| Host check (`127.0.0.1:<port>`, `localhost:<port>`) against DNS rebinding | `security.py:102-106` |
-| WebSocket: token, `Origin` and `Host` checked before accept | `security.py:109-130` |
-| Runtime tokens per Docker/DuckDB session, in memory only, accepted only on `/api/runtime-catalog` and `/iceberg` (Host may also be `host.lima.internal`) | `security.py:62-99` |
-| Shutdown only from loopback with the token in `run/backend.json` | `api/lifecycle.py:256-271` |
-| Strict CSP on the SPA (`script-src 'self'`, `frame-ancestors 'none'`, `object-src 'none'`) | `static.py:12-17` |
-| HTML export sanitized with `nh3`, no JavaScript, `CSP: sandbox` on the response | `export/html_report.py`, `api/export.py` |
-| Notebooks store confined to the root (no `..`, absolute paths or escaping symlinks) | `notebooks/store.py:101-116` |
-| Folder deletion policy (no root, home, data folder, hidden folders, active root; 409 with open kernel or catalog tables) | `files/browser.py:123-182`, `api/files.py:52-75` |
-| Glue container hardened (`--cap-drop ALL`, `no-new-privileges`, non-root user, restricted mounts) | `runtimes/docker/service.py` |
-| Secret files written with mode 0600 | `preferences.py`, `notislake/credentials.py`, `api/lifecycle.py` |
+| `__main__.py`, `app.py`, `config.py` | CLI, app factory, settings, startup and shutdown |
+| `static.py` | Serves the SPA with a Content Security Policy |
+| `security.py` | UI, runtime and shutdown tokens; Host and Origin checks |
+| `api/` | FastAPI routers for system, contents, sessions (+ WebSocket), catalog, runtime catalog, Iceberg REST, Spark, DuckDB, Docker, jobs (+ WebSocket), notislake, export, files, samples, appearance, lifecycle |
+| `kernels/` | `KernelService`, WebSocket protocol v1, hidden in-kernel modules, cell languages |
+| `spark/` | Versioned Spark environments, bundle matrix, JDK discovery, jar cache, package management |
+| `runtimes/duckdb/` | DuckDB environments, extensions, kernelspec, bootstrap |
+| `runtimes/docker/`, `runtimes/glue/` | AWS Glue Docker runtime: image, container, kernel launch |
+| `catalog/` | SQLite store, `nb_*` registry, Iceberg JDBC tables, schemas |
+| `notislake/` | MinIO binary install, supervisor, credentials, ports, bucket layout, S3A options |
+| `notebooks/` | Sandboxed `.ipynb` storage with atomic writes |
+| `export/` | Databricks `.py`, `.ipynb` and HTML report export |
+| `jobs.py` | In-memory job registry with replayable events |
+| `maintenance/` | `update` and `uninstall` commands |
+| `onboarding.py`, `preferences.py` | First-run setup and saved preferences |
+| `files/`, `fonts/` | Folder listing, native folder picker and font list via `osascript` |
 
-Observed: the `contents`, `export`, `sessions`, `spark`, `duckdb` and `jobs` routers and `GET /api/health` check the
-UI token but not the Host header. Configured controls do not prove operational guarantees; no external security
-review is identified in the repository.
+## 5. Process model
 
-## Not identified in the analyzed code
+### 5.1 Command line
 
-- Automated tests for backend or frontend (the frontend has no test script).
-- CI building or publishing the application (only the GitHub Pages workflow exists).
-- Iceberg version inside the AWS Glue image (comments mention 1.7.1; not verified).
-- Performance or capacity figures.
+The console script is `notisbook = "notisbook.__main__:main"` (`backend/pyproject.toml`).
+
+| Command | Effect |
+|---|---|
+| `notisbook [--port N] [--root DIR] [--no-browser]` | Starts the server (default port `8765`) |
+| `notisbook --version` | Prints the version |
+| `notisbook --check-notislake` | Installs the bundled MinIO into a temporary home and runs `minio --version` |
+| `notisbook --stop-running` | Stops the instance registered in the data folder |
+| `notisbook update [--version X.Y.Z]` | Updates a `uv tool` installation |
+| `notisbook uninstall [--yes]` | Removes the app and keeps user data |
+
+Server options cannot be combined with subcommands (`backend/src/notisbook/__main__.py`).
+
+### 5.2 Startup
+
+From `_serve` in `backend/src/notisbook/__main__.py` and `lifespan` in `backend/src/notisbook/app.py`:
+
+1. Create the data root, `envs/` and `warehouse/`.
+2. Create or migrate `catalog.db`.
+3. Run onboarding on first run (adopt `~/notebooks` or seed samples).
+4. Resolve the notebooks root: `--root` > saved preference > default.
+5. Stop a running instance of another version (section 5.4).
+6. Bind the socket on `127.0.0.1:<port>`; start the MinIO supervisor (exit on failure).
+7. Write `run/backend.json`.
+8. Print `http://127.0.0.1:<port>/?token=…` and open the browser after one second unless `--no-browser`.
+9. In the ASGI lifespan: remove orphan connection files, reconcile kernelspecs, sweep orphan Docker resources and stale runtimes, empty Spark and DuckDB trash.
+
+### 5.3 Shutdown
+
+The lifespan stops the Spark and DuckDB installers, Docker operations and all kernels, then stops Docker runtimes. After the server exits, owned and running containers are stopped (never removed) within 20 seconds, MinIO is stopped and `run/backend.json` is removed. SIGTERM and SIGHUP trigger the same path (`backend/src/notisbook/__main__.py`, `backend/src/notisbook/app.py`).
+
+### 5.4 Version handover
+
+`<home>/run/backend.json` (mode 0600) holds pid, port, version and a shutdown token. A new process that finds a live instance of a **different** version calls `POST /api/lifecycle/shutdown` with that token and waits up to 60 seconds; the **same** version is refused (`backend/src/notisbook/api/lifecycle.py`).
+
+## 6. Kernels and execution
+
+- Kernels are started with `jupyter_client` (`AsyncKernelManager`), imported only in `backend/src/notisbook/kernels/service.py`.
+- Kernelspecs come only from `<home>/kernels`; kernels installed outside the app are refused.
+- After a kernel is ready, one silent `execute` installs `_notisbook_display` (SQL and DuckDB result rendering) and `_notisbook_catalog` (Spark patches that keep the catalog in sync and enforce destination rules) (`kernels/sql_cell.py`, `kernels/catalog_hook.py`).
+- Cell languages per runtime: local Spark → `python`, `sql`, `duckdb`; DuckDB → `python`, `duckdb`; Docker → `python`, `sql`.
+- Stream output is limited to 1 MB per cell with a truncation notice.
+
+### 6.1 WebSocket protocol v1
+
+Defined in `backend/src/notisbook/kernels/protocol.py` and `frontend/src/ws/protocol.ts`. The cell execution path is drawn in [`docs/arch/data-flow.mmd`](arch/data-flow.mmd).
+
+| Direction | Messages |
+|---|---|
+| Client → server | `execute {cell_id, code, language}`, `interrupt`, `restart` |
+| Server → client | `status`, `execute_input`, `output`, `clear_output`, `execute_reply`, `error` |
+
+Every frame carries `v: 1`. Endpoints: `WS /api/sessions/{session_id}/channel` and `WS /api/jobs/{job_id}/events` (job progress, replayed on every connection). Close codes: 1000 normal, 4404 unknown session, 4409 replaced by a newer connection. The client reconnects with exponential backoff (8 attempts, 500 ms to 10 s) (`frontend/src/ws/socket.ts`).
+
+## 7. Runtimes
+
+### 7.1 Local Spark
+
+- Each install builds an immutable environment `<home>/envs/spark-<version>-<id8>/` with `uv` (Python 3.12, `pyspark`, `ipykernel`, `duckdb==2.0.0`, bundle packages), runs a smoke test, then switches the kernelspec (`spark/installer.py`).
+- Offered versions: the 3.5 line and every line from 4.0, newest patch from the PyPI JSON API with an offline fallback list (`spark/catalog.py`).
+- JDK: Spark 3.x needs 17; Spark 4.x accepts 21, then 17. Found through `$JAVA_HOME`, `/usr/libexec/java_home` or Homebrew `openjdk@<major>` (`spark/prereqs.py`).
+- Bundle matrix with sha256-pinned jars (`spark/bundles.py`):
+
+| Spark line | Delta | Iceberg | Hudi | Scala |
+|---|---|---|---|---|
+| 3.5.0–3.5.2 | 3.2.0 | 1.10.1 | 1.2.1 | 2.12 |
+| 3.5 (patch ≥ 3) | 3.3.3 | 1.10.1 | 1.2.1 | 2.12 |
+| 4.1 | 4.1.0 | 1.12.0 | 1.2.1 | 2.13 |
+
+  Lines without an entry (for example 4.0, 4.2, 4.3) get S3A only, without table formats.
+- S3A jars are chosen by the Hadoop version inside pyspark (3.3.4, 3.4.1, 3.4.2, 3.5.0); an unknown version fails the install.
+- Jars come from Maven Central (override `NOTISBOOK_MAVEN_URL`) into a content-addressed cache `<home>/jars/<sha256>/`.
+- Per-environment libraries are installed with `uv pip`, PyPI only, with validated requirement strings (`spark/packages.py`, `spark/requirements.py`).
+
+### 7.2 AWS Glue 6.0 (Docker)
+
+- One catalog entry: key `glue`, label "AWS Glue 6.0", image `notisbook/glue:6.0`, container `notisbook-glue`, kernel `notisbook-docker-glue` (`runtimes/docker/catalog.py`).
+- The image is built locally from `public.ecr.aws/glue/aws-glue-libs:6.0` pinned by digest, adding `ipykernel` (`runtimes/glue/Dockerfile`). A Dockerfile comment states Spark 4.1, Scala 2.13, Python 3.13 and Java 17.
+- The build requires at least 15 GiB free and has a one-hour timeout.
+- The container runs with `--init --network host --cap-drop ALL --security-opt no-new-privileges --user hadoop` and app-owner labels. Mounts must be inside `$HOME`, outside credential folders (`.aws`, `.ssh`, `.gnupg`, `.kube`, `.docker`) and outside the data folder except `notebooks/` and `warehouse/` (`runtimes/docker/service.py`).
+- Kernels start with `docker exec`; the connection file goes through stdin. Spark inside the container uses the backend's Iceberg REST catalog at `http://host.lima.internal:<port>/iceberg` and `/api/runtime-catalog` for the registry.
+
+### 7.3 DuckDB
+
+- Immutable environment `<home>/envs/duckdb-<version>-<id>/` and kernel `duckdb-<maj>-<min>-<patch>`.
+- Versions in the manifest: 2.0.1 and 1.5.6. Extensions httpfs, iceberg, avro, excel, sqlite_scanner, postgres_scanner and spatial, for `osx_arm64`, verified twice by sha256 (`runtimes/duckdb/extensions.json`, `runtimes/duckdb/installer.py`).
+- At kernel start: temporary S3 and Iceberg secrets, then `ATTACH 'notislake' (TYPE iceberg, ENDPOINT 'http://127.0.0.1:<port>/iceberg')` (`runtimes/duckdb/hook.py`).
+
+## 8. Catalog
+
+- One SQLite file, `<home>/catalog.db`, in WAL mode with migrations by `PRAGMA user_version` (`catalog/store.py`).
+- `spark_catalog` registry (`nb_namespaces`, `nb_tables`, `nb_meta`) for Delta, Parquet and Hudi tables; every write increments `generation` so open sessions reconcile (`catalog/registry.py`).
+- Iceberg JdbcCatalog `iceberg` with tables `iceberg_tables` and `iceberg_namespace_properties`, created by the backend (`catalog/iceberg_jdbc.py`).
+- Schemas `bronze`, `silver` and `gold` exist in both catalogs and cannot be dropped.
+
+How each runtime reaches the catalog:
+
+| Runtime | Registry (`nb_*`) | Iceberg |
+|---|---|---|
+| Local Spark | SQLite, directly from the hook | JDBC over `catalog.db` |
+| Glue (Docker) | HTTP `/api/runtime-catalog` | Iceberg REST `/iceberg` |
+| DuckDB | — | Iceberg REST `/iceberg` |
+
+## 9. Storage (notislake)
+
+- MinIO package: from `$NOTISBOOK_MINIO_DIST`, else `~/.local/share/notisbook/notislake` (placed by `install.sh`). Verified against `minio_manifest.json` and installed to `<home>/minio/bin/`. The backend never downloads it (`notislake/binary.py`).
+- Supervisor: one per data folder (`flock`), two free loopback ports chosen at start, restart backoff 1/2/4/8/16 s, `failed` state on crash loops, log rotation at 10 MB (`notislake/supervisor.py`, `notislake/ports.py`).
+- Bucket `notislake` with prefixes `landing/`, `bronze/`, `silver/`, `gold/` (`notislake/locations.py`).
+- Credentials are generated once into `<home>/minio/credentials.json` (0600) and passed to MinIO only through its environment.
+- A manual S3-compatible connection can replace the local store (`<home>/notislake-connection.json`, 0600).
+- Spark environments carry closed S3A defaults on disk; real per-bucket options are injected per session. New sessions are refused with 503 `notislake_unavailable` when storage is not running.
+
+## 10. Data root
+
+`$NOTISBOOK_HOME` or `~/.notisbook` (`config.py`):
+
+| Path | Content |
+|---|---|
+| `catalog.db` | Catalog |
+| `envs/` | Spark and DuckDB environments |
+| `kernels/` | App-managed kernelspecs |
+| `jars/` | Jar cache |
+| `minio/` | MinIO binary, data, logs, credentials |
+| `run/backend.json` | Running instance record |
+| `preferences.json` | Notebooks root and onboarding state |
+| `notebooks/` | Default notebooks root |
+| `warehouse/`, `spark-warehouse/` | Safety warehouses for Docker and local Spark |
+
+On first run the app seeds samples: `spark/{delta,hudi,iceberg}.ipynb`, `glue/{delta,hudi,iceberg}.ipynb` and `duckdb/duckdb.ipynb` (`onboarding.py`, `samples/`).
+
+## 11. Security controls
+
+| Control | Implementation | Evidence |
+|---|---|---|
+| Network exposure | Bind to `127.0.0.1` only, not configurable | `config.py` |
+| UI authentication | Random token per process; Bearer, cookie `notisbook_token` or `?token=` (sets an `HttpOnly; SameSite=Strict` cookie) | `security.py` |
+| Runtime authentication | Per-session tokens for Docker and DuckDB kernels, valid only on `/api/runtime-catalog` and `/iceberg` | `security.py`, `kernels/service.py` |
+| Shutdown | Separate token, loopback clients only | `api/lifecycle.py` |
+| DNS rebinding | Host allow-list; WebSockets also check `Origin` | `security.py`, `config.py` |
+| Content Security Policy | `default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'` | `static.py` |
+| Output sanitization | DOMPurify for HTML, Markdown and ANSI outputs; HTML outputs in a Shadow DOM; nh3 for HTML export | `frontend/src/components/outputs/purify.ts`, `export/html_report.py` |
+| Secret handling | Credentials never in argv, `kernel.json` or logs; access log disabled because the token travels in the URL | `notislake/supervisor.py`, `__main__.py` |
+| Supply chain | sha256 pins for jars, MinIO, DuckDB extensions, `install.sh`; Glue base image pinned by digest | `spark/bundles.py`, `notislake/minio_manifest.json`, `runtimes/glue/Dockerfile` |
+| Container hardening | `--cap-drop ALL`, `no-new-privileges`, non-root user, restricted mounts | `runtimes/docker/service.py` |
+
+Not every router checks the Host header: contents, sessions, Spark, DuckDB, export and jobs rely on the token only. `GET /api/notislake/local/credentials` returns the local MinIO credentials to the authenticated UI.
+
+## 12. Frontend
+
+- React 19 SPA with CodeMirror 6; routing uses the History API without a library (`frontend/src/state/router.ts`).
+- Global zustand stores per area, plus a notebook store and a kernel store per open notebook (`frontend/src/state/`).
+- The API client uses relative `/api` paths. The token from `?token=` is exchanged for the cookie at `/api/health` and removed from the URL (`frontend/src/api/auth.ts`).
+- In development, Vite runs on port 5173 and proxies `/api` (including WebSockets) to `127.0.0.1:8765` (`frontend/vite.config.ts`).
+
+## 13. Build, distribution and release
+
+See [`docs/arch/deployment.mmd`](arch/deployment.mmd).
+
+- `scripts/build_release.py` builds the frontend, copies it into `backend/src/notisbook/_frontend`, builds the wheel and sdist with `uv build`, exports `constraints-<v>.txt`, checks that all pins have binary wheels for Python 3.12 on `aarch64-apple-darwin`, and writes `SHA256SUMS`.
+- `scripts/build_minio.py` compiles `minio` and `mc` from pinned tags in Docker (`golang:1.24.13`) for `darwin/arm64` and updates the manifest.
+- `scripts/release.sh [--dry-run | --local-install] X.Y.Z` checks the tree (branch `main`, clean, equal to `origin/main`, CHANGELOG section present), sets the version, commits, tags, builds, pushes and creates the GitHub release. Assets: wheel, constraints, MinIO tarball, `SHA256SUMS`, `install.sh` (the sdist is not uploaded).
+- `install.sh` accepts macOS on Apple silicon only, installs `uv` 0.10.8 if missing (minimum 0.8.4), verifies downloads with `shasum -a 256 -c`, runs `uv tool install --python 3.12 --no-build` and places the MinIO tarball.
+- `notisbook update` downloads `install.sh` and `SHA256SUMS` from the release, verifies the script and runs it; downgrades are refused.
+- `notisbook uninstall` removes environments, kernels, jars, logs, the MinIO package and the tool; it keeps `minio/data`, credentials, `catalog.db`, warehouses, preferences and notebooks.
+- CI: only `.github/workflows/pages.yml`, which deploys `site/` to GitHub Pages. There is no CI for tests, lint or releases.
+
+## 14. Platform
+
+macOS on Apple silicon, native or under Rosetta (`platform_support.py`, `install.sh`). The Docker runtime expects a Colima-style host (`host.lima.internal`, only `$HOME` shared).
+
+## 15. External systems
+
+| System | Purpose |
+|---|---|
+| GitHub Releases (`ROM-mm/Notisbook`) | Installation and updates |
+| PyPI | Spark version list; pyspark, duckdb and user libraries via `uv` |
+| Maven Central | Lakehouse and S3A jars |
+| `extensions.duckdb.org` | DuckDB extensions |
+| Amazon ECR Public | `aws-glue-libs:6.0` base image |
+| Docker daemon (Colima) | Glue runtime |
+| Optional S3-compatible endpoint | Replacement for the local MinIO |
+| macOS (`java_home`, Homebrew, `osascript`, `sysctl`) | JDK discovery, folder picker, fonts, Rosetta detection |
+
+## Not established by the code
+
+- Performance, memory use or capacity figures.
+- Whether Spark 4.0, 4.2 and 4.3 install successfully: it depends on the Hadoop version in each pyspark wheel.
+- Component versions inside the Glue 6.0 image, beyond a Dockerfile comment.
+- The full internal behavior of the Iceberg REST implementation and of the catalog hook (only partially analyzed).
+- Spark environments pin `duckdb==2.0.0` for DuckDB cells, while the DuckDB runtime manifest lists 2.0.1 and 1.5.6; the reason is not stated.
 
 ---
 
 **Author:** Romerito Morais
 
-**Version:** 20261123205814
+**Version:** 20261124164049
 
-**Date:** 2026-11-23 20:58:14
+**Date:** 2026-11-24 16:40:49
 
 **SKILL:** Document

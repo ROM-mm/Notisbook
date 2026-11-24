@@ -4,32 +4,37 @@
     "fontSize":"14px","lineColor":"#1F2937",
     "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
 graph TB
-    USER["User<br/>Browser"]
+    USER["Data practitioner<br/>Browser"]
 
-    subgraph MAC["Mac with Apple silicon"]
-        SPA["Frontend SPA<br/>React + Vite"]
-        API["Backend<br/>FastAPI + Uvicorn"]
-        SPARK["Spark kernel<br/>ipykernel + PySpark"]
-        DUCK["DuckDB kernel<br/>ipykernel + DuckDB"]
-        MINIO["notislake<br/>Local MinIO"]
+    subgraph LOCAL["Notisbook on the user's Mac"]
+        SPA["Web UI<br/>React 19 SPA"]
+        API["Backend<br/>FastAPI + uvicorn"]
+        KSPARK["Spark kernels<br/>ipykernel + PySpark"]
+        KDUCK["DuckDB kernels<br/>ipykernel + DuckDB"]
+        MINIO["notislake<br/>Supervised MinIO"]
         CATDB[("catalog.db<br/>SQLite")]
-        HOME[("Data folder<br/>NOTISBOOK_HOME")]
-        GLUE["Glue container<br/>AWS Glue 5.0"]
+        FS[("Data root<br/>~/.notisbook")]
+        NOTEBOOKS[("Notebooks<br/>.ipynb files")]
     end
 
-    USER -->|"HTTP on loopback, token"| SPA
-    SPA -->|"REST and WebSocket"| API
-    API -->|"jupyter_client"| SPARK
-    API -->|"jupyter_client"| DUCK
-    API -->|"docker exec ipykernel"| GLUE
-    API -->|"Supervises"| MINIO
+    subgraph DOCK["Docker host"]
+        GLUE["Glue container<br/>notisbook/glue:6.0"]
+    end
+
+    USER -->|"Uses"| SPA
+    SPA -->|"REST /api + WS v1"| API
+    API -->|"jupyter_client ZMQ"| KSPARK
+    API -->|"jupyter_client ZMQ"| KDUCK
+    API -->|"docker exec kernel"| GLUE
+    API -->|"Supervises, boto3"| MINIO
     API -->|"Reads and writes"| CATDB
-    API -->|"Notebooks, envs, prefs"| HOME
-    SPARK -->|"Catalog hook, SQLite"| CATDB
-    SPARK -->|"S3A"| MINIO
-    DUCK -->|"Iceberg REST"| API
-    DUCK -->|"S3"| MINIO
-    GLUE -->|"runtime-catalog and Iceberg REST"| API
+    API -->|"Envs, jars, prefs"| FS
+    API -->|"Reads and writes"| NOTEBOOKS
+    KSPARK -->|"Iceberg JDBC + registry"| CATDB
+    KSPARK -->|"S3A"| MINIO
+    KDUCK -->|"Iceberg REST"| API
+    KDUCK -->|"httpfs S3"| MINIO
+    GLUE -->|"Iceberg REST + runtime catalog"| API
     GLUE -->|"S3A via host.lima.internal"| MINIO
 
     classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
@@ -40,6 +45,5 @@ graph TB
 
     class USER external
     class SPA integration
-    class API,SPARK,DUCK,GLUE processing
-    class MINIO support
-    class CATDB,HOME persistence
+    class API,KSPARK,KDUCK,GLUE processing
+    class MINIO,CATDB,FS,NOTEBOOKS persistence
