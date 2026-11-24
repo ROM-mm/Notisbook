@@ -7,6 +7,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-24
+
+A documentation release: the project documentation is rewritten from the current code, with no change to the app.
+
+### Added
+
+- **Architecture guide.** `docs/ARCHITECTURE.md` describes how Notisbook works today: the single local process on
+  `127.0.0.1`, the Spark, DuckDB and AWS Glue 6.0 runtimes, the SQLite catalog, the local MinIO storage, the security
+  controls and the release pipeline, each point pointing to the source file it comes from.
+- **Diagrams.** Five Mermaid diagrams in `docs/arch/`: system context, containers, backend components, deployment on
+  the Mac and the path of a cell execution.
+- **HTTP API reference.** `docs/api/swagger.yaml` is an OpenAPI 3.0 description of the backend API, including the
+  three WebSocket endpoints and the three kinds of token (UI, runtime and shutdown).
+- **Decision records.** 26 architecture decision records in `docs/adr/`, from the WebSocket protocol to the Apple
+  silicon–only support. Where the code does not show why a choice was made, the record says so.
+
+### Changed
+
+- **README.** Rewritten around what Notisbook does, who it is for, the requirements and a quick start, now citing
+  AWS Glue 6.0.
+
 ## [0.13.0] - 2026-11-24
 
 The AWS Glue runtime moves to Glue 6.0 (Spark 4.1, Scala 2.13, Python 3.13), and only the latest Glue version is
