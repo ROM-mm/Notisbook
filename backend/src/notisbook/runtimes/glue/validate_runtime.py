@@ -4,7 +4,7 @@ Uso: docker exec -i <container> python3 - < validate_runtime.py
 
 Imprime um único JSON no stdout com uma entrada por verificação (`ok` e detalhes).
 Todo o resto (logs do Spark, avisos) vai para o stderr. Sai com 0 somente se todas
-as verificações passarem. Compatível com Python 3.11 (interpretador da imagem Glue 5.0);
+as verificações passarem. Compatível com Python 3.13 (interpretador da imagem Glue 6.0);
 roda sem credenciais e sem rede: a sessão Spark usa catálogo `in-memory` e não toca
 no Glue Data Catalog da AWS.
 """
