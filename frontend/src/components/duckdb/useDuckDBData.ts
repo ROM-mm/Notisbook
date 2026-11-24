@@ -1,17 +1,17 @@
 /**
- * Dados do runtime DuckDB (Settings → Runtimes): status, extensões do manifesto e job de instalação.
+ * Dados do runtime DuckDB (Settings → Runtimes): catálogo por versão, instaladas e job de instalação.
  *
  * - O job é acompanhado por um `JobStream`; um job em andamento (`installing`) é reconectado ao abrir.
  * - Sessões são relidas periodicamente: instalar/remover fica bloqueado com sessão do kernel
  *   aberta (o backend responde 409).
- * - Ao terminar instalação ou remoção, recarrega status/extensões e os kernelspecs das abas.
+ * - Ao terminar instalação ou remoção, recarrega o status e os kernelspecs das abas.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getDuckDBExtensions, getDuckDBStatus, installDuckDB, removeDuckDB } from "../../api/duckdb";
+import { getDuckDBStatus, installDuckDBVersion, removeDuckDBVersion } from "../../api/duckdb";
 import { errorMessage } from "../../api/http";
 import { listSessions } from "../../api/kernels";
 import { getJob } from "../../api/spark";
-import type { DuckDBExtensions, DuckDBStatus, SessionInfo } from "../../api/types";
+import type { DuckDBStatus, SessionInfo } from "../../api/types";
 import { JobStream } from "../../ws/jobs";
 import { refreshKernelspecs } from "../../state/workspace";
 import { useLoadable, type InstallJob } from "../spark/useSparkData";
@@ -20,7 +20,6 @@ const SESSIONS_POLL_MS = 4000;
 
 export function useDuckDBData() {
   const [status, reloadStatus] = useLoadable<DuckDBStatus>(getDuckDBStatus);
-  const [extensions, reloadExtensions] = useLoadable<DuckDBExtensions>(getDuckDBExtensions);
   const [sessions, setSessions] = useState<SessionInfo[]>([]);
   const [job, setJob] = useState<InstallJob | null>(null);
   const stream = useRef<JobStream | null>(null);
@@ -36,8 +35,8 @@ export function useDuckDBData() {
   }, []);
 
   const refreshAfterChange = useCallback(async () => {
-    await Promise.all([reloadStatus(), reloadExtensions(), reloadSessions(), refreshKernelspecs().catch(() => undefined)]);
-  }, [reloadStatus, reloadExtensions, reloadSessions]);
+    await Promise.all([reloadStatus(), reloadSessions(), refreshKernelspecs().catch(() => undefined)]);
+  }, [reloadStatus, reloadSessions]);
 
   const patchJob = useCallback((patch: (j: InstallJob) => Partial<InstallJob>) => {
     if (mounted.current) setJob((j) => (j ? { ...j, ...patch(j) } : j));
@@ -82,10 +81,10 @@ export function useDuckDBData() {
 
   useEffect(() => {
     mounted.current = true;
-    void reloadExtensions();
     void reloadSessions();
     void reloadStatus().then((s) => {
-      if (s?.installing) attach(s.installing.job_id, s.version);
+      const inst = s?.installing.find((i) => i.kind === "duckdb-install");
+      if (inst) attach(inst.job_id, null);
     });
     const timer = window.setInterval(() => void reloadSessions(), SESSIONS_POLL_MS);
     return () => {
@@ -94,23 +93,29 @@ export function useDuckDBData() {
       stream.current?.close();
       stream.current = null;
     };
-  }, [reloadStatus, reloadExtensions, reloadSessions, attach]);
+  }, [reloadStatus, reloadSessions, attach]);
 
-  /** POST /api/duckdb/install e acompanha o job. Lança em erro (422/409). */
-  const install = useCallback(async () => {
-    const { job_id } = await installDuckDB();
-    attach(job_id, status.data?.version ?? null);
-    void reloadStatus();
-  }, [attach, reloadStatus, status.data?.version]);
+  /** POST /api/duckdb/versions e acompanha o job. Lança em erro (422/409). */
+  const install = useCallback(
+    async (version: string) => {
+      const { job_id } = await installDuckDBVersion(version);
+      attach(job_id, version);
+      void reloadStatus();
+    },
+    [attach, reloadStatus],
+  );
 
-  /** DELETE /api/duckdb. Lança em erro (404/409/500); recarrega mesmo assim. */
-  const remove = useCallback(async () => {
-    try {
-      await removeDuckDB();
-    } finally {
-      await refreshAfterChange();
-    }
-  }, [refreshAfterChange]);
+  /** DELETE /api/duckdb/versions/{v}. Lança em erro (404/409/500); recarrega mesmo assim. */
+  const remove = useCallback(
+    async (version: string) => {
+      try {
+        await removeDuckDBVersion(version);
+      } finally {
+        await refreshAfterChange();
+      }
+    },
+    [refreshAfterChange],
+  );
 
   const dismissJob = useCallback(() => {
     stream.current?.close();
@@ -118,5 +123,5 @@ export function useDuckDBData() {
     setJob(null);
   }, []);
 
-  return { status, extensions, sessions, job, install, remove, dismissJob, reloadStatus, reloadExtensions };
+  return { status, sessions, job, install, remove, dismissJob, reloadStatus };
 }

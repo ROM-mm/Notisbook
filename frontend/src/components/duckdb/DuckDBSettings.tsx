@@ -1,5 +1,5 @@
 /**
- * Settings → Runtimes: DuckDB. Status, extensões do manifesto (instaladas ou não), instalação
+ * Settings → Runtimes: DuckDB. Versões do catálogo (com as extensões de cada uma), instalação
  * com progresso ao vivo e remoção. Instalar/remover ficam bloqueados com sessão do kernel aberta.
  */
 import { useState } from "react";
@@ -25,20 +25,12 @@ function actionError(err: unknown): string {
 }
 
 export function DuckDBSettings() {
-  const { status, extensions, sessions, job, install, remove, dismissJob } = useDuckDBData();
+  const { status, sessions, job, install, remove, dismissJob } = useDuckDBData();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const data = status.data;
-  const installed = data?.installed ?? null;
-  const using = sessions.filter((s) => s.kernel_name === (data?.kernel_name ?? "duckdb"));
-  const jobRunning = job?.status === "running" || data?.installing != null;
-  const blocked = using.length > 0 || jobRunning || busy;
-  const reason = jobRunning
-    ? "A DuckDB job is in progress."
-    : using.length > 0
-      ? `In use by ${using.length === 1 ? "1 open notebook" : `${using.length} open notebooks`}: ${using.map((s) => s.path).join(", ")}. Close the tab first.`
-      : undefined;
+  const jobRunning = job?.status === "running" || (data?.installing.length ?? 0) > 0;
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -52,68 +44,23 @@ export function DuckDBSettings() {
     }
   };
 
-  const onRemove = () => {
-    if (!installed) return;
-    const msg = `Remove DuckDB ${installed.version}?\n\nThe kernel "${installed.kernel_name}" and the runtime ${installed.env_dir} will be deleted.`;
-    if (window.confirm(msg)) void run(remove);
+  const onRemove = (version: string) => {
+    const item = data?.installed.find((i) => i.version === version);
+    if (!item) return;
+    const msg = `Remove DuckDB ${item.version}?\n\nThe kernel "${item.kernel_name}" and the runtime ${item.env_dir} will be deleted.`;
+    if (window.confirm(msg)) void run(() => remove(version));
   };
 
   return (
     <div className={styles.block} data-testid="duckdb-runtime">
       <div className={styles.blockHead}>
         <h3 className={styles.blockTitle}>DuckDB</h3>
-        {installed ? (
-          <span title={reason} className={styles.rowAction}>
-            <button
-              type="button"
-              className={`btn ${styles.dangerBtn}`}
-              data-testid="duckdb-remove"
-              disabled={blocked}
-              aria-label="Remove DuckDB"
-              onClick={onRemove}
-            >
-              {busy ? "Working…" : "Remove"}
-            </button>
-          </span>
-        ) : data?.supported ? (
-          <span title={reason} className={styles.rowAction}>
-            <button
-              type="button"
-              className="btn"
-              data-testid="duckdb-install"
-              disabled={blocked}
-              aria-label={`Install DuckDB ${data.version ?? ""}`}
-              onClick={() => void run(install)}
-            >
-              {busy ? "Working…" : `Install${data.version ? ` ${data.version}` : ""}`}
-            </button>
-          </span>
-        ) : null}
       </div>
       {status.error ? <p className={styles.error}>Could not read the DuckDB status: {status.error}</p> : null}
       {!data && status.loading ? <p className={styles.text}>Loading…</p> : null}
       {data && !data.supported ? (
         <p className={styles.notice} data-testid="duckdb-unsupported">
           DuckDB is not available on this platform.
-        </p>
-      ) : null}
-      {data?.supported ? (
-        <p className={styles.text} data-testid="duckdb-status">
-          {installed ? (
-            <>
-              Installed: {installed.display_name} <span className={styles.rowKernel}>{installed.kernel_name}</span>
-              {using.length > 0 ? <span className={`${styles.tag} ${styles.tagActive}`}>in use</span> : null}
-            </>
-          ) : (
-            `Not installed. Installing sets up DuckDB ${data.version ?? ""} with the extensions below, loaded offline.`
-          )}
-        </p>
-      ) : null}
-      {installed ? (
-        <p className={styles.rowMeta}>
-          <span className={styles.mono} title={installed.env_dir}>
-            {installed.env_dir}
-          </span>
         </p>
       ) : null}
       {error ? (
@@ -126,21 +73,35 @@ export function DuckDBSettings() {
           <JobProgress job={job} title={`DuckDB ${job.version ?? ""}`.trim()} labels={LABELS} onDismiss={dismissJob} />
         </div>
       ) : null}
-      {extensions.error ? <p className={styles.error}>Could not list the extensions: {extensions.error}</p> : null}
-      {extensions.data ? (
-        <ul className={styles.rows} data-testid="duckdb-extensions">
-          {extensions.data.extensions.map((ext) => (
-            <li key={ext.name} className={styles.row} data-extension={ext.name}>
-              <div className={styles.rowMain}>
-                <div className={styles.rowTitle}>
-                  <span className={styles.rowVersion}>{ext.name}</span>
-                  <span className={`${styles.tag} ${ext.installed ? styles.tagActive : ""}`}>
-                    {ext.installed ? "installed" : "not installed"}
-                  </span>
+      {data?.supported ? (
+        <ul className={styles.rows}>
+          {data.catalog.map((item) => {
+            const installed = data.installed.find((i) => i.version === item.version);
+            const using = installed ? sessions.filter((s) => s.kernel_name === installed.kernel_name) : [];
+            const blocked = using.length > 0 || jobRunning || busy;
+            return (
+              <li key={item.version} className={styles.row} data-version={item.version}>
+                <div className={styles.rowMain}>
+                  <div className={styles.rowTitle}>
+                    <span className={styles.rowVersion}>DuckDB {item.version}</span>
+                    {installed ? <span className={styles.rowKernel}>{installed.kernel_name}</span> : null}
+                  </div>
+                  <div className={styles.rowMeta}>{item.extensions.join(" · ")}</div>
                 </div>
-              </div>
-            </li>
-          ))}
+                <span className={styles.rowAction}>
+                  {installed ? (
+                    <button type="button" className={`btn ${styles.dangerBtn}`} disabled={blocked} onClick={() => onRemove(item.version)}>
+                      Remove
+                    </button>
+                  ) : (
+                    <button type="button" className="btn" disabled={blocked} onClick={() => void run(() => install(item.version))}>
+                      Install
+                    </button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>
