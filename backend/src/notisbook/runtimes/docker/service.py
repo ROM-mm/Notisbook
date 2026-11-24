@@ -10,8 +10,10 @@ contém o `$HOME` do operador.
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
+import sys
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +22,7 @@ from typing import Any
 from ...config import default_root
 from ...jobs import Job, JobRegistry
 from ...spark.bundles import WAREHOUSE_DIR
+from ...spark.kernelspec import kernels_dir, legacy_kernels_dir
 from . import catalog, cli, kernelspec, launch
 
 log = logging.getLogger(__name__)
@@ -39,6 +42,8 @@ _DOCKERFILE_PREVIEW_BYTES = 64 * 1024
 _SENSITIVE_HOME_DIRS = (".aws", ".ssh", ".gnupg", ".kube", ".docker")
 _FORBIDDEN_CHARS = re.compile(r"[,\"\x00-\x1f\x7f]")
 _FROM = re.compile(r"^\s*FROM\s+(\S+)", re.IGNORECASE | re.MULTILINE)
+_IMAGE_NAMESPACE = "notisbook/"
+_KERNEL_PREFIX = "notisbook-docker-"
 
 
 class InstallError(Exception):
@@ -212,6 +217,109 @@ def _versions(checks: dict[str, Any]) -> dict[str, str]:
     return found
 
 
+def _stale_kernelspecs(root: Path, require_ours: bool) -> list[Path]:
+    """Pastas `notisbook-docker-*` de `root` cujo runtime não está mais no catálogo.
+
+    Só conta quem tem `metadata.notisbook_docker.key` válido. Com `require_ours` (pasta global legada,
+    compartilhada com terceiros) o `argv[0]` também precisa estar sob o `sys.prefix` deste ambiente.
+    """
+    keys = {runtime.key for runtime in catalog.CATALOG}
+    names = {runtime.kernel_name for runtime in catalog.CATALOG}
+    found: list[Path] = []
+    try:
+        entries = sorted(root.glob(f"{_KERNEL_PREFIX}*"))
+    except OSError:
+        return found
+    for spec_dir in entries:
+        if spec_dir.is_symlink() or not spec_dir.is_dir() or spec_dir.name in names:
+            continue
+        try:
+            spec = json.loads((spec_dir / "kernel.json").read_text(encoding="utf-8"))
+            key = spec["metadata"][kernelspec.METADATA_KEY]["key"]
+            python = Path(os.path.abspath(spec["argv"][0]))
+        except (OSError, ValueError, KeyError, IndexError, TypeError):
+            continue
+        if not isinstance(key, str) or key in keys:
+            continue
+        if require_ours and not python.is_relative_to(Path(sys.prefix).absolute()):
+            continue
+        found.append(spec_dir)
+    return found
+
+
+def _prune_stale_kernelspecs(home: Path) -> None:
+    """Apaga os kernelspecs de runtimes removidos do catálogo, no home e na pasta global legada; falhas viram warning."""
+    for root, require_ours in ((kernels_dir(home), False), (legacy_kernels_dir(), True)):
+        for spec_dir in _stale_kernelspecs(root, require_ours):
+            try:
+                shutil.rmtree(spec_dir)
+                log.info("removed stale docker kernelspec %s", spec_dir.name)
+            except OSError as exc:
+                log.warning("cannot remove stale docker kernelspec %s: %s", spec_dir.name, type(exc).__name__)
+
+
+def _docker_json(args: list[str]) -> list[dict[str, Any]]:
+    """Saída JSON (lista) de `docker <args>`; vazia se o comando falha. Bloqueante."""
+    result = cli.run(args, timeout=INSPECT_TIMEOUT_S)
+    if result.returncode != 0:
+        return []
+    try:
+        data = json.loads(result.stdout)
+    except ValueError:
+        return []
+    return [item for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+
+
+def _prune_stale_containers() -> set[str]:
+    """Remove containers com o rótulo de dono cujo runtime saiu do catálogo; devolve as imagens deles.
+
+    O filtro é re-checado no inspect: sem `notisbook.owner=notisbook` e `notisbook.runtime` fora do catálogo,
+    o container não é tocado.
+    """
+    keys = {runtime.key for runtime in catalog.CATALOG}
+    listed = cli.run(
+        ["container", "ls", "-a", "-q", "--filter", f"label={OWNER_LABEL}={OWNER_VALUE}"], timeout=INSPECT_TIMEOUT_S
+    )
+    ids = listed.stdout.split() if listed.returncode == 0 else []
+    images: set[str] = set()
+    for raw in _docker_json(["container", "inspect", *ids]) if ids else []:
+        labels = (raw.get("Config") or {}).get("Labels") or {}
+        runtime_key = labels.get(RUNTIME_LABEL)
+        if labels.get(OWNER_LABEL) != OWNER_VALUE or not runtime_key or runtime_key in keys:
+            continue
+        name = str(raw.get("Name") or raw.get("Id") or "")[:80].lstrip("/")
+        result = cli.run(["container", "rm", "-f", str(raw["Id"])], timeout=STOP_TIMEOUT_S)
+        if result.returncode != 0:
+            log.warning("cannot remove stale container %s", name)
+            continue
+        log.info("removed stale container %s", name)
+        images.add(str((raw.get("Config") or {}).get("Image") or ""))
+    return images
+
+
+def _prune_stale_images(candidates: set[str]) -> None:
+    """Remove as imagens `notisbook/*` que o catálogo não usa mais.
+
+    Candidatas: a imagem de cada container removido e as imagens construídas pelo app (rótulo de dono).
+    Sem `-f`: o Docker recusa a remoção de imagem em uso e as camadas da base, que não têm rótulo, ficam.
+    """
+    current = {runtime.image for runtime in catalog.CATALOG}
+    listed = cli.run(
+        ["image", "ls", "--filter", f"label={OWNER_LABEL}={OWNER_VALUE}", "--format", "{{.Repository}}:{{.Tag}}"],
+        timeout=INSPECT_TIMEOUT_S,
+    )
+    if listed.returncode == 0:
+        candidates |= set(listed.stdout.split())
+    for image in sorted(candidates):
+        if image in current or not image.startswith(_IMAGE_NAMESPACE) or image.endswith(":<none>"):
+            continue
+        result = cli.run(["image", "rm", image], timeout=STOP_TIMEOUT_S)
+        if result.returncode == 0:
+            log.info("removed stale image %s", image)
+        else:
+            log.warning("cannot remove stale image %s", image)
+
+
 class DockerRuntimes:
     def __init__(
         self,
@@ -252,6 +360,23 @@ class DockerRuntimes:
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         return task
+
+    def start_prune_stale(self) -> None:
+        """Em segundo plano, apaga os restos de runtimes que saíram do catálogo (kernelspec, container, imagem)."""
+        self._spawn(self._prune_stale())
+
+    async def _prune_stale(self) -> None:
+        """Nunca levanta: falha vira warning e o próximo boot tenta de novo. Só toca no que tem rótulo/registro do app."""
+        try:
+            await asyncio.to_thread(_prune_stale_kernelspecs, self._home)
+            if not await asyncio.to_thread(cli.is_available):
+                return
+            images = await asyncio.to_thread(_prune_stale_containers)
+            await asyncio.to_thread(_prune_stale_images, images)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - o startup não pode cair por causa da limpeza
+            log.warning("stale docker runtime cleanup failed: %s", type(exc).__name__)
 
     async def shutdown(self) -> None:
         for task in list(self._tasks):
@@ -431,7 +556,7 @@ class DockerRuntimes:
             await job.emit("image", line, PHASES.index("image") / len(PHASES))
 
         code = await cli.stream(
-            ["build", "--progress=plain", "-t", runtime.image, "-f", str(runtime.dockerfile_path), str(runtime.context_dir)],
+            ["build", "--progress=plain", "--label", f"{OWNER_LABEL}={OWNER_VALUE}", "-t", runtime.image, "-f", str(runtime.dockerfile_path), str(runtime.context_dir)],
             forward,
             timeout=BUILD_TIMEOUT_S,
         )
