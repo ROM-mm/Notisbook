@@ -240,19 +240,6 @@ def _decode_columns(raw: str, partitions: set[str]) -> list[dict[str, Any]]:
     ]
 
 
-def read_columns(conn: sqlite3.Connection, database: str, table: str, hudi_only: bool = False) -> list[dict[str, Any]] | None:
-    """Colunas de uma tabela do registro (só Hudi com `hudi_only`); `None` se não existir. Nomes sem distinção de caixa."""
-    row = conn.execute(
-        "SELECT columns_json, partition_cols FROM nb_tables "
-        "WHERE catalog_name = ? AND namespace = ? COLLATE NOCASE AND table_name = ? COLLATE NOCASE "
-        "AND (? = 0 OR format = 'hudi')",
-        (SPARK_CATALOG, database, table, int(hudi_only)),
-    ).fetchone()
-    if row is None:
-        return None
-    return _columns_or_empty(row[0], row[1])
-
-
 def _columns_or_empty(columns_json: str, partition_cols: str) -> list[dict[str, Any]]:
     try:
         partitions = {str(p) for p in json.loads(partition_cols)}

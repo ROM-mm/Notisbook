@@ -426,26 +426,6 @@ def _columns_from_metadata(meta: dict[str, Any]) -> list[dict[str, Any]]:
         raise IcebergMetadataError("unexpected schema layout") from exc
 
 
-def read_columns(
-    conn: sqlite3.Connection, database: str, table: str, open_store: StoreOpener | None = None
-) -> list[dict[str, Any]] | None:
-    """Colunas de uma tabela Iceberg pelo `metadata.json` atual; `None` se a tabela não existir.
-
-    `open_store` devolve a conexão do bucket e só é chamado para metadata em `s3a`. Levanta `UnsupportedIcebergSchema` ou `IcebergMetadataError`.
-    """
-    has_type = _check_schema(conn)
-    row = conn.execute(
-        "SELECT metadata_location FROM iceberg_tables "
-        f"WHERE catalog_name = ? AND table_namespace = ? AND table_name = ? {_type_filter(has_type)}",
-        (ICEBERG_CATALOG, database, table),
-    ).fetchone()
-    if row is None:
-        return None
-    if not row[0]:
-        raise IcebergMetadataError("table has no metadata location")
-    return _columns_from_metadata(read_metadata(row[0], open_store))
-
-
 _HISTORY_LIMIT = 50
 _STATS_KEYS = (("total_records", "total-records"), ("total_files_size", "total-files-size"), ("total_data_files", "total-data-files"))
 
