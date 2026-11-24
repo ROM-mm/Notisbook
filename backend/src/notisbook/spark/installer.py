@@ -86,6 +86,7 @@ builder = (
     SparkSession.builder.master("local[1]")
     .config("spark.sql.warehouse.dir", sys.argv[5])
     .config("spark.ui.enabled", "false")
+    .config("spark.ui.showConsoleProgress", "false")
     .config("spark.driver.bindAddress", "127.0.0.1")
     .config("spark.driver.host", "127.0.0.1")
 )
@@ -580,9 +581,12 @@ class SparkInstaller(ManagedInstaller):
                 raise InstallError(f"smoke test timed out after {SMOKE_TIMEOUT}s") from exc
             except InstallError as exc:
                 raise InstallError(f"smoke test failed: {exc}") from exc
-        if "s3a-smoke-ok" not in lines:
+        # stderr is merged into stdout: a Spark progress bar (`\r`-redrawn, no newline) can prefix the marker line.
+        # Only the last `\r` segment counts, compared whole, so the echoed script text never matches.
+        printed = {line.rsplit("\r", 1)[-1].strip() for line in lines}
+        if "s3a-smoke-ok" not in printed:
             raise InstallError("S3A smoke test did not complete")
-        if bundle is not None and "formats-smoke-ok" not in lines:
+        if bundle is not None and "formats-smoke-ok" not in printed:
             raise InstallError("formats smoke test did not complete")
 
     async def _cleanup(self, job: Job, version: str, installed: Path, previous: set[Path]) -> None:
