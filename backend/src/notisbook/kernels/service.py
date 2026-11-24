@@ -966,22 +966,21 @@ class KernelService:
             raise SparkEnvOutdated
 
     def resolve_kernel_name(self, kernel_name: str) -> str:
-        """Resolve the alias `duckdb`: with no kernelspec of that name, the newest managed `duckdb-*`.
+        """Resolve the alias `duckdb` using only managed kernelspecs (third-party ones are ignored).
 
         Sync on purpose (a directory listing): callers resolve and register the session with no await between.
-        Any other name, or an alias with nothing installed, is returned unchanged.
+        A managed legacy `duckdb` wins; otherwise the newest managed `duckdb-*`. Any other name, or an alias
+        with nothing managed installed, is returned unchanged.
         """
         if kernel_name != DUCKDB_KERNEL_NAME:
             return kernel_name
-        try:
-            names = list(self._specs.find_kernel_specs())
-        except OSError:
-            return kernel_name
-        if DUCKDB_KERNEL_NAME in names:
-            return kernel_name
         # `discover` só devolve kernelspecs cujo ambiente é gerenciado e já vem do mais novo ao mais antigo.
         managed = duckdb_kernelspec.discover(self._home)
-        return managed[0].kernel_name if managed else kernel_name
+        if not managed:
+            return kernel_name
+        if any(spec.kernel_name == DUCKDB_KERNEL_NAME for spec in managed):
+            return DUCKDB_KERNEL_NAME
+        return managed[0].kernel_name
 
     async def create(
         self, path: str, kernel_name: str, cwd: Path | None = None, target: Path | None = None
