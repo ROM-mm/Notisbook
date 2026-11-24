@@ -90,13 +90,17 @@ async def create_session(
     except StoreError as exc:
         raise HTTPException(exc.status_code, str(exc) or type(exc).__name__) from exc
     cwd = target if target.is_dir() else target.parent
-    # Sem await entre este check e `kernels.create`: um job de libs não começa no meio do registro da sessão.
-    if request.app.state.installer.is_mutating(body.kernel_name, "packages"):
+    # Sem await entre estes checks e `kernels.create`: um job não começa no meio do registro da sessão.
+    # O alias `duckdb` já vem resolvido para o kernel real, que é o nome da trava.
+    kernel_name = kernels.resolve_kernel_name(body.kernel_name)
+    if request.app.state.installer.is_mutating(kernel_name, "packages"):
         raise HTTPException(409, "Libraries of this Spark version are being changed; try again when the job ends")
+    if request.app.state.duckdb.is_kernel_busy(kernel_name):
+        raise HTTPException(409, "This DuckDB version is being installed or its libraries are being changed; try again when the job ends")
     try:
-        session = await kernels.create(body.path, body.kernel_name, cwd if cwd.is_dir() else store.root, target)
+        session = await kernels.create(body.path, kernel_name, cwd if cwd.is_dir() else store.root, target)
     except KernelNotFound as exc:
-        raise HTTPException(404, f"Kernel not found: {body.kernel_name}") from exc
+        raise HTTPException(404, f"Kernel not found: {kernel_name}") from exc
     except ConfigInvalid:
         raise HTTPException(409, detail={"code": CONFIG_INVALID_CODE, "message": CONFIG_INVALID_MESSAGE}) from None
     except NotislakeUnavailable as exc:

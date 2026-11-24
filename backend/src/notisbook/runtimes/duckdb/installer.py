@@ -18,19 +18,22 @@ import threading
 import urllib.request
 import uuid
 import zlib
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from ...config import default_pypi_url
 from ...jobs import Job, JobRegistry
 from ...spark.installer import (
     DOWNLOAD_CHUNK,
     DOWNLOAD_TIMEOUT,
     PYTHON_VERSION,
-    SCRUBBED_ENV,
     InstallError,
+    InstallInProgress,
+    ManagedInstaller,
     RemoveFailed,
+    VersionNotFound,
     run_command,
 )
 from ...spark.kernelspec import ENVS_DIR, TRASH_PREFIX, kernels_dir
@@ -43,6 +46,7 @@ from .kernelspec import (
     is_removable_env,
     kernel_name,
     remove_kernelspec,
+    version_of_kernel_name,
     write_kernelspec,
 )
 from .manifest import (
@@ -82,11 +86,7 @@ print("duckdb-validate-ok")
 """
 
 
-class InstallInProgress(Exception):
-    """Another mutating job (install or remove) holds the lock of this DuckDB version."""
-
-
-class NotInstalled(Exception):
+class NotInstalled(VersionNotFound):
     """No installed DuckDB runtime with that version."""
 
 
@@ -94,43 +94,41 @@ class UnknownVersion(Exception):
     """The version is not in the extension manifest."""
 
 
-class DuckDBInstaller:
+# Libs that make the kernel work; the user cannot change them (same rule as the Spark base libs).
+CORE_NAMES = frozenset({"duckdb", "ipykernel"})
+
+
+class DuckDBInstaller(ManagedInstaller):
+    label = "DuckDB"
+    PACKAGES_KIND = "duckdb-packages"
+
     def __init__(
         self,
         base_dir: Path,
         jobs: JobRegistry,
         has_active_session: Callable[[str], bool] | None = None,
         manifests: dict[str, Manifest] | None = None,
+        pypi_url: str | None = None,
     ) -> None:
-        self.base_dir = Path(os.path.abspath(base_dir.expanduser()))
-        self._jobs = jobs
-        self._has_active_session = has_active_session or (lambda _name: False)
+        super().__init__(base_dir, jobs, has_active_session, pypi_url or default_pypi_url())
         self._manifests = manifests
-        # kernel name -> (job id, kind); `remove` has no job (empty id).
-        self._active: dict[str, tuple[str, str]] = {}
-        self._downloads: dict[str, asyncio.Future[None]] = {}
-        self._tasks: set[asyncio.Task[None]] = set()
-        self._env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
-        self._env["UV_LINK_MODE"] = "copy"
 
-    def try_acquire(self, name: str, job_id: str, kind: str) -> bool:
-        """Take the per-kernel lock shared by install and remove; False when it is held."""
-        if name in self._active:
-            return False
-        self._active[name] = (job_id, kind)
-        return True
+    def lock_name(self, version: str, entry: Any = None) -> str:
+        # Always the versioned name, even when the entry is the legacy `duckdb` kernel: one lock per version.
+        return kernel_name(version)
 
-    def release(self, name: str) -> None:
-        self._active.pop(name, None)
+    def session_names(self, version: str) -> set[str]:
+        return {kernel_name(version), *(e.kernel_name for e in self.entries_of(version))}
 
-    def is_mutating(self, name: str, kind: str | None = None) -> bool:
-        """True while the lock of `name` is held (by a job of `kind`, when given)."""
-        held = self._active.get(name)
-        return held is not None and (kind is None or held[1] == kind)
+    def core_names(self, version: str) -> set[str]:
+        return set(CORE_NAMES)
 
-    def active_jobs(self) -> dict[str, tuple[str, str]]:
-        """Kernel name -> (job id, kind) for the install jobs in progress."""
-        return {name: held for name, held in self._active.items() if held[1] != "remove"}
+    def is_kernel_busy(self, name: str) -> bool:
+        """True while an install/libs job holds the lock of the version this kernel name belongs to."""
+        version = version_of_kernel_name(name) or next(
+            (e.version for e in discover(self.base_dir) if e.kernel_name == name), None
+        )
+        return version is not None and self.is_mutating(kernel_name(version))
 
     def entries_of_all(self) -> list[InstalledRuntime]:
         """Every installed runtime, newest first (includes the legacy `duckdb` kernel)."""
@@ -145,12 +143,6 @@ class DuckDBInstaller:
         if not entries:
             raise NotInstalled(version)
         return next((e for e in entries if e.kernel_name == kernel_name(version)), entries[0])
-
-    def _spawn(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Future[Any]:
-        task = asyncio.ensure_future(coro)
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
-        return task
 
     def manifests(self) -> dict[str, Manifest]:
         """Manifests by version, newest first; raises ManifestError when the file is unreadable."""
@@ -172,11 +164,6 @@ class DuckDBInstaller:
         self.try_acquire(name, job.id, "duckdb-install")
         self._spawn(self._run(job, manifest, name))
         return job
-
-    async def shutdown(self) -> None:
-        for task in list(self._tasks):
-            task.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
 
     def remove(self, version: str) -> asyncio.Future[None]:
         """Drop the kernelspecs of the version synchronously, then delete its envs in a thread.

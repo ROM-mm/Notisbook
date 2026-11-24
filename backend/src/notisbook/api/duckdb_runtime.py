@@ -1,4 +1,4 @@
-"""Runtime DuckDB por versão: catálogo, extensões, instalação por job e remoção."""
+"""Runtime DuckDB por versão: catálogo, extensões, libs, instalação por job e remoção."""
 
 import asyncio
 import logging
@@ -25,6 +25,9 @@ from ..runtimes.duckdb.manifest import (
 )
 from ..security import require_token
 from ..spark.installer import RemoveFailed
+from ..spark.packages import install_args, uninstall_args
+from . import _packages as packages
+from ._packages import AddBody, NamesBody
 
 log = logging.getLogger(__name__)
 
@@ -170,3 +173,40 @@ async def remove_version(version: str, installer: Installer, kernels: Kernels) -
         await asyncio.shield(removal)
     except RemoveFailed as exc:
         raise HTTPException(500, f"Could not delete: {', '.join(exc.paths)}") from exc
+
+
+@router.get("/versions/{version}/packages")
+async def list_packages(version: str, installer: Installer) -> dict[str, Any]:
+    _check_version(version)
+    return await packages.list_packages(installer, version)
+
+
+@router.post("/versions/{version}/packages", status_code=202)
+async def add_packages(version: str, body: AddBody, installer: Installer, kernels: Kernels) -> dict[str, str]:
+    _check_version(version)
+    names, reqs = packages.parse_rows(body.requirements, installer.core_names(version))
+    packages.check_free(installer, kernels, version)
+    pins = await packages.pins(installer, version)
+    return packages.start_packages(
+        installer, kernels, version, "add", lambda uv, py, url: install_args(uv, py, url, names, reqs, pins)
+    )
+
+
+@router.post("/versions/{version}/packages/upgrade", status_code=202)
+async def upgrade_packages(version: str, body: NamesBody, installer: Installer, kernels: Kernels) -> dict[str, str]:
+    _check_version(version)
+    names = packages.parse_names(body.names, installer.core_names(version))
+    packages.check_free(installer, kernels, version)
+    pins = await packages.pins(installer, version)
+    return packages.start_packages(
+        installer, kernels, version, "upgrade", lambda uv, py, url: install_args(uv, py, url, names, names, pins)
+    )
+
+
+@router.post("/versions/{version}/packages/uninstall", status_code=202)
+async def uninstall_packages(version: str, body: NamesBody, installer: Installer, kernels: Kernels) -> dict[str, str]:
+    _check_version(version)
+    names = packages.parse_names(body.names, installer.core_names(version))
+    return packages.start_packages(
+        installer, kernels, version, "uninstall", lambda uv, py, _url: uninstall_args(uv, py, names)
+    )

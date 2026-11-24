@@ -51,6 +51,7 @@ from .kernelspec import (
 )
 from .packages import UvNotFound, package_env
 from .prereqs import check_prereqs, jdk_candidates, jdk_for_spark
+from .requirements import core_names
 
 log = logging.getLogger(__name__)
 
@@ -157,7 +158,15 @@ async def run_command(
     return lines
 
 
-class SparkInstaller:
+class ManagedInstaller:
+    """Per-kernel lock, task tracking and libs ("packages") jobs shared by the Spark and DuckDB installers.
+
+    Subclasses set `label`/`PACKAGES_KIND` and implement `find`, `lock_name` and `session_names`.
+    """
+
+    label = ""
+    PACKAGES_KIND = "packages"
+
     def __init__(
         self,
         base_dir: Path,
@@ -178,6 +187,22 @@ class SparkInstaller:
         self._env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
         self._env["UV_LINK_MODE"] = "copy"
 
+    def find(self, version: str) -> Any:
+        """Installed entry (with `kernel_name` and `env_dir`) of the version; raises VersionNotFound."""
+        raise NotImplementedError
+
+    def lock_name(self, version: str, entry: Any = None) -> str:
+        """Kernel name that carries the lock of the version's jobs."""
+        raise NotImplementedError
+
+    def session_names(self, version: str) -> set[str]:
+        """Kernel names whose active session blocks changing the version."""
+        raise NotImplementedError
+
+    def core_names(self, version: str) -> set[str]:
+        """Canonical names of the libs the user cannot change (base libs of the env)."""
+        raise NotImplementedError
+
     def try_acquire(self, name: str, job_id: str, kind: str) -> bool:
         """Take the per-kernel lock shared by install, libs and remove; False when it is held."""
         if name in self._active:
@@ -192,7 +217,7 @@ class SparkInstaller:
     def package_action(self, name: str) -> str | None:
         """Action of the libs job holding the lock of `name`, if any."""
         held = self._active.get(name)
-        return self._package_actions.get(name) if held is not None and held[1] == "packages" else None
+        return self._package_actions.get(name) if held is not None and held[1] == self.PACKAGES_KIND else None
 
     def is_mutating(self, name: str, kind: str | None = None) -> bool:
         """True while the lock of `name` is held (by a job of `kind`, when given)."""
@@ -209,27 +234,8 @@ class SparkInstaller:
         task.add_done_callback(self._tasks.discard)
         return task
 
-    def start(self, version: str) -> Job:
-        """Register the job and run it in the background; raises InstallInProgress on a duplicate.
-
-        The lock is per kernel name, which also serialises `3.5.10`/`3.51.0` (same `spark3510`).
-        """
-        name = kernel_name(version)
-        if self.is_mutating(name):
-            raise InstallInProgress(version)
-        job = self._jobs.create("install", version)
-        self.try_acquire(name, job.id, "install")
-        self._spawn(self._run(job, version, name))
-        return job
-
-    def find(self, version: str) -> InstalledVersion:
-        entry = next((e for e in discover(self.base_dir) if e.version == version), None)
-        if entry is None:
-            raise VersionNotFound(version)
-        return entry
-
     def start_packages(self, version: str, action: str, argv_builder: Callable[[str, str, str], list[str]]) -> Job:
-        """Run an `uv pip` command on the installed env as a "packages" job.
+        """Run an `uv pip` command on the installed env as a libs job (`PACKAGES_KIND`).
 
         `argv_builder(uv, python, pypi_url)` builds the command. Raises VersionNotFound,
         UvNotFound or InstallInProgress before any change; callers check sessions with no await in between.
@@ -238,12 +244,12 @@ class SparkInstaller:
         uv = shutil.which("uv")
         if uv is None:
             raise UvNotFound
-        name = entry.kernel_name
+        name = self.lock_name(version, entry)
         if self.is_mutating(name):
             raise InstallInProgress(version)
         args = argv_builder(uv, str(entry.env_dir / "bin" / "python"), self._pypi_url)
-        job = self._jobs.create("packages", version)
-        self.try_acquire(name, job.id, "packages")
+        job = self._jobs.create(self.PACKAGES_KIND, version)
+        self.try_acquire(name, job.id, self.PACKAGES_KIND)
         self._package_actions[name] = action
         self._spawn(self._run_packages(job, name, action, args))
         return job
@@ -259,6 +265,61 @@ class SparkInstaller:
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
+
+
+    async def _run_packages(self, job: Job, name: str, action: str, args: list[str]) -> None:
+        try:
+            await job.start()
+            await run_command(job, "packages", args, self.packages_env(), None)
+            await self._finish_packages(job, name, "succeeded")
+        except asyncio.CancelledError:
+            await self._finish_packages(job, name, "failed", "cancelled")
+            raise
+        except InstallError as exc:
+            await self._finish_packages(job, name, "failed", f"{action}: {exc}")
+        except Exception:
+            log.exception("unexpected failure running libs job (%s)", action)
+            await self._finish_packages(job, name, "failed", "unexpected error; see server log")
+
+    async def _finish_packages(
+        self, job: Job, name: str, state: Literal["succeeded", "failed"], error: str | None = None
+    ) -> None:
+        # Libera o lock antes do evento `done`: o cliente reage a ele e já pode pedir outra ação.
+        if self._active.get(name, ("",))[0] == job.id:
+            self.release(name)
+        await job.finish(state, error)
+
+
+class SparkInstaller(ManagedInstaller):
+    label = "Spark"
+
+    def find(self, version: str) -> InstalledVersion:
+        entry = next((e for e in discover(self.base_dir) if e.version == version), None)
+        if entry is None:
+            raise VersionNotFound(version)
+        return entry
+
+    def lock_name(self, version: str, entry: Any = None) -> str:
+        return entry.kernel_name if entry is not None else kernel_name(version)
+
+    def session_names(self, version: str) -> set[str]:
+        return {kernel_name(version)}
+
+    def core_names(self, version: str) -> set[str]:
+        return core_names(version)
+
+    def start(self, version: str) -> Job:
+        """Register the job and run it in the background; raises InstallInProgress on a duplicate.
+
+        The lock is per kernel name, which also serialises `3.5.10`/`3.51.0` (same `spark3510`).
+        """
+        name = kernel_name(version)
+        if self.is_mutating(name):
+            raise InstallInProgress(version)
+        job = self._jobs.create("install", version)
+        self.try_acquire(name, job.id, "install")
+        self._spawn(self._run(job, version, name))
+        return job
 
     def remove(self, version: str) -> asyncio.Future[None]:
         """Drop the kernelspec synchronously, then delete every env of the version in a thread.
@@ -334,28 +395,6 @@ class SparkInstaller:
         for old in envs.glob(f"{TRASH_PREFIX}{stem}"):
             if old.is_dir() and is_removable_env(self.base_dir, old):
                 shutil.rmtree(old, ignore_errors=True)
-
-    async def _run_packages(self, job: Job, name: str, action: str, args: list[str]) -> None:
-        try:
-            await job.start()
-            await run_command(job, "packages", args, self.packages_env(), None)
-            await self._finish_packages(job, name, "succeeded")
-        except asyncio.CancelledError:
-            await self._finish_packages(job, name, "failed", "cancelled")
-            raise
-        except InstallError as exc:
-            await self._finish_packages(job, name, "failed", f"{action}: {exc}")
-        except Exception:
-            log.exception("unexpected failure running libs job (%s)", action)
-            await self._finish_packages(job, name, "failed", "unexpected error; see server log")
-
-    async def _finish_packages(
-        self, job: Job, name: str, state: Literal["succeeded", "failed"], error: str | None = None
-    ) -> None:
-        # Libera o lock antes do evento `done`: o cliente reage a ele e já pode pedir outra ação.
-        if self._active.get(name, ("",))[0] == job.id:
-            self.release(name)
-        await job.finish(state, error)
 
     async def _run(self, job: Job, version: str, name: str) -> None:
         env_dir: Path | None = None
