@@ -1,5 +1,6 @@
 /**
- * Libs de um ambiente Spark: lista (`GET .../packages`) e jobs de adicionar/atualizar/desinstalar.
+ * Libs de um ambiente (Spark ou DuckDB): lista (`GET .../packages`) e jobs de adicionar/atualizar/desinstalar.
+ * As rotas vêm de um adaptador (`PackagesAdapter`); Spark e DuckDB têm o mesmo contrato.
  *
  * - Um job por vez; o progresso vem do `JobStream`, com `getJob` como fallback se o stream cair.
  * - Ao abrir, se a lista traz `job_id` (job em andamento), reconecta a ele.
@@ -7,12 +8,37 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, errorMessage } from "../../api/http";
+import { addDuckDBPackages, listDuckDBPackages, uninstallDuckDBPackages, upgradeDuckDBPackages } from "../../api/duckdb";
 import { addPackages, getJob, listPackages, uninstallPackages, upgradePackages } from "../../api/spark";
-import type { PackageItem, RequirementRow } from "../../api/types";
+import type { JobAccepted, PackageItem, PackageList, RequirementRow } from "../../api/types";
 import { JobStream } from "../../ws/jobs";
 import type { InstallJob } from "./useSparkData";
 
 export type PackageAction = "add" | "upgrade" | "uninstall";
+
+/** Rotas de libs de um ambiente; todas lançam `ApiError` (422 por linha, 409, 404, 503). */
+export interface PackagesAdapter {
+  list: (signal?: AbortSignal) => Promise<PackageList>;
+  add: (requirements: RequirementRow[]) => Promise<JobAccepted>;
+  upgrade: (names: string[]) => Promise<JobAccepted>;
+  uninstall: (names: string[]) => Promise<JobAccepted>;
+}
+
+/** Adaptador das rotas `/api/spark/versions/{v}/packages`. */
+export const sparkPackages = (version: string): PackagesAdapter => ({
+  list: (signal) => listPackages(version, signal),
+  add: (rows) => addPackages(version, rows),
+  upgrade: (names) => upgradePackages(version, names),
+  uninstall: (names) => uninstallPackages(version, names),
+});
+
+/** Adaptador das rotas `/api/duckdb/versions/{v}/packages`. */
+export const duckdbPackages = (version: string): PackagesAdapter => ({
+  list: (signal) => listDuckDBPackages(version, signal),
+  add: (rows) => addDuckDBPackages(version, rows),
+  upgrade: (names) => upgradeDuckDBPackages(version, names),
+  uninstall: (names) => uninstallDuckDBPackages(version, names),
+});
 
 export interface PackagesResult {
   ok: boolean;
@@ -71,7 +97,8 @@ function summarize(action: PackageAction | null, before: PackageItem[], after: P
   return { text: parts.length > 0 ? `${verb} ${parts.join(", ")}` : "Everything was already up to date", changed, added };
 }
 
-export function usePackages(version: string) {
+/** `adapter` precisa ter identidade estável (ex.: `useMemo` por versão); `version` só rotula o job. */
+export function usePackages(adapter: PackagesAdapter, version: string) {
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +114,7 @@ export function usePackages(version: string) {
 
   const load = useCallback(async (): Promise<PackageItem[] | null> => {
     try {
-      const data = await listPackages(version);
+      const data = await adapter.list();
       if (!mounted.current) return null;
       setPackages(data.packages);
       setError(null);
@@ -100,7 +127,7 @@ export function usePackages(version: string) {
       }
       return null;
     }
-  }, [version]);
+  }, [adapter]);
 
   const finish = useCallback(
     async (finished: InstallJob) => {
@@ -157,7 +184,8 @@ export function usePackages(version: string) {
 
   useEffect(() => {
     mounted.current = true;
-    void listPackages(version)
+    void adapter
+      .list()
       .then((data) => {
         if (!mounted.current) return;
         setPackages(data.packages);
@@ -178,7 +206,7 @@ export function usePackages(version: string) {
       stream.current?.close();
       stream.current = null;
     };
-  }, [version, attach]);
+  }, [adapter, attach]);
 
   const run = useCallback(
     async (kind: PackageAction, start: () => Promise<{ job_id: string }>) => {
@@ -210,8 +238,8 @@ export function usePackages(version: string) {
     reload: load,
     dismissResult: () => setResult(null),
     /** Lançam em erro (422 por linha — ver `rowErrors` —, 409, 404, 503). */
-    add: (rows: RequirementRow[]) => run("add", () => addPackages(version, rows)),
-    upgrade: (names: string[]) => run("upgrade", () => upgradePackages(version, names)),
-    uninstall: (names: string[]) => run("uninstall", () => uninstallPackages(version, names)),
+    add: (rows: RequirementRow[]) => run("add", () => adapter.add(rows)),
+    upgrade: (names: string[]) => run("upgrade", () => adapter.upgrade(names)),
+    uninstall: (names: string[]) => run("uninstall", () => adapter.uninstall(names)),
   };
 }

@@ -1,22 +1,29 @@
 /**
- * Config de um ambiente Spark: lista as libs (base incluída) e permite adicionar (＋),
- * desinstalar (−) e atualizar (↑) as marcadas. PyPI apenas.
+ * Config de um ambiente (Spark ou DuckDB): lista as libs e permite adicionar (＋),
+ * desinstalar (−) e atualizar (↑) as marcadas. PyPI apenas. As rotas vêm do adaptador
+ * (`PackagesAdapter`); `children` entra antes da tabela (ex.: extensões do DuckDB).
  *
  * Modal nativo (`showModal`). Durante um job fica travado: Esc/Close/backdrop não fecham e,
  * se o navegador fechar mesmo assim, o diálogo reabre.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, errorMessage } from "../../api/http";
 import type { PackageItem, RequirementRow, SessionInfo } from "../../api/types";
 import { AddLibraryDialog } from "./AddLibraryDialog";
 import { JobProgress, type JobLabels } from "./JobProgress";
-import { rowErrors, usePackages } from "./usePackages";
+import { type PackagesAdapter, rowErrors, usePackages } from "./usePackages";
 import dlg from "../../styles/dialog.module.css";
 import styles from "./Spark.module.css";
 
 interface Props {
+  /** Nome do runtime no título (ex.: "Spark 3.5.10", "DuckDB 2.0.1"). */
+  title: string;
   version: string;
   envDir: string | null;
+  /** Rotas de libs do ambiente; identidade estável (useMemo por versão). */
+  adapter: PackagesAdapter;
+  /** Conteúdo extra antes da tabela de libs. */
+  children?: ReactNode;
   /** Sessões abertas do kernel deste ambiente (bloqueiam as ações). */
   sessions: SessionInfo[];
   onClose: () => void;
@@ -51,9 +58,9 @@ function Row({ item, selected, changed, added, disabled, onToggle }: { item: Pac
   );
 }
 
-export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
+export function PackagesDialog({ title, version, envDir, adapter, children, sessions, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
-  const pk = usePackages(version);
+  const pk = usePackages(adapter, version);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [addOpen, setAddOpen] = useState(false);
@@ -141,7 +148,7 @@ export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
       <div className={dlg.head}>
         <div>
           <h2 id="pkg-title" className={dlg.title}>
-            Spark {version} — Libraries
+            {title} — Libraries
           </h2>
           <p className={styles.text}>
             {envDir ? <span>{envDir}</span> : null} · PyPI only
@@ -218,6 +225,7 @@ export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
       ) : null}
 
       <div className={styles.pkgScroll}>
+        {children}
         {pk.loading ? <p className={styles.text}>Loading…</p> : null}
         {pk.error ? <p className={styles.error}>Could not list the libraries: {pk.error}</p> : null}
         {!pk.loading && !pk.error ? (
