@@ -1,40 +1,40 @@
-# Contribuindo com o Notisbook
+# Contributing to Notisbook
 
-Obrigado pelo interesse em contribuir! Este guia explica como preparar o ambiente, como organizar branches e
-commits e como funciona o processo de revisão até a publicação de uma versão.
+Thanks for your interest in contributing! This guide explains how to set up your environment, how to organize
+branches and commits, and how the review process works all the way to a published release.
 
-## Pré-requisitos
+## Prerequisites
 
-- Mac com **Apple silicon** (arm64). Desde a versão 0.9.0, o Notisbook não oferece suporte a Macs Intel.
-- [Git](https://git-scm.com/) e uma conta no GitHub.
-- [`uv`](https://docs.astral.sh/uv/) para o backend (Python 3.12, conforme `backend/.python-version`).
-- [Node.js](https://nodejs.org/) e `npm` para o frontend.
-- Opcional, apenas para trabalhar com runtimes Spark: JDK 17 (Spark 3.x) ou JDK 21/17 (Spark 4.x).
-- Opcional, apenas para o runtime AWS Glue: Docker (por exemplo, via Colima). Veja os detalhes no [README](README.md#requirements).
+- Mac with **Apple silicon** (arm64). Since version 0.9.0, Notisbook does not support Intel Macs.
+- [Git](https://git-scm.com/) and a GitHub account.
+- [`uv`](https://docs.astral.sh/uv/) for the backend (Python 3.12, as set in `backend/.python-version`).
+- [Node.js](https://nodejs.org/) and `npm` for the frontend.
+- Optional, only for working with Spark runtimes: JDK 17 (Spark 3.x) or JDK 21/17 (Spark 4.x).
+- Optional, only for the AWS Glue runtime: Docker (for example, via Colima). See the details in the [README](README.md#requirements).
 
-## Como contribuir
+## How to contribute
 
-- **Bugs e sugestões de funcionalidade:** abra uma [Issue](https://github.com/ROM-mm/Notisbook/issues) descrevendo
-  o problema ou a proposta, com passos para reproduzir quando for um bug.
-- **Dúvidas e ideias em aberto:** use as [Discussions](https://github.com/ROM-mm/Notisbook/discussions).
-- **Mudanças grandes** (nova funcionalidade, alteração de arquitetura, mudança de comportamento): abra uma Issue ou
-  Discussion **antes** de começar a implementar, para alinhar a abordagem com o mantenedor e evitar retrabalho.
-- Correções pequenas (erros de digitação, ajustes pontuais) podem ir direto para um Pull Request.
+- **Bugs and feature requests:** open an [Issue](https://github.com/ROM-mm/Notisbook/issues) describing the
+  problem or the proposal, with steps to reproduce when it is a bug.
+- **Questions and open-ended ideas:** use [Discussions](https://github.com/ROM-mm/Notisbook/discussions).
+- **Large changes** (new feature, architecture change, behavior change): open an Issue or Discussion **before**
+  you start implementing, to agree on the approach with the maintainer and avoid rework.
+- Small fixes (typos, one-off adjustments) can go straight to a Pull Request.
 
-Todas as contribuições são feitas por **fork** do repositório.
+All contributions are made through a **fork** of the repository.
 
-## Preparando o ambiente
+## Setting up the environment
 
-1. Faça um fork de [ROM-mm/Notisbook](https://github.com/ROM-mm/Notisbook) pela interface do GitHub.
-2. Clone o seu fork e adicione o repositório original como `upstream`:
+1. Fork [ROM-mm/Notisbook](https://github.com/ROM-mm/Notisbook) from the GitHub interface.
+2. Clone your fork and add the original repository as `upstream`:
 
    ```bash
-   git clone https://github.com/<seu-usuario>/Notisbook.git
+   git clone https://github.com/<your-username>/Notisbook.git
    cd Notisbook
    git remote add upstream https://github.com/ROM-mm/Notisbook.git
    ```
 
-3. Trabalhe sempre a partir da `develop` atualizada:
+3. Always work from an up-to-date `develop`:
 
    ```bash
    git fetch upstream
@@ -42,68 +42,68 @@ Todas as contribuições são feitas por **fork** do repositório.
    git merge --ff-only upstream/develop
    ```
 
-4. Rode o Notisbook a partir do código-fonte:
+4. Run Notisbook from source:
 
    ```bash
-   ./start.sh                  # sobe em http://127.0.0.1:8765
-   ./start.sh --port 8766      # usa outra porta
-   ./start.sh --replace        # encerra a instância em execução e sobe a versão de desenvolvimento
+   ./start.sh                  # starts at http://127.0.0.1:8765
+   ./start.sh --port 8766      # uses a different port
+   ./start.sh --replace        # stops the running instance and starts the development version
    ```
 
-   O `start.sh` verifica se `uv`, `node` e `npm` estão instalados, roda `npm ci` no frontend quando
-   `node_modules` não existe, refaz o build do frontend quando o código mudou e inicia o backend com
-   `uv run --project backend notisbook`. Os demais argumentos (`--root`, `--no-browser`) são repassados ao
+   `start.sh` checks that `uv`, `node` and `npm` are installed, runs `npm ci` in the frontend when
+   `node_modules` does not exist, rebuilds the frontend when its code has changed, and starts the backend with
+   `uv run --project backend notisbook`. Any other arguments (`--root`, `--no-browser`) are passed through to
    `notisbook`.
 
-5. Comandos úteis do frontend (definidos em `frontend/package.json`):
+5. Useful frontend commands (defined in `frontend/package.json`):
 
    ```bash
-   npm --prefix frontend run typecheck   # checagem de tipos TypeScript
-   npm --prefix frontend run build       # typecheck + build de produção (Vite)
-   npm --prefix frontend run dev         # servidor de desenvolvimento do Vite
+   npm --prefix frontend run typecheck   # TypeScript type checking
+   npm --prefix frontend run build       # typecheck + production build (Vite)
+   npm --prefix frontend run dev         # Vite development server
    ```
 
-> O repositório ainda não tem uma suíte de testes automatizados nem um linter configurado. Até que existam, valide
-> suas mudanças rodando o app com `./start.sh` e, no frontend, com `npm --prefix frontend run build`.
+> The repository does not yet have an automated test suite or a configured linter. Until they exist, validate
+> your changes by running the app with `./start.sh` and, for the frontend, with `npm --prefix frontend run build`.
 
-## Fluxo de branches
+## Branch workflow
 
-A branch padrão é a `develop`. A `main` recebe apenas as versões publicadas.
+The default branch is `develop`. `main` only receives published releases.
 
 ```text
- fork: feat/<descricao>  ─┐
- fork: fix/<descricao>   ─┼──(PR, squash)──▶ develop ──(PR de release, mantenedor)──▶ main ──▶ tag/release
- fork: docs/<descricao>  ─┘                     ▲                                       │
-                                                └──────────── merge de volta ───────────┘
+ fork: feat/<description>  ─┐
+ fork: fix/<description>   ─┼──(PR, squash)──▶ develop ──(release PR, maintainer)──▶ main ──▶ tag/release
+ fork: docs/<description>  ─┘                     ▲                                    │
+                                                  └─────────────── merge back ─────────┘
 ```
 
-Crie sua branch a partir da `develop` atualizada, usando o prefixo correspondente ao tipo de mudança:
+Create your branch from an up-to-date `develop`, using the prefix that matches the type of change:
 
-| Prefixo | Quando usar | Exemplo |
+| Prefix | When to use | Example |
 |---|---|---|
-| `feat/` | Nova funcionalidade | `feat/exportar-csv` |
-| `fix/` | Correção de bug | `fix/kernel-duckdb-timeout` |
-| `docs/` | Somente documentação | `docs/guia-glue` |
-| `chore/` | Manutenção, dependências, build | `chore/atualizar-vite` |
-| `refactor/` | Refatoração sem mudança de comportamento | `refactor/catalogo-sqlite` |
+| `feat/` | New feature | `feat/export-csv` |
+| `fix/` | Bug fix | `fix/kernel-duckdb-timeout` |
+| `docs/` | Documentation only | `docs/glue-guide` |
+| `chore/` | Maintenance, dependencies, build | `chore/update-vite` |
+| `refactor/` | Refactoring with no behavior change | `refactor/sqlite-catalog` |
 
 ```bash
-git checkout -b feat/<descricao> upstream/develop
+git checkout -b feat/<description> upstream/develop
 ```
 
-Use nomes curtos, em minúsculas e com hífens.
+Use short, lowercase names with hyphens.
 
 ## Commits
 
-Os commits seguem o padrão [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/):
+Commits follow the [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) specification:
 
 ```text
-<tipo>(<escopo opcional>): <descrição curta no imperativo>
+<type>(<optional scope>): <short description in the imperative mood>
 ```
 
-Tipos aceitos: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `build`, `ci`.
+Accepted types: `feat`, `fix`, `docs`, `chore`, `refactor`, `test`, `perf`, `build`, `ci`.
 
-Exemplos:
+Examples:
 
 ```text
 feat(export): add CSV export from the File menu
@@ -111,16 +111,16 @@ fix(duckdb): keep the iceberg extension pinned on kernel restart
 docs(readme): document the --root option
 ```
 
-Uma mudança incompatível deve ser indicada com `!` após o tipo (por exemplo, `feat!: ...`) ou com um rodapé
-`BREAKING CHANGE:`.
+A breaking change must be marked with `!` after the type (for example, `feat!: ...`) or with a
+`BREAKING CHANGE:` footer.
 
-## Abrindo um Pull Request
+## Opening a Pull Request
 
-1. **O PR deve sempre apontar para a `develop`.** PRs abertos contra a `main` terão a base alterada para a `develop`
-   pelo mantenedor.
-2. **O título do PR deve seguir Conventional Commits.** Como o merge é feito com *Squash and merge*, o título vira a
-   mensagem do commit final na `develop`.
-3. Mantenha a branch atualizada com a `develop` do repositório original, por rebase:
+1. **The PR must always target `develop`.** PRs opened against `main` will have their base changed to `develop`
+   by the maintainer.
+2. **The PR title must follow Conventional Commits.** Since merges use *Squash and merge*, the title becomes the
+   final commit message on `develop`.
+3. Keep your branch up to date with the original repository's `develop` by rebasing:
 
    ```bash
    git fetch upstream
@@ -128,41 +128,43 @@ Uma mudança incompatível deve ser indicada com `!` após o tipo (por exemplo, 
    git push --force-with-lease
    ```
 
-   ou pelo botão **Update branch** na página do PR.
-4. Preencha o template do Pull Request (resumo, tipo de mudança, Issue relacionada, como testar e checklist).
-5. Prefira PRs **pequenos e focados**: um assunto por PR facilita a revisão e acelera o merge.
-6. Não inclua segredos, tokens, credenciais ou dados pessoais no código, nos commits ou nas capturas de tela.
+   or with the **Update branch** button on the PR page.
+4. Fill in the Pull Request template (summary, type of change, related Issue, how to test and checklist).
+5. Prefer **small, focused** PRs: one topic per PR makes review easier and speeds up the merge.
+6. Do not include secrets, tokens, credentials or personal data in code, commits or screenshots.
 
-> Os workflows do GitHub Actions em PRs vindos de forks só executam depois da aprovação do mantenedor.
+> GitHub Actions workflows on PRs from forks only run after the maintainer approves them.
 
-## Revisão e aprovação
+## Review and approval
 
-- O mantenedor, @ROM-mm, revisa todos os PRs para a `develop`.
-- Para o merge, são exigidos **1 aprovação** do mantenedor e **todas as conversas de revisão resolvidas**.
-- Se forem solicitadas mudanças (*Request changes*), ajuste a branch e responda ou resolva os comentários.
-- Um novo push depois da aprovação **descarta a aprovação anterior**: o PR precisará ser aprovado novamente.
-- O merge é feito exclusivamente por **Squash and merge**, e a branch de origem é apagada automaticamente após o
+- The maintainer, @ROM-mm, reviews all PRs to `develop`.
+- Merging requires **1 approval** from the maintainer and **all review conversations resolved**.
+- If changes are requested (*Request changes*), update your branch and reply to or resolve the comments.
+- A new push after approval **dismisses the previous approval**: the PR will need to be approved again.
+- Merging is done exclusively with **Squash and merge**, and the source branch is deleted automatically after the
   merge.
-- Force push e exclusão das branches `main` e `develop` são bloqueados.
+- Force pushes and deletion of the `main` and `develop` branches are blocked.
 
 ## Releases
 
-- As releases são feitas **somente pelo mantenedor** @ROM-mm.
-- O mantenedor abre um PR de release da `develop` para a `main`, integrado com *merge commit*. A tag e a release são
-  publicadas a partir da `main` e, em seguida, a `main` é integrada de volta na `develop`.
-- Contribuidores **nunca** abrem PRs para a `main`.
-- O [`CHANGELOG.md`](CHANGELOG.md) segue o padrão [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), em
-  inglês. Não crie nem altere seções de versão (por exemplo, `## [0.10.0]`) a menos que o mantenedor peça.
+- Releases are made **only by the maintainer** @ROM-mm.
+- The maintainer opens a release PR from `develop` to `main`, merged with a *merge commit*. The tag and the release
+  are published from `main`, and then `main` is merged back into `develop`.
+- Contributors **never** open PRs to `main`.
+- [`CHANGELOG.md`](CHANGELOG.md) follows the [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format, in
+  English. Do not create or change version sections (for example, `## [0.10.0]`) unless the maintainer asks.
 
-## Reportando vulnerabilidades
+## Reporting vulnerabilities
 
-**Não abra uma Issue pública** para relatar uma vulnerabilidade de segurança.
+**Do not open a public Issue** to report a security vulnerability.
 
-Use o recurso de relato privado do GitHub: na aba **Security** do repositório, clique em
-**Report a vulnerability** e descreva o problema, o impacto e os passos para reproduzir. O mantenedor responderá
-pelo próprio canal privado.
+Use GitHub's private reporting feature: in the repository's **Security** tab, click
+**Report a vulnerability** and describe the problem, its impact and the steps to reproduce. The maintainer will
+reply through that same private channel.
 
-## Licença
+See [SECURITY.md](SECURITY.md) for the full security policy.
 
-O Notisbook é distribuído sob a licença [Apache-2.0](LICENSE). Ao enviar uma contribuição, você concorda que ela
-será licenciada nos mesmos termos.
+## License
+
+Notisbook is distributed under the [Apache-2.0](LICENSE) license. By submitting a contribution, you agree that it
+will be licensed under the same terms.

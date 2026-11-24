@@ -1,43 +1,43 @@
 <!--
-Antes de enviar:
-- A branch de destino (base) deve ser `develop`. PRs para `main` terão a base alterada.
-- O título do PR deve seguir Conventional Commits (ex.: `feat(export): add CSV export`),
-  pois o merge é feito com Squash and merge e o título vira a mensagem do commit.
-Veja o CONTRIBUTING.md para o fluxo completo.
+Before submitting:
+- The target (base) branch must be `develop`. PRs to `main` will have their base changed.
+- The PR title must follow Conventional Commits (e.g. `feat(export): add CSV export`),
+  since merges use Squash and merge and the title becomes the commit message.
+See CONTRIBUTING.md for the full workflow.
 -->
 
-## Resumo
+## Summary
 
-<!-- O que muda e por quê, em poucas linhas. -->
+<!-- What changes and why, in a few lines. -->
 
-## Tipo de mudança
+## Type of change
 
-- [ ] `feat` — nova funcionalidade
-- [ ] `fix` — correção de bug
-- [ ] `docs` — documentação
-- [ ] `refactor` — refatoração sem mudança de comportamento
-- [ ] `chore` / `build` / `ci` — manutenção, build ou integração contínua
-- [ ] `perf` — melhoria de desempenho
+- [ ] `feat` — new feature
+- [ ] `fix` — bug fix
+- [ ] `docs` — documentation
+- [ ] `refactor` — refactoring with no behavior change
+- [ ] `chore` / `build` / `ci` — maintenance, build or continuous integration
+- [ ] `perf` — performance improvement
 
-## Issue relacionada
+## Related Issue
 
 Closes #
 
-## Como testar
+## How to test
 
 1.
 2.
 3.
 
-## Capturas de tela (se houver mudança de UI)
+## Screenshots (if there are UI changes)
 
-<!-- Antes/depois. Não exponha tokens, caminhos pessoais ou dados sensíveis. -->
+<!-- Before/after. Do not expose tokens, personal paths or sensitive data. -->
 
 ## Checklist
 
-- [ ] O PR aponta para a branch `develop`
-- [ ] O título do PR segue Conventional Commits
-- [ ] A branch está atualizada com a `develop`
-- [ ] Testei localmente (`./start.sh`)
-- [ ] O diff não contém segredos, tokens ou dados pessoais
-- [ ] Atualizei a documentação, se necessário
+- [ ] The PR targets the `develop` branch
+- [ ] The PR title follows Conventional Commits
+- [ ] The branch is up to date with `develop`
+- [ ] I tested locally (`./start.sh`)
+- [ ] The diff contains no secrets, tokens or personal data
+- [ ] I updated the documentation, if needed
