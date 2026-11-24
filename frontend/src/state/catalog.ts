@@ -11,7 +11,7 @@ import {
   getTableInfo,
   type CatalogInfo,
   type CatalogResponse,
-  type ColumnsQuery,
+  type TableQuery,
   type TableInfo,
 } from "../api/catalog";
 import { ApiError, errorMessage } from "../api/http";
@@ -19,7 +19,7 @@ import { ApiError, errorMessage } from "../api/http";
 /** Painel Table info: a tabela aberta e a última leitura de `/api/catalog/table`. */
 export interface TableInfoState {
   kind: "table";
-  query: ColumnsQuery;
+  query: TableQuery;
   loading: boolean;
   error: string | null;
   data: TableInfo | null;
@@ -51,7 +51,7 @@ interface CatalogState {
   forgetSchema: (catalog: string, schema: string) => void;
   info: InfoState | null;
   /** Abre (ou troca) a tabela do painel Table info; fecha o Catalog info, se aberto. */
-  openInfo: (query: ColumnsQuery) => void;
+  openInfo: (query: TableQuery) => void;
   /** Abre (ou troca) o catálogo do painel Catalog info; fecha o Table info, se aberto. */
   openCatalogInfo: (name: string) => void;
   /** Fecha o painel aberto (qualquer tipo) e descarta a leitura em voo. */
@@ -64,7 +64,7 @@ export const TABLE_INFO_PANEL_ID = "catalog-table-info";
 export const CATALOG_INFO_PANEL_ID = "catalog-catalog-info";
 
 /** Tabela do Table info aberto, ou null (nenhum painel ou Catalog info aberto). */
-export function openTableQuery(info: InfoState | null): ColumnsQuery | null {
+export function openTableQuery(info: InfoState | null): TableQuery | null {
   return info?.kind === "table" ? info.query : null;
 }
 
@@ -74,11 +74,11 @@ export function openCatalogName(info: InfoState | null): string | null {
 }
 
 /** Identificador da tabela na árvore (`data-table-ref` da linha), para devolver o foco ao fechar o Table info. */
-export function tableRef(q: ColumnsQuery): string {
+export function tableRef(q: TableQuery): string {
   return `${q.catalog}\u001f${q.database}\u001f${q.table}`;
 }
 
-export function sameTable(a: ColumnsQuery | null | undefined, b: ColumnsQuery | null | undefined): boolean {
+export function sameTable(a: TableQuery | null | undefined, b: TableQuery | null | undefined): boolean {
   return !!a && !!b && a.catalog === b.catalog && a.database === b.database && a.table === b.table;
 }
 
@@ -111,7 +111,7 @@ function catalogInfoError(err: unknown): string {
 }
 
 export const useCatalog = create<CatalogState>((set, get) => {
-  function loadInfo(query: ColumnsQuery) {
+  function loadInfo(query: TableQuery) {
     const req = ++infoSeq;
     // Mesma tabela (refresh): mantém os dados na tela durante a releitura; outra tabela começa vazia.
     set((s) => {

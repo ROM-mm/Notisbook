@@ -42,7 +42,7 @@ export interface CatalogColumn {
   description: string | null;
 }
 
-export interface ColumnsQuery {
+export interface TableQuery {
   catalog: string;
   database: string;
   table: string;
@@ -99,7 +99,7 @@ export interface TableInfo {
 }
 
 /** 404 tabela inexistente, 409 schema Iceberg não suportado, 503 `catalog.db` indisponível. */
-export function getTableInfo(q: ColumnsQuery, signal?: AbortSignal): Promise<TableInfo> {
+export function getTableInfo(q: TableQuery, signal?: AbortSignal): Promise<TableInfo> {
   return request<TableInfo>("/api/catalog/table", {
     query: { catalog: q.catalog, database: q.database, table: q.table },
     signal,

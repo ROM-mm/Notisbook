@@ -18,7 +18,7 @@ import {
   schemaReasonMessage,
   type CatalogNode,
   type CatalogTable,
-  type ColumnsQuery,
+  type TableQuery,
   type SchemaDeletion,
   type SchemaPreview,
 } from "../../api/catalog";
@@ -102,7 +102,7 @@ interface Row {
   open: boolean;
   /** Tabela cujos arquivos não existem mais. */
   unavailable?: boolean;
-  table?: ColumnsQuery;
+  table?: TableQuery;
 }
 
 type StatusRow = { status: true; key: string; level: number; text: string; error: boolean };
