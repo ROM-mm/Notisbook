@@ -636,7 +636,7 @@ function existingSchemas(catalogs: CatalogNode[] | undefined, catalog: string): 
   const names = (catalogs ?? [])
     .filter((c) => (shared ? c.name === SPARK_CATALOG || c.name === HUDI_CATALOG : c.name === catalog))
     .flatMap((c) => c.databases.map((d) => d.name));
-  return shared && !names.includes(DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
+  return shared && !names.some((n) => n.toLowerCase() === DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
 }
 
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {
