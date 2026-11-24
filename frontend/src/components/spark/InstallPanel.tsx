@@ -10,6 +10,7 @@ import { duckdbKernelName } from "../../api/duckdb";
 import { ApiError, errorMessage } from "../../api/http";
 import type { DockerRuntime, DockerRuntimes, DuckDBStatus, Prereqs, SparkCatalog } from "../../api/types";
 import { RuntimeCombo, type RuntimeCategory, type RuntimeOption } from "./RuntimeCombo";
+import { hasFormats } from "./supportLabel";
 import type { Loadable } from "./useSparkData";
 import styles from "./Spark.module.css";
 
@@ -58,11 +59,22 @@ interface Props {
   /** Abre a janela de instalação do runtime Docker escolhido. */
   onInstallDocker: (runtime: DockerRuntime) => void;
   onReloadCatalog: () => void;
-  /** Deep-link: pré-seleciona o item recomendado (primeiro instalável) da categoria. */
+  /** Deep-link: pré-seleciona o item recomendado da categoria (ver `recommended`). */
   target?: InstallTarget | null;
 }
 
-/** Opções do combo, na ordem das categorias; o primeiro habilitado de cada uma é o recomendado. */
+/**
+ * Item recomendado de uma categoria. Em `processing` é o primeiro habilitado com suporte a
+ * formatos de tabela (o Spark mais novo que os traz); sem nenhum, o primeiro habilitado.
+ * Nas demais categorias, o primeiro habilitado.
+ */
+function recommended(options: RuntimeOption[], category: RuntimeCategory): RuntimeOption | undefined {
+  const enabled = options.filter((o) => o.category === category && !o.disabled);
+  if (category === "processing") return enabled.find((o) => hasFormats(o.formats)) ?? enabled[0];
+  return enabled[0];
+}
+
+/** Opções do combo, na ordem das categorias; o recomendado de cada uma sai de `recommended`. */
 function buildOptions(
   catalog: SparkCatalog | null,
   duckdb: DuckDBStatus | null,
@@ -117,12 +129,12 @@ export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, b
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Escolha que ficou indisponível (instalada, instalando) volta ao padrão: o Spark mais novo
-  // ainda não instalado. A escolha do usuário é preservada enquanto continuar instalável.
+  // Escolha que ficou indisponível (instalada, instalando) volta ao padrão: o Spark recomendado
+  // (o mais novo não instalado com formatos de tabela; sem nenhum, o mais novo não instalado). A escolha do usuário é preservada enquanto continuar instalável.
   useEffect(() => {
     const current = options.find((o) => o.id === selected);
     if ((current && !current.disabled) || options.length === 0) return;
-    setSelected(options.find((o) => o.category === "processing" && !o.disabled)?.id ?? null);
+    setSelected(recommended(options, "processing")?.id ?? null);
     // Só reage a novas opções (catálogos recarregados).
   }, [options]);
 
@@ -130,7 +142,7 @@ export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, b
   // quando ele chega, as listas já carregaram (o pai espera a primeira carga assentar).
   useEffect(() => {
     if (!target) return;
-    const first = options.find((o) => o.category === target.category && !o.disabled);
+    const first = recommended(options, target.category);
     if (first) {
       setSelected(first.id);
       setError(null);
@@ -177,7 +189,7 @@ export function InstallPanel({ catalog, duckdb, docker, prereqs, busyVersions, b
       <p className={styles.text}>
         {chosenDocker
           ? "Runs inside a Docker container; nothing is installed on this machine."
-          : "Pick a runtime, then press Install. Only stable, complete releases are listed; installed ones are marked ✓."}
+          : "Pick a runtime, then press Install. Only stable releases are listed; the badge shows each one's table format support. Installed ones are marked ✓."}
       </p>
       {fallback ? (
         <p className={styles.notice} data-testid="spark-catalog-fallback">

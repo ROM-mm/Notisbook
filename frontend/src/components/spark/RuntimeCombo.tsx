@@ -318,7 +318,6 @@ export function RuntimeCombo({ options, value, onChange, disabled = false, place
   );
 }
 
-/** Rótulo de categoria com ícone (lista Installed). */
 /** Selo do suporte real a formatos de tabela; apagado quando não há nenhum. */
 export function SupportBadge({ formats }: { formats: string[] | null | undefined }) {
   const supported = hasFormats(formats);
@@ -329,6 +328,7 @@ export function SupportBadge({ formats }: { formats: string[] | null | undefined
   );
 }
 
+/** Rótulo de categoria com ícone (lista Installed). */
 export function CategoryTag({ category }: { category: RuntimeCategory }) {
   const { title, Icon } = CATEGORY[category];
   return (
