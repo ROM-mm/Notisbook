@@ -8,7 +8,6 @@ Subprocesses always use an argument list, never a shell.
 
 import asyncio
 import contextlib
-import hashlib
 import http.client
 import logging
 import os
@@ -17,25 +16,25 @@ import shutil
 import sqlite3
 import tempfile
 import threading
-import urllib.request
 import uuid
 from asyncio.subprocess import DEVNULL, PIPE, STDOUT
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
 
 from ..catalog.store import ensure_catalog_db
 from ..jobs import Job, JobRegistry
 from .bundles import (
-    Artifact,
+    S3A_BY_HADOOP,
     Bundle,
+    S3aSet,
     UnsupportedHome,
     bundle_for,
-    maven_url,
+    installed_hadoop,
     render_spark_defaults,
     write_log4j2,
 )
+from .jar_cache import JarCache, JarError
 from .kernelspec import (
     ENVS_DIR,
     TRASH_PREFIX,
@@ -43,7 +42,6 @@ from .kernelspec import (
     conf_dir,
     discover,
     is_removable_env,
-    jars_dir,
     kernel_name,
     kernels_dir,
     remove_kernelspec,
@@ -71,40 +69,48 @@ SCRUBBED_ENV = (
     "SPARK_CONF_DIR",
 )
 DOWNLOAD_TIMEOUT = 60
-DOWNLOAD_CHUNK = 1 << 20
 # Teto do smoke: uma JVM travada não pode segurar o lock do kernel para sempre.
 SMOKE_TIMEOUT = 300
-# Loads the session with the env's spark-defaults.conf, resolves one class per extension/catalog and
-# lists the Iceberg namespaces, which opens the JDBC connection (argv[1] is the URI of a throwaway
-# SQLite file that already has the Iceberg tables: the catalog is configured not to create them).
-# argv[2] is the AWS SDK probe class and argv[3] the Hadoop version the S3A jars were built for;
-# argv[4] is a throwaway local warehouse, so the smoke never touches s3a (works with MinIO stopped).
+# Starts a local session with the env's spark-defaults.conf. S3A part (always): loads S3AFileSystem and the SDK
+# probe class, checks the Hadoop version and builds the s3a://notislake/ FileSystem with the closed config (dead
+# endpoint, no credential). Formats part (argv[1] == "1", env with bundle): resolves one class per extension/catalog
+# and lists the Iceberg namespaces, which opens the JDBC connection.
+# argv: [1] formats 0|1, [2] SDK probe class, [3] expected Hadoop version, [4] URI of a throwaway SQLite file that
+# already has the Iceberg tables (the catalog is configured not to create them), [5] throwaway local warehouse,
+# so the smoke never writes to the real one or to s3a (works with MinIO stopped).
 SMOKE_SCRIPT = """
 import sys
 from pyspark.sql import SparkSession
-spark = (
+formats = sys.argv[1] == "1"
+builder = (
     SparkSession.builder.master("local[1]")
-    .config("spark.sql.catalog.iceberg.uri", sys.argv[1])
-    .config("spark.sql.warehouse.dir", sys.argv[4])
-    .config("spark.sql.catalog.iceberg.warehouse", sys.argv[4] + "/iceberg")
+    .config("spark.sql.warehouse.dir", sys.argv[5])
     .config("spark.ui.enabled", "false")
     .config("spark.driver.bindAddress", "127.0.0.1")
     .config("spark.driver.host", "127.0.0.1")
-    .getOrCreate()
 )
-loader = spark.sparkContext._jvm.Thread.currentThread().getContextClassLoader()
-for key in ("spark.sql.extensions", "spark.sql.catalog.spark_catalog", "spark.sql.catalog.iceberg", "spark.kryo.registrator"):
-    for cls in spark.conf.get(key).split(","):
-        loader.loadClass(cls)
+if formats:
+    builder = builder.config("spark.sql.catalog.iceberg.uri", sys.argv[4]).config(
+        "spark.sql.catalog.iceberg.warehouse", sys.argv[5] + "/iceberg"
+    )
+spark = builder.getOrCreate()
+jvm = spark.sparkContext._jvm
+loader = jvm.Thread.currentThread().getContextClassLoader()
 loader.loadClass("org.apache.hadoop.fs.s3a.S3AFileSystem")
 loader.loadClass(sys.argv[2])
-hadoop = spark.sparkContext._jvm.org.apache.hadoop.util.VersionInfo.getVersion()
+hadoop = jvm.org.apache.hadoop.util.VersionInfo.getVersion()
 if hadoop != sys.argv[3]:
     raise SystemExit(f"Hadoop {hadoop} in pyspark does not match the S3A jars ({sys.argv[3]})")
 spark.sql("SELECT 1").collect()
-spark.sql("SHOW NAMESPACES IN iceberg").collect()
+jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI.create("s3a://notislake/"), spark.sparkContext._jsc.hadoopConfiguration())
+print("s3a-smoke-ok")
+if formats:
+    for key in ("spark.sql.extensions", "spark.sql.catalog.spark_catalog", "spark.sql.catalog.iceberg", "spark.kryo.registrator"):
+        for cls in spark.conf.get(key).split(","):
+            loader.loadClass(cls)
+    spark.sql("SHOW NAMESPACES IN iceberg").collect()
+    print("formats-smoke-ok")
 spark.stop()
-print("bundle-smoke-ok")
 """
 
 
@@ -293,6 +299,17 @@ class ManagedInstaller:
 class SparkInstaller(ManagedInstaller):
     label = "Spark"
 
+    def __init__(
+        self,
+        base_dir: Path,
+        jobs: JobRegistry,
+        has_active_session: Callable[[str], bool] | None = None,
+        pypi_url: str = "https://pypi.org",
+    ) -> None:
+        super().__init__(base_dir, jobs, has_active_session, pypi_url)
+        # One cache per installer: its pins and in-flight downloads must be shared by every install job.
+        self._jars = JarCache(self.base_dir)
+
     def find(self, version: str) -> InstalledVersion:
         entry = next((e for e in discover(self.base_dir) if e.version == version), None)
         if entry is None:
@@ -379,8 +396,16 @@ class SparkInstaller(ManagedInstaller):
             else:
                 if doomed.exists():
                     left.append(str(doomed))
+        self._collect_jars()
         if left:
             raise RemoveFailed(left)
+
+    def _collect_jars(self) -> None:
+        """Drop cached jars no env references anymore; never fails the caller (the env work already finished)."""
+        try:
+            self._jars.collect_garbage()
+        except Exception:
+            log.warning("jar cache garbage collection failed", exc_info=True)
 
     def sweep_trash(self, version: str | None = None) -> None:
         """Delete `envs/.trash-spark-*` left by an interrupted removal; failures only warn.
@@ -415,30 +440,34 @@ class SparkInstaller(ManagedInstaller):
                 await asyncio.to_thread(write_log4j2, conf_dir(env_dir))
             except OSError as exc:
                 raise InstallError(f"log4j2: cannot write {conf_dir(env_dir)}: {exc}") from exc
-            await self._install_bundle(job, env_dir, version, bundle, cancel)
-            await self._validate(job, python, version, env_dir, java_home, bundle)
+            s3a = await self._detect_s3a(job, env_dir)
+            await self._install_bundle(job, env_dir, version, bundle, s3a, cancel)
+            await self._validate(job, python, version, env_dir, java_home, bundle, s3a)
             await job.emit("kernelspec", f"writing kernelspec {name}", self._progress("kernelspec"))
             previous = {e.env_dir for e in discover(self.base_dir) if e.kernel_name == name}
-            await asyncio.to_thread(write_kernelspec, version, env_dir, java_home)
+            await asyncio.to_thread(write_kernelspec, version, env_dir, java_home, s3a)
             installed, env_dir = env_dir, None  # switched: the new env must survive from here on
             await self._cleanup(job, version, installed, previous)
+            self._jars.unpin(job.id)
+            await asyncio.to_thread(self._collect_jars)
             await job.finish("succeeded")
         except asyncio.CancelledError:
             cancel.set()  # the download thread cannot be cancelled; it stops at the next chunk
             if (download := self._downloads.get(name)) is not None and not download.done():
                 # Bounded wait so the thread is not still writing into env_dir when it is deleted.
                 await asyncio.wait({download}, timeout=DOWNLOAD_TIMEOUT)
-            await self._discard(env_dir)
+            await self._discard(env_dir, job)
             await job.finish("failed", "cancelled")
             raise
         except InstallError as exc:
-            await self._discard(env_dir)
+            await self._discard(env_dir, job)
             await job.finish("failed", str(exc))
         except Exception:
             log.exception("unexpected failure installing Spark %s", version)
-            await self._discard(env_dir)
+            await self._discard(env_dir, job)
             await job.finish("failed", "unexpected error; see server log")
         finally:
+            self._jars.unpin(job.id)
             self.release(name)
             self._downloads.pop(name, None)
 
@@ -467,76 +496,62 @@ class SparkInstaller(ManagedInstaller):
     async def _cmd(self, job: Job, phase: str, args: list[str], env: dict[str, str] | None = None) -> list[str]:
         return await run_command(job, phase, args, env or self._env, self._progress(phase))
 
+    async def _detect_s3a(self, job: Job, env_dir: Path) -> S3aSet:
+        """S3A jar set for the Hadoop inside the installed pyspark; an unknown Hadoop fails closed."""
+        hadoop = await asyncio.to_thread(installed_hadoop, env_dir)
+        s3a = S3A_BY_HADOOP.get(hadoop) if hadoop is not None else None
+        if s3a is None:
+            raise InstallError(
+                f"Hadoop {hadoop or 'não detectado'} sem conjunto S3A fixado (sha256) em S3A_BY_HADOOP; "
+                "esta versão do Spark ainda não é suportada"
+            )
+        await job.emit("install", f"S3A: Hadoop {hadoop} do pyspark, conjunto S3A r{s3a.revision}", self._progress("install"))
+        return s3a
+
     async def _install_bundle(
-        self, job: Job, env_dir: Path, version: str, bundle: Bundle | None, cancel: threading.Event
+        self, job: Job, env_dir: Path, version: str, bundle: Bundle | None, s3a: S3aSet, cancel: threading.Event
     ) -> None:
-        """Write `spark-defaults.conf`; with a bundle also download the verified jars (otherwise only a warning)."""
+        """Download the S3A jars (and the bundle's, if any) into the shared cache and write `spark-defaults.conf`."""
         progress = self._progress("bundle")
+        name = kernel_name(version)
+        self._render_defaults(bundle, s3a)  # fails before any download when the home cannot go in the JDBC URL
         if bundle is None:
             await job.emit(
                 "bundle",
-                f"warning: no Delta/Iceberg/Hudi/S3A bundle for Spark {version}; installed Spark only, "
-                "kernels of this env are refused (spark_env_outdated)",
+                f"no Delta/Iceberg/Hudi bundle for Spark {version}; installing S3A only, sessions open without the formats",
                 progress,
             )
-            conf = conf_dir(env_dir)
-            await asyncio.to_thread(conf.mkdir, parents=True, exist_ok=True)
-            content = self._render_defaults(None, jars_dir(env_dir))
-            await asyncio.to_thread((conf / "spark-defaults.conf").write_text, content, "utf-8")
-            return
-        name = kernel_name(version)
-        target = jars_dir(env_dir)
-        self._render_defaults(bundle, target)  # fails before any download when the home cannot go in the JDBC URL
-        await asyncio.to_thread(target.mkdir, parents=True, exist_ok=True)
-        for artifact in (*bundle.artifacts, *bundle.driver_artifacts):
-            await job.emit("bundle", f"downloading {artifact.coordinates}", progress)
+        artifacts = [*(bundle.artifacts if bundle else ()), *(bundle.driver_artifacts if bundle else ()), *s3a.artifacts]
+        # Pinned until the job ends: the conf that references these jars is only written after the last download.
+        self._jars.pin(job.id, artifacts)
+        s3a_names = {a.filename for a in s3a.artifacts}
+        for artifact in artifacts:
+            tag = " (S3A)" if artifact.filename in s3a_names else ""
+            await job.emit("bundle", f"downloading{tag} {artifact.coordinates}", progress)
             # Shielded and tracked so a cancelled job can still wait for the thread to stop.
-            download = asyncio.ensure_future(asyncio.to_thread(self._fetch_jar, artifact, target, cancel))
+            download = asyncio.ensure_future(asyncio.to_thread(self._jars.ensure, artifact, cancel))
             self._downloads[name] = download
             try:
                 await asyncio.shield(download)
-            except (OSError, http.client.HTTPException) as exc:
+            except (OSError, http.client.HTTPException, JarError) as exc:
                 raise InstallError(f"bundle: cannot download {artifact.filename}: {exc}") from exc
-            await job.emit("bundle", f"verified sha256 {artifact.sha256} {artifact.filename}", progress)
+            await job.emit("bundle", f"verified sha256{tag} {artifact.sha256} {artifact.filename}", progress)
         conf = conf_dir(env_dir)
-        content = self._render_defaults(bundle, target)
+        content = self._render_defaults(bundle, s3a)
         await asyncio.to_thread(conf.mkdir, parents=True, exist_ok=True)
         await asyncio.to_thread((conf / "spark-defaults.conf").write_text, content, "utf-8")
-        await job.emit("bundle", f"bundle {bundle.line} r{bundle.revision}: {', '.join(bundle.formats)}", progress)
+        await job.emit("bundle", f"S3A r{s3a.revision} ready: Hadoop {s3a.hadoop}, jars in {self._jars.root}", progress)
+        if bundle is not None:
+            await job.emit("bundle", f"bundle {bundle.line} r{bundle.revision}: {', '.join(bundle.formats)}", progress)
 
-    def _render_defaults(self, bundle: Bundle | None, jars: Path) -> str:
+    def _render_defaults(self, bundle: Bundle | None, s3a: S3aSet) -> str:
         try:
-            return render_spark_defaults(bundle, jars, self.base_dir)
+            return render_spark_defaults(bundle, s3a, self._jars.path, self.base_dir)
         except UnsupportedHome as exc:
             raise InstallError(f"bundle: {exc}") from exc
 
-    @staticmethod
-    def _fetch_jar(artifact: Artifact, target: Path, cancel: threading.Event) -> None:
-        """Stream to a temp file, check the pinned sha256, then rename into place."""
-        url = maven_url(artifact)
-        if urlparse(url).scheme not in ("http", "https"):
-            raise InstallError(f"bundle: unsupported Maven URL scheme in {url}")
-        part = target / f"{artifact.filename}.part"
-        digest = hashlib.sha256()
-        try:
-            with urllib.request.urlopen(url, timeout=DOWNLOAD_TIMEOUT) as response, part.open("wb") as out:
-                while chunk := response.read(DOWNLOAD_CHUNK):
-                    if cancel.is_set():
-                        raise InstallError(f"bundle: download of {artifact.filename} cancelled")
-                    digest.update(chunk)
-                    out.write(chunk)
-            if digest.hexdigest() != artifact.sha256:
-                raise InstallError(
-                    f"bundle: sha256 mismatch for {artifact.filename}: expected {artifact.sha256}, got {digest.hexdigest()}"
-                )
-            if cancel.is_set():
-                raise InstallError(f"bundle: download of {artifact.filename} cancelled")
-            os.replace(part, target / artifact.filename)
-        finally:
-            part.unlink(missing_ok=True)
-
     async def _validate(
-        self, job: Job, python: str, version: str, env_dir: Path, java_home: str, bundle: Bundle | None
+        self, job: Job, python: str, version: str, env_dir: Path, java_home: str, bundle: Bundle | None, s3a: S3aSet
     ) -> None:
         lines = await self._cmd(job, "validate", [python, "-I", "-c", "import pyspark; print(pyspark.__version__)"])
         found = lines[-1] if lines else None
@@ -546,29 +561,30 @@ class SparkInstaller(ManagedInstaller):
         found = lines[-1] if lines else None
         if found != DUCKDB_VERSION:
             raise InstallError(f"installed duckdb is {found}, expected {DUCKDB_VERSION}")
-        if bundle is None:
-            return
         smoke_env = {**self._env, "JAVA_HOME": java_home, "SPARK_CONF_DIR": str(conf_dir(env_dir)), "PYSPARK_PYTHON": python}
         # The real catalog.db must not be touched by an install: the smoke uses a throwaway SQLite file.
         with tempfile.TemporaryDirectory(prefix="notisbook-smoke-") as scratch:
-            # O JdbcCatalog roda com `init-catalog-tables false`: o DDL de produção é aplicado antes do smoke.
-            try:
-                await asyncio.to_thread(ensure_catalog_db, Path(scratch))
-            except sqlite3.Error as exc:
-                raise InstallError(f"bundle smoke test could not prepare its catalog: {exc}") from exc
-            uri = f"jdbc:sqlite:{Path(scratch) / 'catalog.db'}"
+            uri = ""
+            if bundle is not None:
+                # O JdbcCatalog roda com `init-catalog-tables false`: o DDL de produção é aplicado antes do smoke.
+                try:
+                    await asyncio.to_thread(ensure_catalog_db, Path(scratch))
+                except sqlite3.Error as exc:
+                    raise InstallError(f"smoke test could not prepare its catalog: {exc}") from exc
+                uri = f"jdbc:sqlite:{Path(scratch) / 'catalog.db'}"
             warehouse = (Path(scratch) / "warehouse").as_uri()
+            args = [python, "-I", "-c", SMOKE_SCRIPT, "1" if bundle else "0", s3a.sdk_probe_class, s3a.hadoop, uri, warehouse]
             try:
                 # `wait_for` cancela o `run_command`, cujo `finally` mata o processo.
-                lines = await asyncio.wait_for(
-                    self._cmd(job, "validate", [python, "-I", "-c", SMOKE_SCRIPT, uri, bundle.sdk_probe_class, bundle.hadoop, warehouse], smoke_env), SMOKE_TIMEOUT
-                )
+                lines = await asyncio.wait_for(self._cmd(job, "validate", args, smoke_env), SMOKE_TIMEOUT)
             except TimeoutError as exc:
-                raise InstallError(f"bundle smoke test timed out after {SMOKE_TIMEOUT}s") from exc
+                raise InstallError(f"smoke test timed out after {SMOKE_TIMEOUT}s") from exc
             except InstallError as exc:
-                raise InstallError(f"bundle smoke test failed: {exc}") from exc
-        if "bundle-smoke-ok" not in lines:
-            raise InstallError("bundle smoke test did not complete")
+                raise InstallError(f"smoke test failed: {exc}") from exc
+        if "s3a-smoke-ok" not in lines:
+            raise InstallError("S3A smoke test did not complete")
+        if bundle is not None and "formats-smoke-ok" not in lines:
+            raise InstallError("formats smoke test did not complete")
 
     async def _cleanup(self, job: Job, version: str, installed: Path, previous: set[Path]) -> None:
         """Remove superseded dirs of this version; failures only warn (the install already succeeded)."""
@@ -598,6 +614,9 @@ class SparkInstaller(ManagedInstaller):
         except OSError:
             log.warning("could not delete %s", env_dir, exc_info=True)
 
-    async def _discard(self, env_dir: Path | None) -> None:
+    async def _discard(self, env_dir: Path | None, job: Job) -> None:
+        """Delete the half-built env, release the job's jar pins and drop jars nothing references anymore."""
         if env_dir is not None:
             await asyncio.to_thread(self._delete_env, env_dir)
+        self._jars.unpin(job.id)
+        await asyncio.to_thread(self._collect_jars)
