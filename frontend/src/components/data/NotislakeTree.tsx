@@ -61,9 +61,8 @@ const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 /** Pastas da raiz exibidas atenuadas (área de pouso, fora das camadas). */
 const MUTED_ROOT_DIRS = new Set(["landing"]);
 /**
- * Pastas da raiz sempre exibidas, nesta ordem. O bootstrap automático (MinIO) cria
- * landing/bronze/silver/gold, mas no modo manual (S3 externo) ele não roda e os prefixos podem
- * não existir no bucket; por isso a lista é fixa na exibição. Expandir uma pasta inexistente
+ * Pastas da raiz sempre exibidas, nesta ordem: no modo manual (S3 externo) os prefixos podem
+ * não existir no bucket, por isso a lista é fixa na exibição. Expandir uma pasta inexistente
  * lista vazio.
  */
 const FIXED_ROOT_DIRS = ["landing", "bronze", "silver", "gold"];
