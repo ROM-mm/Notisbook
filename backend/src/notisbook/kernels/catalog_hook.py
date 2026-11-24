@@ -41,7 +41,7 @@ TOKEN = CONFIG.get("token")
 ROOTS = tuple(CONFIG.get("roots") or ())
 WATCHED = ("pyspark.context", "pyspark.sql.session", "pyspark.sql.classic.session", "pyspark.sql.readwriter", "pyspark.sql.classic.readwriter",
            "pyspark.sql.catalog", "pyspark.sql.classic.catalog")
-SUPPORTED = ("delta", "parquet") if TRANSPORT == "http" else ("delta", "parquet", "hudi")
+SUPPORTED = ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
