@@ -38,20 +38,38 @@ const RUNTIME_ICON: Record<Runtime, TechIcon | null> = {
 
 const GROUP_ORDER = Object.keys(RUNTIME_ICON) as Runtime[];
 
+/** Rótulo acessível de cada grupo da lista (`role="group"`). */
+const GROUP_LABEL: Record<Runtime, string> = {
+  local: "Spark",
+  duckdb: "DuckDB",
+  docker: "Docker",
+  other: "Other",
+};
+
 /**
  * Tipo e versão do runtime. O tipo vem do `runtime_kind` do kernelspec; sem spec (kernel
- * gravado no notebook e ainda não listado) ou em backend antigo, cai no texto do
- * `display_name`. A versão é o primeiro número com pontos do `display_name`
+ * gravado no notebook e ainda não listado, ex. o alias DuckDB) ou em backend antigo, cai no
+ * nome do kernel e no texto do `display_name`. A versão é o primeiro número com pontos do `display_name`
  * (ex.: "Spark 3.5.1"); sem ela, `null`.
  */
-function runtimeOf(displayName: string, spec: Kernelspec | undefined): { runtime: Runtime; version: string | null } {
-  const runtime: Runtime = spec?.runtime_kind ?? fallbackRuntime(displayName);
+function runtimeOf(
+  displayName: string,
+  spec: Kernelspec | undefined,
+  kernelName: string | null = spec?.name ?? null,
+): { runtime: Runtime; version: string | null } {
+  const runtime: Runtime = spec?.runtime_kind ?? fallbackRuntime(displayName, kernelName);
   const version = runtime !== "other" ? (displayName.match(/(\d+(?:\.\d+)+)/)?.[1] ?? null) : null;
   return { runtime, version };
 }
 
-/** Sem `runtime_kind`: Glue roda em Docker; Spark é local. Demais ficam "other". */
-function fallbackRuntime(displayName: string): Runtime {
+/** Kernel DuckDB: o alias sem versão ou o nome por versão (`duckdb-X-Y-Z`). */
+const DUCKDB_KERNEL = /^duckdb(-\d+-\d+-\d+)?$/i;
+const DUCKDB_TEXT = /duckdb/i;
+const DUCKDB_RUNTIME: Runtime = `duckdb`;
+
+/** Sem `runtime_kind`: DuckDB pelo nome do kernel ou `display_name`; Glue roda em Docker; Spark é local. Demais ficam "other". */
+function fallbackRuntime(displayName: string, kernelName: string | null): Runtime {
+  if ((kernelName && DUCKDB_KERNEL.test(kernelName)) || DUCKDB_TEXT.test(displayName)) return DUCKDB_RUNTIME;
   const text = displayName.toLowerCase();
   if (text.includes("glue")) return "docker";
   if (text.includes("spark")) return "local";
@@ -80,7 +98,7 @@ export function KernelSelector() {
   const { label: stateLabel, state, error } = useKernelDescription();
   const currentSpec = kernelspecs.find((k) => k.name === kernelName);
   const display = currentSpec?.display_name ?? fromMetadata ?? kernelName;
-  const { runtime, version } = runtimeOf(display ?? "", currentSpec);
+  const { runtime, version } = runtimeOf(display ?? "", currentSpec, kernelName);
   const description = `Kernel: ${display ?? "No kernel"} — ${stateLabel.toLowerCase()}`;
 
   const [open, setOpen] = useState(false);
@@ -135,8 +153,10 @@ export function KernelSelector() {
     buttons[next]?.focus();
   };
 
-  // Agrupa por tipo de runtime (ordem estável dentro do grupo); separador entre grupos.
-  const grouped = GROUP_ORDER.map((g) => kernelspecs.filter((k) => runtimeOf(k.display_name, k).runtime === g)).filter((g) => g.length > 0);
+  // Agrupa por tipo de runtime (ordem estável dentro do grupo); separador visual entre grupos.
+  const grouped = GROUP_ORDER.map((g) => ({ runtime: g, specs: kernelspecs.filter((k) => runtimeOf(k.display_name, k).runtime === g) })).filter(
+    (g) => g.specs.length > 0,
+  );
 
   const seen = new Set<string>();
   const duplicatedNames = new Set<string>();
@@ -174,9 +194,10 @@ export function KernelSelector() {
       {open ? (
         <div ref={listRef} className={`${menuStyles.list} ${styles.selectorList}`} role="listbox" aria-label="Runtimes" data-testid="kernel-selector-list">
           {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No runtimes installed. Install one in Settings › Runtimes.</div> : null}
-          {grouped.map((group, gi) => [
-            gi > 0 ? <div key={`sep-${gi}`} className={menuStyles.separator} role="separator" /> : null,
-            ...group.map((k) => {
+          {grouped.map((group, gi) => (
+            <div key={group.runtime} role="group" aria-label={GROUP_LABEL[group.runtime]}>
+              {gi > 0 ? <div className={menuStyles.separator} aria-hidden="true" /> : null}
+              {group.specs.map((k) => {
               const current = k.name === kernelName;
               const ambiguous = duplicatedNames.has(k.display_name);
               return (
@@ -202,8 +223,9 @@ export function KernelSelector() {
                   </span>
                 </button>
               );
-            }),
-          ])}
+              })}
+            </div>
+          ))}
         </div>
       ) : null}
     </div>

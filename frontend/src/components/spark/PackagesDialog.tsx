@@ -1,7 +1,7 @@
 /**
  * Config de um ambiente (Spark ou DuckDB): lista as libs e permite adicionar (＋),
  * desinstalar (−) e atualizar (↑) as marcadas. PyPI apenas. As rotas vêm do adaptador
- * (`PackagesAdapter`); `readOnly` só lista; `children` entra antes da tabela (ex.: extensões do DuckDB).
+ * (`PackagesAdapter`); `children` entra antes da tabela (ex.: extensões do DuckDB).
  *
  * Modal nativo (`showModal`). Durante um job fica travado: Esc/Close/backdrop não fecham e,
  * se o navegador fechar mesmo assim, o diálogo reabre.
@@ -22,8 +22,6 @@ interface Props {
   envDir: string | null;
   /** Rotas de libs do ambiente; identidade estável (useMemo por versão). */
   adapter: PackagesAdapter;
-  /** Só lista as libs, sem adicionar/remover/atualizar. */
-  readOnly?: boolean;
   /** Conteúdo extra antes da tabela de libs. */
   children?: ReactNode;
   /** Sessões abertas do kernel deste ambiente (bloqueiam as ações). */
@@ -45,14 +43,12 @@ function actionError(err: unknown): string {
   return errorMessage(err);
 }
 
-function Row({ item, selected, changed, added, disabled, readOnly, onToggle }: { item: PackageItem; selected: boolean; changed: boolean; added: boolean; disabled: boolean; readOnly: boolean; onToggle: () => void }) {
+function Row({ item, selected, changed, added, disabled, onToggle }: { item: PackageItem; selected: boolean; changed: boolean; added: boolean; disabled: boolean; onToggle: () => void }) {
   return (
     <tr className={`${selected ? styles.pkgSelected : ""} ${changed ? styles.pkgChanged : ""}`} data-testid="spark-package-row" data-name={item.name}>
-      {readOnly ? null : (
-        <td className={styles.pkgCheck}>
-          <input type="checkbox" checked={selected} disabled={disabled} aria-label={`Select ${item.name}`} onChange={onToggle} />
-        </td>
-      )}
+      <td className={styles.pkgCheck}>
+        <input type="checkbox" checked={selected} disabled={disabled} aria-label={`Select ${item.name}`} onChange={onToggle} />
+      </td>
       <td className={styles.pkgName}>
         <span>{item.name}</span>
         {added ? <span className={`${styles.tag} ${styles.tagNew}`}>new</span> : null}
@@ -62,7 +58,7 @@ function Row({ item, selected, changed, added, disabled, readOnly, onToggle }: {
   );
 }
 
-export function PackagesDialog({ title, version, envDir, adapter, readOnly = false, children, sessions, onClose }: Props) {
+export function PackagesDialog({ title, version, envDir, adapter, children, sessions, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
   const pk = usePackages(adapter, version);
   const [filter, setFilter] = useState("");
@@ -155,7 +151,7 @@ export function PackagesDialog({ title, version, envDir, adapter, readOnly = fal
             {title} — Libraries
           </h2>
           <p className={styles.text}>
-            {envDir ? <span>{envDir}</span> : null} · {readOnly ? "read-only" : "PyPI only"}
+            {envDir ? <span>{envDir}</span> : null} · PyPI only
           </p>
         </div>
         <button type="button" className="btn btn-ghost" aria-label="Close dialog" disabled={locked} onClick={close}>
@@ -164,25 +160,21 @@ export function PackagesDialog({ title, version, envDir, adapter, readOnly = fal
       </div>
 
       <div className={styles.pkgToolbar}>
-        {readOnly ? null : (
-          <>
-            <span title={blockReason ?? "Add libraries"}>
-              <button type="button" className="btn btn-primary" aria-label="Add libraries" disabled={!!blockReason || pk.loading} onClick={() => setAddOpen(true)}>
-                ＋
-              </button>
-            </span>
-            <span title={blockReason ?? needsSelection ?? "Uninstall selected"}>
-              <button type="button" className={`btn ${styles.dangerBtn}`} aria-label="Uninstall selected" disabled={!!blockReason || !!needsSelection} onClick={uninstall}>
-                −
-              </button>
-            </span>
-            <span title={blockReason ?? needsSelection ?? "Upgrade selected to the latest version"}>
-              <button type="button" className="btn" aria-label="Upgrade selected" disabled={!!blockReason || !!needsSelection} onClick={upgrade}>
-                ↑
-              </button>
-            </span>
-          </>
-        )}
+        <span title={blockReason ?? "Add libraries"}>
+          <button type="button" className="btn btn-primary" aria-label="Add libraries" disabled={!!blockReason || pk.loading} onClick={() => setAddOpen(true)}>
+            ＋
+          </button>
+        </span>
+        <span title={blockReason ?? needsSelection ?? "Uninstall selected"}>
+          <button type="button" className={`btn ${styles.dangerBtn}`} aria-label="Uninstall selected" disabled={!!blockReason || !!needsSelection} onClick={uninstall}>
+            −
+          </button>
+        </span>
+        <span title={blockReason ?? needsSelection ?? "Upgrade selected to the latest version"}>
+          <button type="button" className="btn" aria-label="Upgrade selected" disabled={!!blockReason || !!needsSelection} onClick={upgrade}>
+            ↑
+          </button>
+        </span>
         <input
           className={`${styles.input} ${styles.pkgFilter}`}
           type="search"
@@ -194,7 +186,7 @@ export function PackagesDialog({ title, version, envDir, adapter, readOnly = fal
         />
       </div>
 
-      {sessionReason && !locked && !readOnly ? <p className={styles.notice}>{sessionReason}</p> : null}
+      {sessionReason && !locked ? <p className={styles.notice}>{sessionReason}</p> : null}
       {chosen.length > 0 ? (
         <p className={styles.pkgSummary} data-testid="spark-packages-selected">
           {chosen.length} selected: {chosen.map((p) => `${p.name} ${p.version}`).join(", ")} — − uninstalls · ↑ upgrades to latest
@@ -240,14 +232,14 @@ export function PackagesDialog({ title, version, envDir, adapter, readOnly = fal
           <table className={styles.pkgTable}>
             <thead>
               <tr>
-                {readOnly ? null : <th />}
+                <th />
                 <th>Library</th>
                 <th>Version</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((p) => (
-                <Row key={p.name} item={p} selected={selected.has(p.name)} changed={pk.changed.has(p.name)} added={pk.added.has(p.name)} disabled={locked} readOnly={readOnly} onToggle={() => toggle(p.name)} />
+                <Row key={p.name} item={p} selected={selected.has(p.name)} changed={pk.changed.has(p.name)} added={pk.added.has(p.name)} disabled={locked} onToggle={() => toggle(p.name)} />
               ))}
             </tbody>
           </table>

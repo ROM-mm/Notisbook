@@ -41,7 +41,8 @@ export function useRuntimesData() {
 
   const attach = useCallback(
     (id: string, version: string | null) => {
-      if (streams.current.has(id)) return;
+      // Desmontado (ex.: `reloadDuckDB()` resolveu após o cleanup): não abre WebSocket órfão.
+      if (!mounted.current || streams.current.has(id)) return;
       setDuckJobs((list) =>
         list.some((j) => j.id === id) ? list : [{ id, version, lines: [], phase: null, progress: 0, status: "running", message: null }, ...list],
       );
@@ -84,6 +85,7 @@ export function useRuntimesData() {
   useEffect(() => {
     mounted.current = true;
     void reloadDuckDB().then((s) => {
+      if (!mounted.current) return;
       for (const inst of (s?.installing ?? []).filter((i) => i.kind === "duckdb-install")) {
         const version = s?.catalog.find((c) => duckdbKernelName(c.version) === inst.kernel_name)?.version ?? null;
         attach(inst.job_id, version);
