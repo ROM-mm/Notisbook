@@ -1,4 +1,4 @@
-"""Spark version catalog: stable pyspark releases from PyPI, with offline fallback.
+"""Spark version catalog: one pyspark release per curated bundle line, with offline fallback.
 
 The PyPI client is stdlib `urllib` run in a worker thread: one short GET per hour
 does not justify a new runtime dependency, and the call stays off the event loop.
@@ -11,14 +11,15 @@ import time
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit
 
-SUGGESTED_VERSIONS = ("3.5.9", "4.3.0")
+from .bundles import bundle_for, curated_lines
 
-WINDOW = timedelta(days=180)
-FALLBACK_COUNT = 3
+# Offline answer per curated line; a line without an entry here is only listed when PyPI answers.
+SUGGESTED_PATCH = {"3.5": "3.5.10", "4.1": "4.1.4"}
+
 CACHE_TTL = 3600.0
 FAILURE_RETRY = 60.0
 FETCH_TIMEOUT = 5.0
@@ -38,20 +39,31 @@ def is_valid_version(version: str) -> bool:
 class CatalogEntry:
     version: str
     released_at: datetime | None
+    line: str
 
 
 @dataclass(frozen=True)
 class Catalog:
     source: str  # "pypi" | "fallback"
-    fallback: bool  # True when the list is not the strict 180-day window
+    fallback: bool  # True when the list was not freshly resolved from PyPI
     entries: tuple[CatalogEntry, ...]
-
-
-STATIC_CATALOG = Catalog("fallback", True, tuple(CatalogEntry(v, None) for v in SUGGESTED_VERSIONS))
 
 
 def _version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
+
+
+def _static_entries() -> tuple[CatalogEntry, ...]:
+    return tuple(
+        CatalogEntry(SUGGESTED_PATCH[line], None, line) for line in curated_lines() if line in SUGGESTED_PATCH
+    )
+
+
+def _newest_first(entries: list[CatalogEntry]) -> tuple[CatalogEntry, ...]:
+    return tuple(sorted(entries, key=lambda e: _version_key(e.version), reverse=True))
+
+
+STATIC_CATALOG = Catalog("fallback", True, _newest_first(list(_static_entries())))
 
 
 def _release_date(files: Any) -> datetime | None:
@@ -70,24 +82,28 @@ def _release_date(files: Any) -> datetime | None:
     return min(uploads) if uploads else None
 
 
-def parse_pypi(payload: Any, now: datetime) -> Catalog:
-    """Stable releases only, newest first; the last 180 days or the 3 latest when that is empty."""
+def parse_pypi(payload: Any) -> Catalog:
+    """Per curated line, the highest stable non-yanked release its bundle covers (newest line first).
+
+    A line PyPI has no usable release for falls back to `SUGGESTED_PATCH` and marks the catalog as fallback.
+    """
     releases = payload.get("releases") if isinstance(payload, dict) else None
     if not isinstance(releases, dict):
         raise TypeError("unexpected PyPI payload")
-    stable = [
-        CatalogEntry(version, released)
-        for version, files in releases.items()
-        if isinstance(version, str) and is_valid_version(version) and (released := _release_date(files))
-    ]
-    if not stable:
-        raise ValueError("no stable release in PyPI payload")
-    stable.sort(key=lambda e: (e.released_at, _version_key(e.version)), reverse=True)
-    cutoff = now - WINDOW
-    recent = [e for e in stable if e.released_at is not None and e.released_at >= cutoff]
-    if recent:
-        return Catalog("pypi", False, tuple(recent))
-    return Catalog("pypi", True, tuple(stable[:FALLBACK_COUNT]))
+    best: dict[str, CatalogEntry] = {}
+    for version, files in releases.items():
+        if not isinstance(version, str) or not is_valid_version(version):
+            continue
+        bundle = bundle_for(version)
+        if bundle is None or bundle.line not in curated_lines() or (released := _release_date(files)) is None:
+            continue
+        current = best.get(bundle.line)
+        if current is None or _version_key(version) > _version_key(current.version):
+            best[bundle.line] = CatalogEntry(version, released, bundle.line)
+    if not best:
+        raise ValueError("no curated stable release in PyPI payload")
+    missing = [e for e in _static_entries() if e.line not in best]
+    return Catalog("pypi", bool(missing), _newest_first([*best.values(), *missing]))
 
 
 def fetch_pypi(base_url: str, timeout: float = FETCH_TIMEOUT) -> Any:
@@ -133,7 +149,7 @@ class CatalogService:
                 return self._degraded()
             try:
                 payload = await asyncio.to_thread(self._fetch, self._base_url)
-                catalog = parse_pypi(payload, datetime.now(UTC))
+                catalog = parse_pypi(payload)
             except (OSError, ValueError, TypeError):
                 self._failed_at = now
                 return self._degraded()

@@ -191,6 +191,15 @@ def bundle_for(version: str) -> Bundle | None:
     return next((b for b in MATRIX.values() if b.line == line and b.covers(patch)), None)
 
 
+CURATED_FORMATS = frozenset({"delta", "iceberg", "hudi"})
+
+
+def curated_lines() -> tuple[str, ...]:
+    """Spark lines offered by the catalog: open-ended bundle (no patch ceiling) carrying all three lake formats."""
+    lines = {b.line for b in MATRIX.values() if b.max_patch is None and CURATED_FORMATS <= set(b.formats)}
+    return tuple(sorted(lines, key=lambda line: tuple(int(part) for part in line.split("."))))
+
+
 def maven_url(artifact: Artifact) -> str:
     """Download URL of the jar; the repository base can be overridden by NOTISBOOK_MAVEN_URL."""
     base = (os.environ.get(MAVEN_URL_ENV) or DEFAULT_MAVEN_URL).rstrip("/")

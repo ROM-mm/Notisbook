@@ -146,6 +146,7 @@ def _catalog_body(catalog: Catalog, installed_versions: set[str]) -> dict[str, A
             {
                 "version": entry.version,
                 "released_at": entry.released_at.isoformat() if entry.released_at else None,
+                "line": entry.line,
                 "installed": entry.version in installed_versions,
                 "formats": list(bundle.formats) if (bundle := bundle_for(entry.version)) else None,
             }
