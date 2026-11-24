@@ -85,6 +85,8 @@ export interface InstalledSpark {
   formats?: string[] | null;
   /** `installed`, `outdated` (env anterior à matriz atual), `missing` ou `unsupported`. */
   bundle_status?: string;
+  /** Jars S3A do env frente aos da versão atual (independe dos formatos); `outdated` impede abrir o kernel. */
+  s3a_status?: "installed" | "outdated" | "unsupported";
 }
 
 export interface InstallingSpark {

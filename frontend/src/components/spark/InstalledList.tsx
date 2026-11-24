@@ -93,7 +93,7 @@ function SparkRow({ item, sessions, installing, installingVersion, onRemove }: {
             </span>
           ) : null}
           {using.length > 0 ? <span className={`${styles.tag} ${styles.tagActive}`}>in use</span> : null}
-          <SupportBadge formats={item.formats} />
+          <SupportBadge formats={item.bundle_status === "installed" ? item.formats : null} />
         </div>
         <div className={styles.rowMeta}>
           <span>{item.display_name}</span>
@@ -102,6 +102,11 @@ function SparkRow({ item, sessions, installing, installingVersion, onRemove }: {
         {item.bundle_status === "outdated" ? (
           <p className={styles.error} data-testid="spark-version-outdated">
             This runtime predates the persistent catalog. Remove it and reinstall Spark {item.version} to enable it.
+          </p>
+        ) : null}
+        {item.s3a_status === "outdated" ? (
+          <p className={styles.error} data-testid="spark-version-s3a-outdated">
+            This runtime lacks the current S3A jars, so the kernel cannot be opened and notislake (s3a://) will not work. Remove it and reinstall Spark {item.version} to fix it.
           </p>
         ) : null}
         {error ? (
