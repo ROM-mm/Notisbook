@@ -69,6 +69,7 @@ SCRUBBED_ENV = (
     "SPARK_CONF_DIR",
 )
 DOWNLOAD_TIMEOUT = 60
+DOWNLOAD_CHUNK = 1 << 20
 # Teto do smoke: uma JVM travada não pode segurar o lock do kernel para sempre.
 SMOKE_TIMEOUT = 300
 # Starts a local session with the env's spark-defaults.conf. S3A part (always): loads S3AFileSystem and the SDK
