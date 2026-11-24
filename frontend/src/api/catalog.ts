@@ -202,7 +202,7 @@ export interface SchemaDeletion {
   folder_kept: boolean;
 }
 
-/** 409 `catalog_changed`/`cannot_drop_default`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
+/** 409 `catalog_changed`/`cannot_drop_default`/`cannot_drop_layer`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
 export function deleteSchema(catalog: string, schema: string, etag: string): Promise<SchemaDeletion> {
   return request<SchemaDeletion>("/api/catalog/schemas", { method: "DELETE", query: { catalog, schema, etag } });
 }
@@ -216,6 +216,7 @@ const SCHEMA_ERRORS: Record<string, string> = {
   catalog_unavailable: "Catalog database unavailable. Try again.",
   schema_not_found: "The schema no longer exists.",
   cannot_drop_default: "The default schema cannot be deleted.",
+  cannot_drop_layer: "Layer schemas (bronze, silver, gold) cannot be deleted.",
   has_child_namespaces: "The schema has nested namespaces and cannot be deleted.",
   kernel_busy: "A kernel is using the catalog. Try again when it is idle.",
   catalog_changed: "The schema changed. Review and confirm again.",

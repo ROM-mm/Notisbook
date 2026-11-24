@@ -138,7 +138,11 @@ def _table_node(namespace: str, name: str, fmt: str, table_type: str, location: 
 
 
 def _display_names(conn: sqlite3.Connection, hudi: bool) -> set[str]:
-    """Schemas exibidos no nó: só-Hudi no `hudi`, sem Hudi no `spark_catalog`, mistos nos dois, vazios pela origem."""
+    """Schemas exibidos no nó: só-Hudi no `hudi`, sem Hudi no `spark_catalog`, mistos nos dois, vazios pela origem.
+
+    As camadas (`locations.LAYERS`) aparecem sempre nos dois nós, mesmo vazias ou só com tabelas do outro formato.
+    O `default` só aparece no nó em que tem tabela; vazio, é omitido nos dois.
+    """
     counts: dict[str, tuple[int, int]] = {
         r[0]: (int(r[1]), int(r[2]))
         for r in conn.execute(
@@ -152,11 +156,17 @@ def _display_names(conn: sqlite3.Connection, hudi: bool) -> set[str]:
     }
     node = HUDI_CATALOG if hudi else SPARK_CATALOG
     names = set()
-    for ns in {DEFAULT_DATABASE, *counts, *origins}:
+    for ns in {*locations.LAYERS, *counts, *origins}:
         n_hudi, n_other = counts.get(ns, (0, 0))
-        if (n_hudi if hudi else n_other) > 0 or (n_hudi + n_other == 0 and origins.get(ns, SPARK_CATALOG) == node):
+        empty_by_origin = n_hudi + n_other == 0 and ns.lower() != DEFAULT_DATABASE and origins.get(ns, SPARK_CATALOG) == node
+        if ns.lower() in locations.LAYERS or (n_hudi if hudi else n_other) > 0 or empty_by_origin:
             names.add(ns)
     return names
+
+
+def empty_display_names() -> list[str]:
+    """Schemas dos nós spark e hudi sem `catalog.db`: só as camadas, na ordem de `locations.LAYERS`; sem `default`."""
+    return list(locations.LAYERS)
 
 
 def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False) -> tuple[list[dict[str, Any]], int]:

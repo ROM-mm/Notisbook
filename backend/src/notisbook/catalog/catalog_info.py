@@ -72,8 +72,8 @@ def _summary_or_status(conn: sqlite3.Connection | None, catalog: str) -> tuple[s
         except sqlite3.Error:
             return iceberg_jdbc.ERR_UNREADABLE, empty
     if conn is None:
-        spark_default = {"namespaces": [{"name": registry.DEFAULT_DATABASE, "tables": 0, "views": 0}], "tables": 0, "views": 0, "formats": {}}
-        return STATUS_EMPTY, spark_default if catalog == registry.SPARK_CATALOG else empty
+        layers = [{"name": ns, "tables": 0, "views": 0} for ns in registry.empty_display_names()]
+        return STATUS_EMPTY, {**empty, "namespaces": layers}
     return STATUS_OK, registry.catalog_summary(conn, hudi=catalog == registry.HUDI_CATALOG)
 
 

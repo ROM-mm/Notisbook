@@ -405,8 +405,11 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
-      const isDefault = (catalog === SPARK_CATALOG || catalog === HUDI_CATALOG) && schema.toLowerCase() === DEFAULT_SCHEMA;
-      return [{ label: "Delete Schema…", danger: true, disabled: isDefault, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
+      const sparkNode = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
+      const key = schema.toLowerCase();
+      // `default` e as camadas são protegidos no backend (`cannot_drop_default`/`cannot_drop_layer`).
+      const isProtected = sparkNode && (key === DEFAULT_SCHEMA || LAYER_ORDER.includes(key));
+      return [{ label: "Delete Schema…", danger: true, disabled: isProtected, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
     }
     return null;
   }
@@ -659,12 +662,16 @@ function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 
-/** Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós. */
+/**
+ * Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós.
+ * Nesses nós o `default` vazio fica oculto, mas sempre existe no backend: é incluído para o diálogo recusá-lo.
+ */
 function existingSchemas(catalogs: CatalogNode[] | undefined, catalog: string): string[] {
   const shared = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
-  return (catalogs ?? [])
+  const names = (catalogs ?? [])
     .filter((c) => (shared ? c.name === SPARK_CATALOG || c.name === HUDI_CATALOG : c.name === catalog))
     .flatMap((c) => c.databases.map((d) => d.name));
+  return shared && !names.includes(DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
 }
 
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {

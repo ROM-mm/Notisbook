@@ -55,7 +55,10 @@ def _open(home: Path) -> sqlite3.Connection | None:
 def _read_catalogs(home: Path) -> list[dict[str, Any]]:
     conn = _open(home)
     if conn is None:
-        return [{"name": registry.SPARK_CATALOG, "databases": [{"name": registry.DEFAULT_DATABASE, "tables": []}]}]
+        return [
+            {"name": node, "databases": [{"name": ns, "tables": []} for ns in registry.empty_display_names()]}
+            for node in (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
+        ]
     try:
         databases, used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES)
         hudi_dbs, hudi_used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES - used, hudi=True)
