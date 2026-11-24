@@ -137,18 +137,15 @@ def _jvm_logging() -> None:
     Via env (e não `spark.driver.extraJavaOptions`) para não substituir as opções da imagem (truststore). O arquivo
     vai por este caminho, sem montagem nova, e é regravado a cada kernel; sem ele o log fica como o da imagem.
     """
-    tmp = f"{LOG4J2_PATH}.{os.getpid()}.tmp"
     try:
-        with open(tmp, "w", encoding="utf-8") as handle:
-            handle.write(LOG4J2_CONF)
-        os.replace(tmp, LOG4J2_PATH)
+        _write_atomic(LOG4J2_PATH, LOG4J2_CONF)
     except OSError:
-        _unlink(tmp)
         sys.stderr.write("notisbook-incontainer: config de log indisponível; usando a da imagem\n")
         return
     option = f"-Dlog4j2.configurationFile=file:{LOG4J2_PATH}"
     current = os.environ.get("SPARK_SUBMIT_OPTS", "")
-    os.environ["SPARK_SUBMIT_OPTS"] = f"{option} {current}" if current else option
+    # Com `-D` repetida a JVM usa a última: a nossa vai depois para não ser anulada por um valor pré-existente.
+    os.environ["SPARK_SUBMIT_OPTS"] = f"{current} {option}" if current else option
 
 
 def _fail(code: int, message: str) -> NoReturn:
