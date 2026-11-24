@@ -7,6 +7,65 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-24
+
+DuckDB now has managed versions with their own libraries, like Spark; kernels live inside the Notisbook data folder;
+Spark jars are downloaded once and shared; and the example notebooks are organized by runtime.
+
+### Added
+
+- **Managed DuckDB versions.** Several DuckDB versions can be installed side by side (2.0.1 and 1.5.6 are in the
+  catalog), each with its own kernel (`duckdb-<major>-<minor>-<patch>`). Installing or removing one leaves the others
+  untouched.
+- **Libraries per DuckDB version.** Each DuckDB version has its own PyPI libraries (add, upgrade, uninstall), with the
+  same rules as Spark; `duckdb` and `ipykernel` are protected.
+- **Shared jar cache.** Spark jars are stored once in `~/.notisbook/jars/<sha256>/` and referenced by every
+  environment, so installing another Spark version no longer downloads the AWS SDK again. Each jar is checked against
+  its sha256, and jars no environment uses anymore are removed automatically.
+- **S3A for every Spark version.** The S3A jars now follow the Hadoop shipped inside pyspark, so Spark versions without
+  a Delta/Iceberg/Hudi bundle install and open sessions with S3A, without the table formats.
+- **One install picker in Settings › Runtimes.** A single combo groups Spark (Data processing), DuckDB (Analytics) and
+  Docker (AWS Glue), shows what is installed or installing, labels the supported table formats and works from the
+  keyboard.
+- **Grouped kernel selector.** Kernels are grouped by runtime: Spark, DuckDB, Docker and Other.
+- **Examples by runtime.** New `spark/` and `glue/` notebooks for Delta, Hudi and Iceberg, plus `duckdb/duckdb.ipynb`.
+  The Home lists `spark/delta`, `duckdb/duckdb` and `glue/iceberg`.
+
+### Changed
+
+- **Kernels live in the data folder.** Kernelspecs are written to `~/.notisbook/kernels` (or `$NOTISBOOK_HOME/kernels`)
+  instead of the global Jupyter folder. On startup, Notisbook moves its own kernels from the global folder, and removes
+  kernels whose environment no longer exists.
+- **Only Notisbook kernels are listed.** Jupyter kernels installed outside Notisbook no longer appear in the app and
+  cannot be started from it. Notisbook kernels also no longer appear in other Jupyter tools.
+- **DuckDB API by version.** The `/api/duckdb` routes now take a version: `POST /versions`, `DELETE /versions/{v}`,
+  `GET /versions/{v}/extensions`, and `GET`/`POST /versions/{v}/packages` with `/upgrade` and `/uninstall`.
+  `GET /api/duckdb` returns lists for `installed` and `installing`, plus the `catalog`.
+- **Spark catalog.** The catalog offers the latest patch of 3.5 and of each 4.x line; lines before 3.5 are no longer
+  offered.
+- **Settings › Runtimes.** A single Installed list covers Spark, DuckDB and Docker, and "Reload catalog" refreshes the
+  three. The separate DuckDB section was removed.
+- **`notisbook uninstall`** also removes `~/.notisbook/kernels`, `~/.notisbook/jars` and this data folder's kernels
+  left in the global Jupyter folder.
+- **Busy DuckDB versions.** Opening a session is refused while that DuckDB version is being installed or its libraries
+  are changing.
+
+### Removed
+
+- **Old DuckDB routes.** `GET /api/duckdb/extensions`, `POST /api/duckdb/install` and `DELETE /api/duckdb` were
+  replaced by the versioned routes above.
+- **Old loose examples.** `delta.ipynb`, `glue.ipynb`, `hudi.ipynb` and `iceberg.ipynb` were replaced by the
+  per-runtime notebooks.
+
+### Fixed
+
+- **Spark install check.** The install smoke test no longer fails when the Spark progress bar shares a line with the
+  success marker.
+- **Missing runtimes.** Opening a notebook whose kernel was removed now returns `runtime_not_installed`, pointing to
+  Settings › Runtimes, and notebooks saved with the `duckdb` kernel open on the newest installed DuckDB version.
+- **Orphan kernels on uninstall.** `notisbook uninstall` also removes kernels whose environment was already gone.
+- **Docker hint.** The message for a missing Docker container points to "Recreate" in Settings › Runtimes.
+
 ## [0.11.0] - 2026-11-24
 
 The AWS Glue runtime now reads and writes Apache Hudi tables, its cell output is no longer flooded by Spark logs, and
