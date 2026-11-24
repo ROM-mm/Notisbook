@@ -17,12 +17,14 @@ from typing import Any
 
 from jupyter_core.paths import jupyter_data_dir
 
-from .bundles import bundle_for
+from .bundles import S3A_BY_HADOOP, S3aSet, bundle_for, installed_hadoop
 
 METADATA_KEY = "notisbook"
 ENVS_DIR = "envs"
 TRASH_PREFIX = ".trash-"
 LEGACY_PREFIX = ".venv-spark"
+# `metadata.notisbook.s3a.store`: the S3A jars live in the shared cache (`<home>/jars`), not inside the env.
+STORE_SHARED = "shared"
 _DISPLAY_VERSION = re.compile(r"Apache Spark (\d+\.\d+\.\d+)", re.ASCII)
 
 
@@ -35,6 +37,8 @@ class InstalledVersion:
     env_dir: Path
     formats: tuple[str, ...] | None = None
     bundle_status: str = "unsupported"
+    # S3A jars status (same values as `bundle_status`); `bundle_status` covers only the Delta/Iceberg/Hudi formats.
+    s3a_status: str = "unsupported"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +49,7 @@ class InstalledVersion:
             "env_dir": str(self.env_dir),
             "formats": list(self.formats) if self.formats is not None else None,
             "bundle_status": self.bundle_status,
+            "s3a_status": self.s3a_status,
         }
 
 
@@ -68,7 +73,7 @@ def jars_dir(env_dir: Path) -> Path:
     return env_dir / "notisbook" / "jars"
 
 
-def write_kernelspec(version: str, env_dir: Path, java_home: str) -> Path:
+def write_kernelspec(version: str, env_dir: Path, java_home: str, s3a: S3aSet) -> Path:
     """Create or atomically replace `kernel.json`; the previous file survives any failure."""
     python = str(env_dir / "bin" / "python")
     env = {
@@ -77,7 +82,10 @@ def write_kernelspec(version: str, env_dir: Path, java_home: str) -> Path:
         "PYSPARK_DRIVER_PYTHON": python,
         "SPARK_CONF_DIR": str(conf_dir(env_dir)),
     }
-    notisbook: dict[str, Any] = {"version": version}
+    notisbook: dict[str, Any] = {
+        "version": version,
+        "s3a": {"hadoop": s3a.hadoop, "revision": s3a.revision, "store": STORE_SHARED},
+    }
     bundle = bundle_for(version)
     if bundle is not None:
         notisbook["bundle"] = {"key": bundle.key, "line": bundle.line, "revision": bundle.revision, "formats": list(bundle.formats)}
@@ -130,6 +138,25 @@ def _bundle_info(version: str, recorded: Any) -> tuple[tuple[str, ...] | None, s
     return listed, "installed"
 
 
+def s3a_plan(env_dir: Path, version: str, ours: dict[str, Any]) -> tuple[str, S3aSet | None, bool]:
+    """S3A status of a managed env, the set its jars follow and whether they live in the shared cache.
+
+    A recorded `s3a` entry must match the current set revision and the Hadoop inside the env. Envs installed
+    before `s3a` existed that carry a formats bundle keep their jars under `env/notisbook/jars` (old layout).
+    Anything else is `outdated` and has to be reinstalled. The set is None unless the status is `installed`.
+    """
+    hadoop = installed_hadoop(env_dir)
+    current = S3A_BY_HADOOP.get(hadoop) if hadoop is not None else None
+    recorded = ours.get("s3a")
+    if isinstance(recorded, dict):
+        if current is not None and recorded.get("hadoop") == current.hadoop and recorded.get("revision") == current.revision:
+            return "installed", current, True
+        return "outdated", None, True
+    if current is not None and isinstance(ours.get("bundle"), dict) and bundle_for(version) is not None:
+        return "installed", current, False
+    return "outdated", None, False
+
+
 def is_managed_env(base_dir: Path, env_dir: Path) -> bool:
     """True para `base_dir/envs/spark-*`: o ambiente gerenciado (não o legado `.venv-spark*`)."""
     return env_dir.parent == base_dir / ENVS_DIR and env_dir.name.startswith("spark-")
@@ -158,8 +185,10 @@ def _entry(base_dir: Path, spec_dir: Path) -> InstalledVersion | None:
     if version is None:
         return None
     formats, status = _bundle_info(version, ours.get("bundle"))
+    is_legacy = legacy and not managed
+    s3a_status = "unsupported" if is_legacy else s3a_plan(env_dir, version, ours)[0]
     return InstalledVersion(
-        version, spec_dir.name, display or display_name(version), legacy and not managed, env_dir, formats, status
+        version, spec_dir.name, display or display_name(version), is_legacy, env_dir, formats, status, s3a_status
     )
 
 

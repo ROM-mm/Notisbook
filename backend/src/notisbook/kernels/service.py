@@ -58,7 +58,8 @@ from ..spark.bundles import (
     write_spark_defaults,
 )
 from ..spark import kernelspec as spark_kernelspec
-from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
+from ..spark.jar_cache import JarCache
+from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir, s3a_plan
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
 from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
 from .languages import CELL_LANGUAGE_LABELS, CellLanguage
@@ -156,7 +157,7 @@ class NotislakeUnavailable(Exception):
 
 
 class SparkEnvOutdated(Exception):
-    """O ambiente Spark gerenciado não tem todos os jars do bundle (S3A inclusive); ele manteria o warehouse local."""
+    """O ambiente Spark gerenciado não tem todos os jars S3A (ou do bundle) que o conf nomeia; ele manteria o warehouse local."""
 
 
 @dataclass(frozen=True)
@@ -917,8 +918,9 @@ class KernelService:
     def _ensure_spark_defaults(self, spec: Any) -> None:
         """Re-render `spark-defaults.conf` from the current matrix, only when every jar it names is installed.
 
-        The kernel is offline, so nothing is downloaded here. A managed env with no bundle, or missing a jar
-        of its bundle (the S3A ones included), has no S3A config to run on: raises `SparkEnvOutdated`.
+        The kernel is offline, so nothing is downloaded here. A managed env without a current S3A record (or
+        missing any jar the conf names, formats bundle included) has no S3A config to run on: raises `SparkEnvOutdated`.
+        The bundle is optional: an env without it runs S3A only.
         So does a conf that cannot be rewritten (unsupported home, write error), unless the current one already
         points `spark.sql.warehouse.dir` at the local safety warehouse. That fallback only applies once the env is
         confirmed as a managed Spark env; any other failure is logged and never blocks the start.
@@ -931,18 +933,21 @@ class KernelService:
             if not (managed and conf.name == "spark-conf" and is_managed_env(self._home, env_dir)):
                 return
             confirmed = True
-            version = spec.metadata[METADATA_KEY].get("version")
-            bundle = bundle_for(version) if isinstance(version, str) else None
-            if bundle is None:
-                log.warning("spark env %s has no bundle with the S3A jars; reinstall the Spark version", env_dir.name)
+            meta = spec.metadata[METADATA_KEY]
+            version = meta.get("version")
+            status, s3a, shared = s3a_plan(env_dir, version, meta) if isinstance(version, str) else ("outdated", None, False)
+            if s3a is None:
+                log.warning("spark env %s has no current S3A jars (%s); reinstall the Spark version", env_dir.name, status)
                 raise SparkEnvOutdated
-            jars = jars_dir(env_dir)
-            missing = [a.filename for a in (*bundle.artifacts, *bundle.driver_artifacts) if not (jars / a.filename).is_file()]
+            bundle = bundle_for(version) if isinstance(meta.get("bundle"), dict) else None
+            resolve = JarCache(self._home).path if shared else (lambda artifact: jars_dir(env_dir) / artifact.filename)
+            needed = (*(bundle.artifacts if bundle else ()), *(bundle.driver_artifacts if bundle else ()), *s3a.artifacts)
+            missing = [a.filename for a in needed if not resolve(a).is_file()]
             if missing:
                 log.warning("spark env %s is outdated: missing %s; reinstall the Spark version", env_dir.name, ", ".join(missing))
                 raise SparkEnvOutdated
-            if write_spark_defaults(conf, render_spark_defaults(bundle, jars, self._home)):
-                log.info("spark-defaults.conf of %s updated to bundle r%d", env_dir.name, bundle.revision)
+            if write_spark_defaults(conf, render_spark_defaults(bundle, s3a, resolve, self._home)):
+                log.info("spark-defaults.conf of %s updated", env_dir.name)
         except SparkEnvOutdated:
             raise
         except UnsupportedHome as exc:
