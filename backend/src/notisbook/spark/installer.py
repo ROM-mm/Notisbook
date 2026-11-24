@@ -34,7 +34,8 @@ from .bundles import (
     render_spark_defaults,
     write_log4j2,
 )
-from .jar_cache import JarCache, JarError
+# DOWNLOAD_CHUNK is re-exported for runtimes/duckdb/installer.py.
+from .jar_cache import DOWNLOAD_CHUNK, DOWNLOAD_TIMEOUT, JarCache, JarError  # noqa: F401
 from .kernelspec import (
     ENVS_DIR,
     TRASH_PREFIX,
@@ -68,8 +69,6 @@ SCRUBBED_ENV = (
     "PYSPARK_SUBMIT_ARGS",
     "SPARK_CONF_DIR",
 )
-DOWNLOAD_TIMEOUT = 60
-DOWNLOAD_CHUNK = 1 << 20
 # Teto do smoke: uma JVM travada não pode segurar o lock do kernel para sempre.
 SMOKE_TIMEOUT = 300
 # Starts a local session with the env's spark-defaults.conf. S3A part (always): loads S3AFileSystem and the SDK
@@ -441,7 +440,7 @@ class SparkInstaller(ManagedInstaller):
                 await asyncio.to_thread(write_log4j2, conf_dir(env_dir))
             except OSError as exc:
                 raise InstallError(f"log4j2: cannot write {conf_dir(env_dir)}: {exc}") from exc
-            s3a = await self._detect_s3a(job, env_dir)
+            s3a = await self._detect_s3a(job, env_dir, version)
             await self._install_bundle(job, env_dir, version, bundle, s3a, cancel)
             await self._validate(job, python, version, env_dir, java_home, bundle, s3a)
             await job.emit("kernelspec", f"writing kernelspec {name}", self._progress("kernelspec"))
@@ -497,14 +496,13 @@ class SparkInstaller(ManagedInstaller):
     async def _cmd(self, job: Job, phase: str, args: list[str], env: dict[str, str] | None = None) -> list[str]:
         return await run_command(job, phase, args, env or self._env, self._progress(phase))
 
-    async def _detect_s3a(self, job: Job, env_dir: Path) -> S3aSet:
+    async def _detect_s3a(self, job: Job, env_dir: Path, version: str) -> S3aSet:
         """S3A jar set for the Hadoop inside the installed pyspark; an unknown Hadoop fails closed."""
         hadoop = await asyncio.to_thread(installed_hadoop, env_dir)
         s3a = S3A_BY_HADOOP.get(hadoop) if hadoop is not None else None
         if s3a is None:
             raise InstallError(
-                f"Hadoop {hadoop or 'não detectado'} sem conjunto S3A fixado (sha256) em S3A_BY_HADOOP; "
-                "esta versão do Spark ainda não é suportada"
+                f"Hadoop {hadoop or 'not detected'} has no pinned S3A jar set; Spark {version} is not supported yet"
             )
         await job.emit("install", f"S3A: Hadoop {hadoop} do pyspark, conjunto S3A r{s3a.revision}", self._progress("install"))
         return s3a

@@ -141,7 +141,7 @@ def _bundle_info(version: str, recorded: Any) -> tuple[tuple[str, ...] | None, s
 def s3a_plan(env_dir: Path, version: str, ours: dict[str, Any]) -> tuple[str, S3aSet | None, bool]:
     """S3A status of a managed env, the set its jars follow and whether they live in the shared cache.
 
-    A recorded `s3a` entry must match the current set revision and the Hadoop inside the env. Envs installed
+    A recorded `s3a` entry must match the current set revision, the Hadoop inside the env and the shared store. Envs installed
     before `s3a` existed that carry a formats bundle keep their jars under `env/notisbook/jars` (old layout).
     Anything else is `outdated` and has to be reinstalled. The set is None unless the status is `installed`.
     """
@@ -149,7 +149,12 @@ def s3a_plan(env_dir: Path, version: str, ours: dict[str, Any]) -> tuple[str, S3
     current = S3A_BY_HADOOP.get(hadoop) if hadoop is not None else None
     recorded = ours.get("s3a")
     if isinstance(recorded, dict):
-        if current is not None and recorded.get("hadoop") == current.hadoop and recorded.get("revision") == current.revision:
+        if (
+            current is not None
+            and recorded.get("hadoop") == current.hadoop
+            and recorded.get("revision") == current.revision
+            and recorded.get("store") == STORE_SHARED
+        ):
             return "installed", current, True
         return "outdated", None, True
     if current is not None and isinstance(ours.get("bundle"), dict) and bundle_for(version) is not None:
