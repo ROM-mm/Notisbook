@@ -1,4 +1,4 @@
-"""Código executado DENTRO do container do runtime (Python 3.11, só biblioteca padrão).
+"""Código executado DENTRO do container do runtime (Python 3.13, só biblioteca padrão).
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
   run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]
@@ -68,7 +68,8 @@ logger.repl.level = error
 logger.pygateway.name = org.apache.spark.api.python.PythonGatewayServer
 logger.pygateway.level = error
 """
-DELTA_JAR_GLOBS = ("/usr/share/aws/delta/lib/delta-spark_2.12-*.jar", "/usr/share/aws/delta/lib/delta-spark.jar")
+# Glue 6.0 (Scala 2.13): `delta-spark_4.1_2.13-<versão>.jar`; `delta-spark.jar` é o symlink estável para ele.
+DELTA_JAR_GLOBS = ("/usr/share/aws/delta/lib/delta-spark_*2.13-*.jar", "/usr/share/aws/delta/lib/delta-spark.jar")
 
 
 def _parse_s3a_closed(raw: str) -> dict[str, str] | None:
@@ -121,12 +122,15 @@ def _kernel_env() -> None:
 
     O módulo Python `delta` só existe dentro do jar do delta-spark da imagem (zipimport); resolvido por glob para não
     fixar a versão. Sem AWS, a cadeia de credenciais do SDK Java/botocore esperava o IMDS (50 tentativas na imagem).
+    Levanta FileNotFoundError se nenhum jar do Delta for encontrado (imagem com outra versão de Scala/Spark).
     """
     for pattern in DELTA_JAR_GLOBS:
         if jars := sorted(glob.glob(pattern)):
             parts = [p for p in os.environ.get("PYTHONPATH", "").split(os.pathsep) if p]
             os.environ["PYTHONPATH"] = os.pathsep.join([*parts, jars[-1]])
             break
+    else:
+        raise FileNotFoundError(f"jar do delta-spark não encontrado em {', '.join(DELTA_JAR_GLOBS)}")
     os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
     os.environ.setdefault("AWS_METADATA_SERVICE_NUM_ATTEMPTS", "1")
 
@@ -290,7 +294,12 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
             sys.stderr.write(
                 "notisbook-incontainer: pasta do notebook indisponível no container; usando a padrão\n"
             )
-    _kernel_env()
+    try:
+        _kernel_env()
+    except FileNotFoundError as exc:
+        _unlink(_pid_path(tag))
+        _unlink(_conn_path(tag))
+        _fail(3, str(exc))
     _jvm_logging()
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
         options.get("--warehouse-dir"),

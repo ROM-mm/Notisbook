@@ -1,4 +1,4 @@
-"""Catálogo fixo dos runtimes Docker suportados (hoje só AWS Glue 5.0)."""
+"""Catálogo fixo dos runtimes Docker suportados (só o AWS Glue mais recente; a versão fica no rótulo e na tag da imagem)."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,13 +24,13 @@ class DockerRuntime:
 
 CATALOG: tuple[DockerRuntime, ...] = (
     DockerRuntime(
-        key="glue-5.0",
-        label="AWS Glue 5.0",
+        key="glue",
+        label="AWS Glue 6.0",
         context_dir=RUNTIMES_DIR / "glue",
         dockerfile="Dockerfile",
-        image="notisbook/glue:5.0",
-        container="notisbook-glue-5-0",
-        kernel_name="notisbook-docker-glue-5-0",
+        image="notisbook/glue:6.0",
+        container="notisbook-glue",
+        kernel_name="notisbook-docker-glue",
         formats=("delta", "iceberg", "hudi"),
     ),
 )

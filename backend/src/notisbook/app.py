@@ -28,6 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     kernels.start_docker_sweep()
     installer: SparkInstaller = app.state.installer
     docker: DockerRuntimes = app.state.docker
+    docker.start_prune_stale()
     await asyncio.to_thread(installer.sweep_trash)
     duckdb_installer: DuckDBInstaller = app.state.duckdb
     await asyncio.to_thread(duckdb_installer.sweep_trash)
