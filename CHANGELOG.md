@@ -7,6 +7,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-24
+
+The AWS Glue runtime moves to Glue 6.0 (Spark 4.1, Scala 2.13, Python 3.13), and only the latest Glue version is
+offered from now on, because each image takes more than 10 GB.
+
+### Changed
+
+- **AWS Glue 6.0.** The Docker runtime is built on `public.ecr.aws/glue/aws-glue-libs:6.0`, pinned by digest: Spark
+  4.1.1, Scala 2.13, Python 3.13, Delta 4.2.0, Iceberg 1.11.0 and Hudi 1.1.1. Delta, Iceberg and Hudi keep working in
+  SQL and DataFrames, with Spark 4's default ANSI mode, as in AWS Glue itself.
+- **Only the latest Glue version.** Glue 5.0 was removed from Settings › Runtimes; there is a single AWS Glue
+  runtime.
+- **Version-free names.** The runtime, its container and its kernel are now `glue`, `notisbook-glue` and
+  `notisbook-docker-glue`; the version shows only in the label ("AWS Glue 6.0"), so future Glue upgrades no longer
+  break saved notebooks. Notebooks saved with the Glue 5.0 kernel ask for a kernel once: pick "AWS Glue 6.0".
+- **Glue examples.** `glue/delta`, `glue/hudi` and `glue/iceberg` open on the new kernel.
+
+### Removed
+
+- **Glue 5.0 leftovers, automatically.** On startup, Notisbook removes the kernel, container and `notisbook/*` image
+  of runtimes that left the catalog, such as Glue 5.0. Only items marked as Notisbook's are touched, and a failure
+  never stops the app from starting. The AWS base image `public.ecr.aws/glue/aws-glue-libs:5` (about 12 GB) is not
+  Notisbook's and stays: remove it with `docker rmi public.ecr.aws/glue/aws-glue-libs:5`. If you had already removed
+  the Glue 5.0 runtime, also run `docker image rm notisbook/glue:5.0`.
+
+### Fixed
+
+- **Clear error without Delta.** If the Delta jar is missing from the Glue image, the kernel stops with a clear error
+  instead of starting a session without Delta.
+
 ## [0.12.0] - 2026-11-24
 
 DuckDB now has managed versions with their own libraries, like Spark; kernels live inside the Notisbook data folder;
