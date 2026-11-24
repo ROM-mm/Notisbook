@@ -4,51 +4,45 @@
     "fontSize":"14px","lineColor":"#1F2937",
     "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
 graph TB
-    SPA["Web UI<br/>React SPA"]
+    SPA["SPA<br/>Navegador"]
+    KERN["Kernels<br/>Spark, DuckDB, Glue"]
 
-    subgraph BACKEND["Backend process"]
+    subgraph BACK["Backend notisbook"]
+        SEC["security<br/>Token, Host, Origin"]
+        ROUTERS["api<br/>17 routers FastAPI"]
         STATIC["static<br/>SPA + CSP"]
-        SEC["security<br/>Tokens, Host/Origin"]
-        ROUTERS["api routers<br/>REST + WebSocket"]
-        ICEREST["iceberg_rest<br/>Iceberg REST catalog"]
-        RTCAT["runtime_catalog<br/>Docker registry API"]
-        KERN["kernels<br/>KernelService"]
-        HOOKS["hidden modules<br/>display + catalog hook"]
-        SPARKI["spark<br/>Installer + bundles"]
-        DUCKI["runtimes.duckdb<br/>Installer + kernelspec"]
-        DOCKR["runtimes.docker<br/>Glue runtime"]
-        CATALOG["catalog<br/>Store + registry"]
-        NOTISLAKE["notislake<br/>Supervisor + creds"]
-        NBSTORE["notebooks<br/>NotebookStore"]
-        EXPORT["export<br/>py, ipynb, html"]
-        JOBS["jobs<br/>JobRegistry"]
-        MAINT["maintenance<br/>update, uninstall"]
-        LIFE["lifecycle<br/>Version handover"]
+        KSVC["kernels.service<br/>Sessões jupyter_client"]
+        HOOKS["catalog_hook / sql_cell<br/>Módulos injetados"]
+        RUNT["spark / runtimes<br/>Instaladores"]
+        JOBS["jobs<br/>Registro em memória"]
+        CAT["catalog<br/>Registro nb_* e Iceberg"]
+        ICE["iceberg_rest<br/>Catálogo REST"]
+        LAKE["notislake<br/>Supervisor MinIO"]
+        NBS["notebooks.store<br/>.ipynb"]
+        EXP["export<br/>.py e HTML"]
+        LIFE["lifecycle<br/>Shutdown e versão"]
     end
 
     CATDB[("catalog.db<br/>SQLite")]
-    MINIO["notislake<br/>MinIO"]
+    MINIO["MinIO<br/>Processo filho"]
 
-    SPA -->|"HTML, assets"| STATIC
-    SPA -->|"REST, WS"| ROUTERS
-    ROUTERS -->|"Checks"| SEC
-    ROUTERS -->|"Sessions"| KERN
-    ROUTERS -->|"Install jobs"| JOBS
-    JOBS -->|"Runs"| SPARKI
-    JOBS -->|"Runs"| DUCKI
-    JOBS -->|"Runs"| DOCKR
-    ROUTERS -->|"Contents"| NBSTORE
-    ROUTERS -->|"Export"| EXPORT
-    ROUTERS -->|"Catalog tree"| CATALOG
-    ROUTERS -->|"Status, objects"| NOTISLAKE
-    ROUTERS -->|"Shutdown"| LIFE
-    KERN -->|"Silent install"| HOOKS
-    KERN -->|"Launches"| DOCKR
-    ICEREST -->|"CAS metadata"| CATALOG
-    RTCAT -->|"Registry, plan"| CATALOG
-    CATALOG -->|"SQL"| CATDB
-    NOTISLAKE -->|"Child process"| MINIO
-    MAINT -->|"Stops via"| LIFE
+    SPA -->|"HTTP/WS"| SEC
+    SEC -->|"Autoriza"| ROUTERS
+    SPA -->|"GET /"| STATIC
+    ROUTERS -->|"Sessões e canal"| KSVC
+    ROUTERS -->|"Instalação"| RUNT
+    RUNT -->|"Publica eventos"| JOBS
+    ROUTERS -->|"Consulta"| CAT
+    ROUTERS -->|"Conteúdo"| NBS
+    ROUTERS -->|"Exporta"| EXP
+    ROUTERS -->|"Status"| LAKE
+    ROUTERS -->|"Encerra"| LIFE
+    KSVC -->|"execute silencioso"| HOOKS
+    KSVC -->|"Inicia"| KERN
+    KERN -->|"Token de runtime"| ICE
+    ICE -->|"CAS"| CAT
+    CAT -->|"SQL"| CATDB
+    LAKE -->|"Popen"| MINIO
 
     classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
     classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
@@ -56,6 +50,8 @@ graph TB
     classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
     classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
 
-    class SPA integration
-    class STATIC,SEC,ROUTERS,ICEREST,RTCAT,KERN,HOOKS,SPARKI,DUCKI,DOCKR,CATALOG,NOTISLAKE,NBSTORE,EXPORT,JOBS,MAINT,LIFE processing
-    class CATDB,MINIO persistence
+    class SPA,KERN external
+    class SEC integration
+    class ROUTERS,STATIC,KSVC,HOOKS,RUNT,JOBS,CAT,ICE,NBS,EXP,LIFE,LAKE processing
+    class CATDB persistence
+    class MINIO support

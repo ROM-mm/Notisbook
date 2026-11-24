@@ -4,26 +4,26 @@
     "fontSize":"14px","lineColor":"#1F2937",
     "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
 graph TB
-    USER["Data practitioner<br/>Browser on macOS"]
-    NB["Notisbook<br/>Local data workstation"]
-    DOCKER["Docker host<br/>Colima"]
-    GH["GitHub Releases<br/>ROM-mm/Notisbook"]
-    PYPI["PyPI<br/>Python packages"]
-    MAVEN["Maven Central<br/>Lakehouse jars"]
-    DUCKEXT["DuckDB extensions<br/>extensions.duckdb.org"]
-    ECR["Amazon ECR Public<br/>aws-glue-libs 6.0"]
-    S3["S3-compatible store<br/>Optional manual connection"]
-    MACOS["macOS services<br/>JDK, osascript"]
+    USER["Pessoa usuária<br/>Navegador local"]
+    NB["Notisbook<br/>Estação de dados local"]
+    PYPI["PyPI<br/>Pacotes Python"]
+    MAVEN["Maven Central<br/>Jars Spark"]
+    DUCKEXT["DuckDB Extensions<br/>extensions.duckdb.org"]
+    DOCKER["Docker daemon<br/>Colima ou similar"]
+    ECR["Amazon ECR Public<br/>Imagem AWS Glue"]
+    S3["S3 externo<br/>Conexão manual"]
+    GH["GitHub Releases<br/>Assets da release"]
+    MACOS["macOS<br/>JDK e osascript"]
 
-    USER -->|"HTTP + WebSocket on 127.0.0.1"| NB
-    NB -->|"Docker CLI"| DOCKER
-    DOCKER -->|"Pulls base image"| ECR
-    NB -->|"Update: install.sh + SHA256SUMS"| GH
-    NB -->|"pyspark, duckdb via uv"| PYPI
-    NB -->|"Downloads pinned jars"| MAVEN
-    NB -->|"Downloads extensions"| DUCKEXT
-    NB -->|"S3 API"| S3
-    NB -->|"java_home, folder picker"| MACOS
+    USER -->|"HTTP/WS em 127.0.0.1"| NB
+    NB -->|"Catálogo e instalação"| PYPI
+    NB -->|"Jars com sha256"| MAVEN
+    NB -->|"Extensões com sha256"| DUCKEXT
+    NB -->|"CLI docker"| DOCKER
+    DOCKER -->|"Imagem base"| ECR
+    NB -->|"S3A / boto3"| S3
+    NB -->|"notisbook update"| GH
+    NB -->|"Ferramentas locais"| MACOS
 
     classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
     classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
@@ -31,5 +31,5 @@ graph TB
     classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
     classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
 
-    class USER,DOCKER,GH,PYPI,MAVEN,DUCKEXT,ECR,S3,MACOS external
+    class USER,PYPI,MAVEN,DUCKEXT,ECR,S3,GH,MACOS,DOCKER external
     class NB processing
