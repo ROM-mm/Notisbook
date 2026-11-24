@@ -52,14 +52,6 @@ export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
   return request<CatalogResponse>("/api/catalog", { signal });
 }
 
-/** 404 tabela inexistente, 409 metadados ilegíveis, 503 `catalog.db` indisponível. */
-export function getColumns(q: ColumnsQuery, signal?: AbortSignal): Promise<CatalogColumn[]> {
-  return request<CatalogColumn[]>("/api/catalog/columns", {
-    query: { catalog: q.catalog, database: q.database, table: q.table },
-    signal,
-  });
-}
-
 export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg";
 export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge";
 export type TableMetadataError = "unavailable" | "store_unavailable";
