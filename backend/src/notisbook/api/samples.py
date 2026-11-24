@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
-from ..kernels.service import DUCKDB_KERNEL_NAME, DUCKDB_METADATA_KEY, runtime_kind
+from ..kernels.service import DUCKDB_METADATA_KEY, is_duckdb_kernel_name, runtime_kind
 from ..notebooks.store import NotebookStore, StoreError
 from ..onboarding import SAMPLES_DIR
 from ..security import require_token, require_trusted_host
@@ -46,8 +46,8 @@ def _describe(name: str, rel: str) -> dict[str, str]:
     spec = _kernelspec(rel)
     kernel_name = str(spec.get("name", ""))
     # O kernelspec do .ipynb não traz a chave de registro do DuckDB (ela vive no kernelspec instalado);
-    # o nome fixo basta para classificar o exemplo.
-    metadata = {DUCKDB_METADATA_KEY: {}} if kernel_name == DUCKDB_KERNEL_NAME else {}
+    # o nome do kernel basta para classificar o exemplo.
+    metadata = {DUCKDB_METADATA_KEY: {}} if is_duckdb_kernel_name(kernel_name) else {}
     return {
         "name": name,
         "path": rel,

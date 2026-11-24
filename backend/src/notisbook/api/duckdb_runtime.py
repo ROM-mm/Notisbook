@@ -1,22 +1,32 @@
-"""Runtime DuckDB: status, extensões, instalação por job e remoção."""
+"""Runtime DuckDB por versão: catálogo, extensões, instalação por job e remoção."""
 
 import asyncio
+import logging
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, field_validator
 
 from ..kernels.service import KernelService
-from ..runtimes.duckdb.installer import DuckDBInstaller, InstallInProgress, NotInstalled
-from ..runtimes.duckdb.kernelspec import KERNEL_NAME, InstalledRuntime
+from ..runtimes.duckdb.installer import (
+    DuckDBInstaller,
+    InstallInProgress,
+    NotInstalled,
+    UnknownVersion,
+)
+from ..runtimes.duckdb.kernelspec import kernel_name
 from ..runtimes.duckdb.manifest import (
+    Manifest,
     ManifestError,
     UnsupportedPlatform,
-    load_manifest,
+    is_valid_version,
     platform_key,
 )
 from ..security import require_token
 from ..spark.installer import RemoveFailed
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/duckdb", dependencies=[Depends(require_token)])
 
@@ -33,6 +43,17 @@ Installer = Annotated[DuckDBInstaller, Depends(get_installer)]
 Kernels = Annotated[KernelService, Depends(get_kernels)]
 
 
+class InstallBody(BaseModel):
+    version: str
+
+    @field_validator("version")
+    @classmethod
+    def _check_version(cls, value: str) -> str:
+        if not is_valid_version(value):
+            raise ValueError("version must look like 2.0.1")
+        return value
+
+
 def _supported() -> bool:
     try:
         platform_key()
@@ -41,11 +62,22 @@ def _supported() -> bool:
     return True
 
 
-def _find(installer: DuckDBInstaller) -> InstalledRuntime | None:
+def _manifests(installer: DuckDBInstaller) -> dict[str, Manifest]:
     try:
-        return installer.find()
-    except NotInstalled:
-        return None
+        return installer.manifests()
+    except ManifestError as exc:
+        raise HTTPException(500, str(exc)) from exc
+
+
+def _check_version(version: str) -> None:
+    if not is_valid_version(version):
+        raise HTTPException(422, "version must look like 2.0.1")
+
+
+def _has_session(version: str, installer: DuckDBInstaller, kernels: KernelService) -> bool:
+    """Sessão ativa no kernel da versão ou no `duckdb` legado que aponta para ela."""
+    names = {kernel_name(version), *(e.kernel_name for e in installer.entries_of(version))}
+    return any(kernels.has_session(name) for name in names)
 
 
 def _extension_rows(names: tuple[str, ...], version: str, directory: Path | None) -> list[dict[str, Any]]:
@@ -66,63 +98,72 @@ def _extension_rows(names: tuple[str, ...], version: str, directory: Path | None
 
 @router.get("")
 async def get_status(installer: Installer) -> dict[str, Any]:
-    entry = await asyncio.to_thread(_find, installer)
-    active = installer.active_job()
+    entries = await asyncio.to_thread(installer.entries_of_all)
     try:
-        version: str | None = load_manifest().duckdb_version
+        manifests = installer.manifests()
     except ManifestError:
-        version = None
+        log.warning("DuckDB extension manifest is unreadable", exc_info=True)
+        manifests = {}
+    have = {entry.version for entry in entries}
     return {
-        "kernel_name": KERNEL_NAME,
         "supported": _supported(),
-        "version": version,
-        "installed": entry.as_dict() if entry else None,
-        "installing": {"job_id": active[0], "kind": active[1]} if active else None,
+        "catalog": [
+            {"version": version, "installed": version in have, "extensions": list(manifest.names)}
+            for version, manifest in manifests.items()
+        ],
+        "installed": [entry.as_dict() for entry in entries],
+        "installing": [
+            {"kernel_name": name, "job_id": job_id, "kind": kind}
+            for name, (job_id, kind) in installer.active_jobs().items()
+        ],
     }
 
 
-@router.get("/extensions")
-async def list_extensions(installer: Installer) -> dict[str, Any]:
-    entry = await asyncio.to_thread(_find, installer)
-    if entry is not None:
-        # O runtime instalado manda: o manifesto pode ter avançado de versão depois da instalação.
+@router.get("/versions/{version}/extensions")
+async def list_extensions(version: str, installer: Installer) -> dict[str, Any]:
+    _check_version(version)
+    entries = await asyncio.to_thread(installer.entries_of, version)
+    if entries:
+        # O runtime instalado manda: o manifesto pode ter mudado depois da instalação.
+        entry = entries[0]
         return {
-            "version": entry.version,
-            "extensions": _extension_rows(entry.extensions, entry.version, entry.extension_directory),
+            "version": version,
+            "extensions": _extension_rows(entry.extensions, version, entry.extension_directory),
         }
-    try:
-        manifest = load_manifest()
-    except ManifestError as exc:
-        raise HTTPException(500, str(exc)) from exc
-    return {
-        "version": manifest.duckdb_version,
-        "extensions": _extension_rows(manifest.names, manifest.duckdb_version, None),
-    }
+    manifest = _manifests(installer).get(version)
+    if manifest is None:
+        raise HTTPException(404, f"DuckDB {version} is not installed and is not in the manifest")
+    return {"version": version, "extensions": _extension_rows(manifest.names, version, None)}
 
 
-@router.post("/install", status_code=202)
-async def install(installer: Installer, kernels: Kernels) -> dict[str, str]:
+@router.post("/versions", status_code=202)
+async def install_version(body: InstallBody, installer: Installer, kernels: Kernels) -> dict[str, str]:
     if not _supported():
         raise HTTPException(422, "DuckDB runtime is not available on this platform")
-    if kernels.has_session(KERNEL_NAME):
-        raise HTTPException(409, "The DuckDB runtime has an active kernel session")
+    if body.version not in _manifests(installer):
+        raise HTTPException(422, f"DuckDB {body.version} is not in the extension manifest")
+    if _has_session(body.version, installer, kernels):
+        raise HTTPException(409, f"DuckDB {body.version} has an active kernel session")
     try:
-        job = installer.start()
+        job = installer.start(body.version)
     except InstallInProgress as exc:
-        raise HTTPException(409, "Another DuckDB job is in progress") from exc
+        raise HTTPException(409, f"Another job for DuckDB {body.version} is in progress") from exc
+    except UnknownVersion as exc:
+        raise HTTPException(422, f"DuckDB {body.version} is not in the extension manifest") from exc
     return {"job_id": job.id}
 
 
-@router.delete("", status_code=204)
-async def remove(installer: Installer, kernels: Kernels) -> None:
-    if kernels.has_session(KERNEL_NAME):
-        raise HTTPException(409, "The DuckDB runtime has an active kernel session")
+@router.delete("/versions/{version}", status_code=204)
+async def remove_version(version: str, installer: Installer, kernels: Kernels) -> None:
+    _check_version(version)
+    if _has_session(version, installer, kernels):
+        raise HTTPException(409, f"DuckDB {version} has an active kernel session")
     try:
-        removal = installer.remove()
+        removal = installer.remove(version)
     except InstallInProgress as exc:
-        raise HTTPException(409, "Another DuckDB job is in progress") from exc
+        raise HTTPException(409, f"Another job for DuckDB {version} is in progress") from exc
     except NotInstalled as exc:
-        raise HTTPException(404, "The DuckDB runtime is not installed") from exc
+        raise HTTPException(404, f"DuckDB {version} is not installed") from exc
     except RemoveFailed as exc:
         raise HTTPException(500, f"Could not delete: {', '.join(exc.paths)}") from exc
     try:

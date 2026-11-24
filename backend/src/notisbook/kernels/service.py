@@ -46,6 +46,8 @@ from ..runtimes.docker.service import (
 from ..runtimes.duckdb.hook import build_bootstrap_code as build_duckdb_bootstrap_code
 from ..runtimes.duckdb.kernelspec import KERNEL_NAME as DUCKDB_KERNEL_NAME
 from ..runtimes.duckdb.kernelspec import METADATA_KEY as DUCKDB_METADATA_KEY
+from ..runtimes.duckdb.kernelspec import is_duckdb_kernel_name, version_of_kernel_name
+from ..runtimes.duckdb.manifest import version_key as duckdb_version_key
 from ..security import RuntimeGrant, RuntimeTokens
 from ..spark.bundles import (
     UnsupportedHome,
@@ -198,15 +200,16 @@ class KernelSpecInfo(TypedDict):
     display_name: str
     language: str
     cell_languages: list[CellLanguage]
+    runtime_kind: RuntimeKind
 
 
 def runtime_kind(kernel_name: str, metadata: object, docker: bool | None = None) -> RuntimeKind:
     """Tipo de runtime do kernel, na precedência do despacho: duckdb > docker > local.
 
-    DuckDB: nome fixo e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo,
+    DuckDB: nome `duckdb` ou `duckdb-<maj>-<min>-<patch>` e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo,
     ou `docker` quando o chamador já o consultou. `metadata` que não seja dict conta como vazio.
     """
-    if kernel_name == DUCKDB_KERNEL_NAME and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata:
+    if is_duckdb_kernel_name(kernel_name) and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata:
         return "duckdb"
     if docker is None:
         docker = docker_catalog.by_kernel_name(kernel_name) is not None
@@ -696,6 +699,7 @@ class KernelService:
                     "display_name": spec.get("display_name", name),
                     "language": language,
                     "cell_languages": list(cell_languages_for(kind, language)),
+                    "runtime_kind": kind,
                 }
             )
         # Docker por último: o frontend usa o primeiro item como padrão e o Spark Local não pode mudar.
@@ -944,6 +948,23 @@ class KernelService:
         if not values or values[-1] != safety_warehouse_uri(self._home):  # the last duplicate wins in a properties file
             raise SparkEnvOutdated
 
+    def resolve_kernel_name(self, kernel_name: str) -> str:
+        """Resolve the alias `duckdb`: with no kernelspec of that name, the newest installed `duckdb-*`.
+
+        Sync on purpose (a directory listing): callers resolve and register the session with no await between.
+        Any other name, or an alias with nothing installed, is returned unchanged.
+        """
+        if kernel_name != DUCKDB_KERNEL_NAME:
+            return kernel_name
+        try:
+            names = list(self._specs.find_kernel_specs())
+        except OSError:
+            return kernel_name
+        if DUCKDB_KERNEL_NAME in names:
+            return kernel_name
+        versioned = [(version, name) for name in names if (version := version_of_kernel_name(name)) is not None]
+        return max(versioned, key=lambda pair: duckdb_version_key(pair[0]))[1] if versioned else kernel_name
+
     async def create(
         self, path: str, kernel_name: str, cwd: Path | None = None, target: Path | None = None
     ) -> KernelSession:
@@ -952,6 +973,8 @@ class KernelService:
         Levanta `ConfigInvalid` (conexão manual inválida) ou `NotislakeUnavailable` (automático sem MinIO `running`);
         só sessões novas são recusadas. Uma conexão manual válida abre mesmo com o MinIO local fora.
         """
+        # Antes de registrar em `_starting`, para `has_session` enxergar o nome real do kernel.
+        kernel_name = self.resolve_kernel_name(kernel_name)
         # Sem o metadata do kernelspec (só chega após o await) o DuckDB não é visível; docker e local já se decidem aqui.
         docker_runtime = docker_catalog.by_kernel_name(kernel_name)
         is_docker = docker_runtime is not None

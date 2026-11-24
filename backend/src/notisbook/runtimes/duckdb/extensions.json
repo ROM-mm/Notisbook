@@ -1,13 +1,27 @@
 {
-  "duckdb": "2.0.1",
   "base_url": "https://extensions.duckdb.org",
-  "extensions": {
-    "httpfs": {"osx_arm64": {"sha256_gz": "62d27c7ba72598151f89628d90ff93203db594bb9b22e853d2760eacc8c72b43", "sha256_ext": "883b9f2626acd76c4fbe30aa452101465ad0e46adc1fe26b6c36447743b3ba17"}},
-    "iceberg": {"osx_arm64": {"sha256_gz": "53fe0d62c74353bf860f9ccab8c54bc2ac0859adab48b23a777efc6bf50a8e69", "sha256_ext": "12f1176ef4a8f5f67c756167c648bad4f5f5a45784b929560e63a58732fd0bdb"}},
-    "avro": {"osx_arm64": {"sha256_gz": "f80ac0e8758db578f57bc566a19874d08681eb6dc894bef9262c22ee5cf9b06c", "sha256_ext": "f5b1de02e4e934046bb2dd58d25cab3cad9f48883a8dde601686ace8ee6287d1"}},
-    "excel": {"osx_arm64": {"sha256_gz": "063caee65b4e4347e84deb1f701cb3334935610eedc2ca3e531a06bba182e5f4", "sha256_ext": "b84b926e241125df9e8b23471b758f12e1d578f77aa07002037032d96827e2b0"}},
-    "sqlite_scanner": {"osx_arm64": {"sha256_gz": "6cd6e6971755bd5f3dcd72b0e6b4334f4d54895c4c0f888f7b92c75c06a23e07", "sha256_ext": "ce609d0483b7ecaebe5d5ee26be9c637777717585fe5e36a7dbf39a91619f489"}},
-    "postgres_scanner": {"osx_arm64": {"sha256_gz": "130fe91f1406b489f06d0d6e3e98990be57f64c5fdbca12440744fff10583a1d", "sha256_ext": "34dd75eebb5e0d4a656039206d416951badb5f60fd4392a109840c6022db2cca"}},
-    "spatial": {"osx_arm64": {"sha256_gz": "6493025f2914e4c4dbf12dd8bb5e488808a39526f14280b5a5b76b7ad96180f7", "sha256_ext": "f97a288bc2d2f8d93e09ccce3c3d5942895bc187d4b0e952b836d9dca7c50946"}}
+  "versions": {
+    "2.0.1": {
+      "extensions": {
+        "httpfs": {"osx_arm64": {"sha256_gz": "62d27c7ba72598151f89628d90ff93203db594bb9b22e853d2760eacc8c72b43", "sha256_ext": "883b9f2626acd76c4fbe30aa452101465ad0e46adc1fe26b6c36447743b3ba17"}},
+        "iceberg": {"osx_arm64": {"sha256_gz": "53fe0d62c74353bf860f9ccab8c54bc2ac0859adab48b23a777efc6bf50a8e69", "sha256_ext": "12f1176ef4a8f5f67c756167c648bad4f5f5a45784b929560e63a58732fd0bdb"}},
+        "avro": {"osx_arm64": {"sha256_gz": "f80ac0e8758db578f57bc566a19874d08681eb6dc894bef9262c22ee5cf9b06c", "sha256_ext": "f5b1de02e4e934046bb2dd58d25cab3cad9f48883a8dde601686ace8ee6287d1"}},
+        "excel": {"osx_arm64": {"sha256_gz": "063caee65b4e4347e84deb1f701cb3334935610eedc2ca3e531a06bba182e5f4", "sha256_ext": "b84b926e241125df9e8b23471b758f12e1d578f77aa07002037032d96827e2b0"}},
+        "sqlite_scanner": {"osx_arm64": {"sha256_gz": "6cd6e6971755bd5f3dcd72b0e6b4334f4d54895c4c0f888f7b92c75c06a23e07", "sha256_ext": "ce609d0483b7ecaebe5d5ee26be9c637777717585fe5e36a7dbf39a91619f489"}},
+        "postgres_scanner": {"osx_arm64": {"sha256_gz": "130fe91f1406b489f06d0d6e3e98990be57f64c5fdbca12440744fff10583a1d", "sha256_ext": "34dd75eebb5e0d4a656039206d416951badb5f60fd4392a109840c6022db2cca"}},
+        "spatial": {"osx_arm64": {"sha256_gz": "6493025f2914e4c4dbf12dd8bb5e488808a39526f14280b5a5b76b7ad96180f7", "sha256_ext": "f97a288bc2d2f8d93e09ccce3c3d5942895bc187d4b0e952b836d9dca7c50946"}}
+      }
+    },
+    "1.5.6": {
+      "extensions": {
+        "httpfs": {"osx_arm64": {"sha256_gz": "b9f9ca8e64d913a80d6666a370e0e518ee4cc8ecb9990a2b9d2273204d8caad4", "sha256_ext": "0cde1f5acd1970bfd414b11f5e945a1eddd8425e96e273f6411538d8fe3d951d"}},
+        "iceberg": {"osx_arm64": {"sha256_gz": "48766dd86177c1e4b163618b9d8f81639e9907ec0d5513fc309fdf6f4445a3cb", "sha256_ext": "f0b6cd10bf1323225899f75ac1ac4afe7371355348f2b6b28b745543ac634417"}},
+        "avro": {"osx_arm64": {"sha256_gz": "64ae369ce8fffa4006232e4228a88254e16ab0d843fb8022ff22ede347c6b1b2", "sha256_ext": "92915cae1841b351e3dc77f84a8c679e5920fb30f7b9aac4035e0066dc85b682"}},
+        "excel": {"osx_arm64": {"sha256_gz": "327c04c3b0c850592c50637f46e4d91e280978a393bc3b889f6d555aba08240d", "sha256_ext": "8c48572e5d2d11f85664221dc708bd0f76602cf90604e300d784eca61522e51f"}},
+        "sqlite_scanner": {"osx_arm64": {"sha256_gz": "a31273b2b143a8fc78cfe51aa72903eacac0900d76b2aa4b5029a98fbec73bec", "sha256_ext": "4396ff27307c113903a1b7fc9a3b927ab55d9870eae0423f47c43f3a5f566f21"}},
+        "postgres_scanner": {"osx_arm64": {"sha256_gz": "9d5f9f7b9873bfebd161b88675a5dbcc52355046dadbbc38f774db147a824240", "sha256_ext": "e39b78d219ad1599d60588fb4a9aaa7b36a84ac49ba36c94e7dd46d902749e65"}},
+        "spatial": {"osx_arm64": {"sha256_gz": "a5f5ee0e73379ce7dcc7a8745cf199a0aea56726f82998af4386132fd1147249", "sha256_ext": "e326286e0ff4651680bfa2918fb22990fed50cb7d27d79dd21143ac7e74b0da9"}}
+      }
+    }
   }
 }

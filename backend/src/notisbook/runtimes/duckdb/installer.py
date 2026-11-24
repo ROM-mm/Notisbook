@@ -1,8 +1,9 @@
-"""Ambiente DuckDB imutável: `<base>/envs/duckdb-<versão>-<id>/` com duckdb, ipykernel e extensões offline.
+"""Ambiente DuckDB imutável por versão: `<base>/envs/duckdb-<versão>-<id>/` com duckdb, ipykernel e extensões offline.
 
 Cada instalação cria um env novo, baixa as extensões do manifesto conferindo o sha256 do `.gz` e do
-`.duckdb_extension`, valida o carregamento offline e só então troca o kernelspec e remove o env anterior.
-Qualquer falha apaga o env novo e preserva o kernelspec anterior. Subprocessos usam lista de argumentos.
+`.duckdb_extension`, valida o carregamento offline e só então troca o kernelspec `duckdb-<maj>-<min>-<patch>` e remove
+o env anterior da MESMA versão; as demais versões instaladas não são tocadas. Qualquer falha apaga o env novo e
+preserva o kernelspec anterior. Subprocessos usam lista de argumentos.
 """
 
 import asyncio
@@ -40,12 +41,12 @@ from .kernelspec import (
     discover,
     extension_dir,
     is_removable_env,
+    kernel_name,
     remove_kernelspec,
     write_kernelspec,
 )
 from .manifest import (
     Manifest,
-    ManifestError,
     UnsupportedPlatform,
     load_manifest,
     platform_key,
@@ -82,11 +83,15 @@ print("duckdb-validate-ok")
 
 
 class InstallInProgress(Exception):
-    """Another mutating job (install or remove) holds the DuckDB runtime lock."""
+    """Another mutating job (install or remove) holds the lock of this DuckDB version."""
 
 
 class NotInstalled(Exception):
-    """No DuckDB runtime installed."""
+    """No installed DuckDB runtime with that version."""
+
+
+class UnknownVersion(Exception):
+    """The version is not in the extension manifest."""
 
 
 class DuckDBInstaller:
@@ -95,30 +100,51 @@ class DuckDBInstaller:
         base_dir: Path,
         jobs: JobRegistry,
         has_active_session: Callable[[str], bool] | None = None,
-        manifest: Manifest | None = None,
+        manifests: dict[str, Manifest] | None = None,
     ) -> None:
         self.base_dir = Path(os.path.abspath(base_dir.expanduser()))
         self._jobs = jobs
         self._has_active_session = has_active_session or (lambda _name: False)
-        self._manifest = manifest
-        self._active: tuple[str, str] | None = None  # (job id, kind); `remove` has no job (empty id)
-        self._download: asyncio.Future[None] | None = None
+        self._manifests = manifests
+        # kernel name -> (job id, kind); `remove` has no job (empty id).
+        self._active: dict[str, tuple[str, str]] = {}
+        self._downloads: dict[str, asyncio.Future[None]] = {}
         self._tasks: set[asyncio.Task[None]] = set()
         self._env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
         self._env["UV_LINK_MODE"] = "copy"
 
-    def is_mutating(self) -> bool:
-        return self._active is not None
+    def try_acquire(self, name: str, job_id: str, kind: str) -> bool:
+        """Take the per-kernel lock shared by install and remove; False when it is held."""
+        if name in self._active:
+            return False
+        self._active[name] = (job_id, kind)
+        return True
 
-    def active_job(self) -> tuple[str, str] | None:
-        """(job id, kind) of the install in progress, if any."""
-        return self._active if self._active is not None and self._active[1] != "remove" else None
+    def release(self, name: str) -> None:
+        self._active.pop(name, None)
 
-    def find(self) -> InstalledRuntime:
-        entry = discover(self.base_dir)
-        if entry is None:
-            raise NotInstalled
-        return entry
+    def is_mutating(self, name: str, kind: str | None = None) -> bool:
+        """True while the lock of `name` is held (by a job of `kind`, when given)."""
+        held = self._active.get(name)
+        return held is not None and (kind is None or held[1] == kind)
+
+    def active_jobs(self) -> dict[str, tuple[str, str]]:
+        """Kernel name -> (job id, kind) for the install jobs in progress."""
+        return {name: held for name, held in self._active.items() if held[1] != "remove"}
+
+    def entries_of_all(self) -> list[InstalledRuntime]:
+        """Every installed runtime, newest first (includes the legacy `duckdb` kernel)."""
+        return discover(self.base_dir)
+
+    def entries_of(self, version: str) -> list[InstalledRuntime]:
+        """Installed runtimes of the version: its `duckdb-*` kernel and, from before multi-version, the legacy `duckdb`."""
+        return [e for e in discover(self.base_dir) if e.version == version]
+
+    def find(self, version: str) -> InstalledRuntime:
+        entries = self.entries_of(version)
+        if not entries:
+            raise NotInstalled(version)
+        return next((e for e in entries if e.kernel_name == kernel_name(version)), entries[0])
 
     def _spawn(self, coro: Coroutine[Any, Any, Any]) -> asyncio.Future[Any]:
         task = asyncio.ensure_future(coro)
@@ -126,59 +152,63 @@ class DuckDBInstaller:
         task.add_done_callback(self._tasks.discard)
         return task
 
-    def _load_manifest(self) -> Manifest:
-        try:
-            return self._manifest or load_manifest()
-        except ManifestError as exc:
-            raise InstallError(f"manifest: {exc}") from exc
+    def manifests(self) -> dict[str, Manifest]:
+        """Manifests by version, newest first; raises ManifestError when the file is unreadable."""
+        return self._manifests if self._manifests is not None else load_manifest()
 
-    def start(self) -> Job:
-        """Register the job and run it in the background; raises InstallInProgress on a duplicate."""
-        if self.is_mutating():
-            raise InstallInProgress
-        manifest = self._load_manifest_or_none()
-        job = self._jobs.create("install", manifest.duckdb_version if manifest else "")
-        self._active = (job.id, "install")
-        self._spawn(self._run(job))
+    def start(self, version: str) -> Job:
+        """Register the job and run it in the background.
+
+        Raises UnknownVersion (not in the manifest), ManifestError, or InstallInProgress when the
+        kernel name of this version is locked.
+        """
+        manifest = self.manifests().get(version)
+        if manifest is None:
+            raise UnknownVersion(version)
+        name = kernel_name(version)
+        if self.is_mutating(name):
+            raise InstallInProgress(version)
+        job = self._jobs.create("duckdb-install", version)
+        self.try_acquire(name, job.id, "duckdb-install")
+        self._spawn(self._run(job, manifest, name))
         return job
-
-    def _load_manifest_or_none(self) -> Manifest | None:
-        try:
-            return self._load_manifest()
-        except InstallError:
-            return None  # `_run` reports it as the job error
 
     async def shutdown(self) -> None:
         for task in list(self._tasks):
             task.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
 
-    def remove(self) -> asyncio.Future[None]:
-        """Drop the kernelspec synchronously, then delete every env in a thread.
+    def remove(self, version: str) -> asyncio.Future[None]:
+        """Drop the kernelspecs of the version synchronously, then delete its envs in a thread.
 
-        Raises NotInstalled / InstallInProgress / RemoveFailed (kernelspec) before any env is touched;
-        the future raises RemoveFailed with whatever is left.
+        Other versions are untouched. Raises NotInstalled / InstallInProgress / RemoveFailed (kernelspec)
+        before any env is touched; the future raises RemoveFailed with whatever is left.
         """
-        if self.is_mutating():
-            raise InstallInProgress
-        entry = self.find()
-        try:
-            remove_kernelspec()
-        except OSError as exc:
-            raise RemoveFailed([str(kernels_dir() / KERNEL_NAME)]) from exc
-        self._active = ("", "remove")
-        return self._spawn(self._remove_envs(entry.env_dir))
+        name = kernel_name(version)
+        if self.is_mutating(name):
+            raise InstallInProgress(version)
+        entries = self.entries_of(version)
+        if not entries:
+            raise NotInstalled(version)
+        for entry in entries:
+            try:
+                remove_kernelspec(entry.kernel_name)
+            except OSError as exc:
+                raise RemoveFailed([str(kernels_dir() / entry.kernel_name)]) from exc
+        self.try_acquire(name, "", "remove")
+        return self._spawn(self._remove_envs(name, version, {e.env_dir for e in entries}))
 
-    async def _remove_envs(self, env_dir: Path) -> None:
+    async def _remove_envs(self, name: str, version: str, env_dirs: set[Path]) -> None:
         try:
-            await asyncio.to_thread(self._delete_all_envs, env_dir)
+            await asyncio.to_thread(self._delete_version_envs, version, env_dirs)
         finally:
-            self._active = None
+            self.release(name)
 
-    def _delete_all_envs(self, env_dir: Path) -> None:
+    def _delete_version_envs(self, version: str, env_dirs: set[Path]) -> None:
+        """Move each env of the version to `envs/.trash-*` and delete it; raise with whatever is left."""
         envs = self.base_dir / ENVS_DIR
-        pattern = re.compile(rf"{re.escape(ENV_PREFIX)}[^/]+-[0-9a-f]{{8}}")
-        targets = {env_dir}
+        pattern = re.compile(rf"{re.escape(ENV_PREFIX)}{re.escape(version)}-[0-9a-f]{{8}}")
+        targets = set(env_dirs)
         if envs.is_dir():
             targets |= {p for p in envs.iterdir() if pattern.fullmatch(p.name) and p.is_dir()}
         left: list[str] = []
@@ -204,12 +234,16 @@ class DuckDBInstaller:
         if left:
             raise RemoveFailed(left)
 
-    def sweep_trash(self) -> None:
-        """Delete `envs/.trash-duckdb-*` left by an interrupted removal; failures only warn."""
+    def sweep_trash(self, version: str | None = None) -> None:
+        """Delete `envs/.trash-duckdb-*` left by an interrupted removal; failures only warn.
+
+        With `version`, sweeps only that version's leftovers (the caller holds its kernel lock).
+        """
         envs = self.base_dir / ENVS_DIR
         if not envs.is_dir():
             return
-        for old in envs.glob(f"{TRASH_PREFIX}{ENV_PREFIX}*"):
+        stem = f"{ENV_PREFIX}{version}-*" if version else f"{ENV_PREFIX}*"
+        for old in envs.glob(f"{TRASH_PREFIX}{stem}"):
             if old.is_dir() and is_removable_env(self.base_dir, old):
                 shutil.rmtree(old, ignore_errors=True)
 
@@ -220,13 +254,12 @@ class DuckDBInstaller:
     async def _cmd(self, job: Job, phase: str, args: list[str]) -> list[str]:
         return await run_command(job, phase, args, self._env, self._progress(phase))
 
-    async def _run(self, job: Job) -> None:
+    async def _run(self, job: Job, manifest: Manifest, name: str) -> None:
         env_dir: Path | None = None
         cancel = threading.Event()
         try:
             await job.start()
-            manifest = self._load_manifest()
-            await asyncio.to_thread(self.sweep_trash)
+            await asyncio.to_thread(lambda: self.sweep_trash(manifest.duckdb_version))
             key = self._platform(manifest)
             uv = shutil.which("uv")
             if uv is None:
@@ -242,17 +275,18 @@ class DuckDBInstaller:
             )
             await self._install_extensions(job, env_dir, manifest, key, cancel)
             await self._validate(job, python, env_dir, manifest, key)
-            await job.emit("kernelspec", f"writing kernelspec {KERNEL_NAME}", self._progress("kernelspec"))
-            current = await asyncio.to_thread(discover, self.base_dir)
-            previous = {current.env_dir} if current is not None else set()
+            await job.emit("kernelspec", f"writing kernelspec {name}", self._progress("kernelspec"))
+            current = await asyncio.to_thread(self.entries_of, manifest.duckdb_version)
+            previous = {e.env_dir for e in current}
             await asyncio.to_thread(write_kernelspec, manifest.duckdb_version, env_dir, manifest.names)
             installed, env_dir = env_dir, None  # switched: the new env must survive from here on
-            await self._cleanup(job, installed, previous)
+            await self._supersede_legacy(job, current)
+            await self._cleanup(job, manifest.duckdb_version, installed, previous, {e.kernel_name for e in current})
             await job.finish("succeeded")
         except asyncio.CancelledError:
             cancel.set()  # the download thread cannot be cancelled; it stops at the next chunk
-            if self._download is not None and not self._download.done():
-                await asyncio.wait({self._download}, timeout=DOWNLOAD_TIMEOUT)
+            if (download := self._downloads.get(name)) is not None and not download.done():
+                await asyncio.wait({download}, timeout=DOWNLOAD_TIMEOUT)
             await self._discard(env_dir)
             await job.finish("failed", "cancelled")
             raise
@@ -260,12 +294,12 @@ class DuckDBInstaller:
             await self._discard(env_dir)
             await job.finish("failed", str(exc))
         except Exception:
-            log.exception("unexpected failure installing the DuckDB runtime")
+            log.exception("unexpected failure installing DuckDB %s", manifest.duckdb_version)
             await self._discard(env_dir)
             await job.finish("failed", "unexpected error; see server log")
         finally:
-            self._active = None
-            self._download = None
+            self.release(name)
+            self._downloads.pop(name, None)
 
     @staticmethod
     def _platform(manifest: Manifest) -> str:
@@ -286,11 +320,10 @@ class DuckDBInstaller:
         for name in manifest.names:
             await job.emit("extensions", f"downloading {manifest.url(key, name)}", progress)
             # Shielded and tracked so a cancelled job can still wait for the thread to stop.
-            self._download = asyncio.ensure_future(
-                asyncio.to_thread(self._fetch_extension, manifest, key, name, target, cancel)
-            )
+            download = asyncio.ensure_future(asyncio.to_thread(self._fetch_extension, manifest, key, name, target, cancel))
+            self._downloads[kernel_name(manifest.duckdb_version)] = download
             try:
-                await asyncio.shield(self._download)
+                await asyncio.shield(download)
             except (OSError, EOFError, zlib.error, http.client.HTTPException) as exc:
                 raise InstallError(f"extensions: cannot install {name}: {exc}") from exc
             digests = manifest.digests(key, name)
@@ -351,12 +384,25 @@ class DuckDBInstaller:
         if "duckdb-validate-ok" not in lines:
             raise InstallError("validate: extension load check did not complete")
 
-    async def _cleanup(self, job: Job, installed: Path, previous: set[Path]) -> None:
-        """Remove superseded envs; failures only warn (the install already succeeded)."""
+    async def _supersede_legacy(self, job: Job, previous: list[InstalledRuntime]) -> None:
+        """The legacy `duckdb` kernelspec of the same version is replaced by the versioned one."""
+        for entry in previous:
+            if entry.kernel_name == KERNEL_NAME:
+                await job.emit("cleanup", f"replacing legacy kernelspec {KERNEL_NAME}", self._progress("cleanup"))
+                try:
+                    await asyncio.to_thread(remove_kernelspec, KERNEL_NAME)
+                except OSError:
+                    log.warning("could not remove the legacy kernelspec %s", KERNEL_NAME, exc_info=True)
+
+    async def _cleanup(
+        self, job: Job, version: str, installed: Path, previous: set[Path], kernel_names: set[str]
+    ) -> None:
+        """Remove superseded envs of this version only; failures only warn (the install already succeeded)."""
         envs = self.base_dir / ENVS_DIR
-        stale = {p for p in envs.glob(f"{ENV_PREFIX}*-????????") if p.is_dir()} | previous
+        stale = {p for p in envs.glob(f"{ENV_PREFIX}{version}-????????") if p.is_dir()} | previous
         # A session opened during the install runs on the old env (`previous`); keep only that one.
-        kept = (stale & previous) - {installed} if self._has_active_session(KERNEL_NAME) else set()
+        in_use = any(self._has_active_session(n) for n in {kernel_name(version), *kernel_names})
+        kept = (stale & previous) - {installed} if in_use else set()
         if kept:
             await job.emit(
                 "cleanup",
