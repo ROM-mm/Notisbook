@@ -6,8 +6,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from ..kernels.service import DUCKDB_KERNEL_NAME, DUCKDB_METADATA_KEY, runtime_kind
-from ..notebooks.store import NOTEBOOK_SUFFIX, NotebookStore, StoreError
-from ..onboarding import SAMPLES_DIR
+from ..notebooks.store import NotebookStore, StoreError
+from ..onboarding import SAMPLES_DIR, bundled_samples
 from ..security import require_token, require_trusted_host
 
 router = APIRouter(
@@ -16,9 +16,12 @@ router = APIRouter(
 )
 
 
-def _kernelspec(sample_name: str) -> dict[str, Any]:
-    """`metadata.kernelspec` do exemplo empacotado (fonte da verdade), nunca da cópia do usuário."""
-    raw = json.loads((SAMPLES_DIR / f"{sample_name}{NOTEBOOK_SUFFIX}").read_text(encoding="utf-8"))
+def _kernelspec(rel: str) -> dict[str, Any]:
+    """`metadata.kernelspec` do exemplo empacotado (fonte da verdade), nunca da cópia do usuário.
+
+    `rel` é o caminho relativo POSIX dentro do pacote (o stem não é único entre runtimes).
+    """
+    raw = json.loads((SAMPLES_DIR / rel).read_text(encoding="utf-8"))
     spec = raw.get("metadata", {}).get("kernelspec", {})
     return spec if isinstance(spec, dict) else {}
 
@@ -32,7 +35,7 @@ def _present_in_root(store: NotebookStore, rel: str) -> bool:
 
 
 def _describe(name: str, rel: str) -> dict[str, str]:
-    spec = _kernelspec(name)
+    spec = _kernelspec(rel)
     kernel_name = str(spec.get("name", ""))
     # O kernelspec do .ipynb não traz a chave de registro do DuckDB (ela vive no kernelspec instalado);
     # o nome fixo basta para classificar o exemplo.
@@ -48,12 +51,12 @@ def _describe(name: str, rel: str) -> dict[str, str]:
 
 @router.get("")
 def list_samples(request: Request) -> list[dict[str, str]]:
-    """Lista os exemplos empacotados presentes na raiz, ordenados pelo nome.
+    """Lista os exemplos empacotados presentes na raiz, ordenados pelo caminho relativo.
 
-    O exemplo é identificado SOMENTE pelo nome do arquivo, nunca pelo conteúdo: executar e salvar
-    um exemplo grava saídas no .ipynb, e uma comparação por hash deixaria de reconhecê-lo.
-    Consequência: um notebook do usuário com o mesmo nome de um exemplo é tratado como exemplo.
+    O exemplo é identificado SOMENTE pelo caminho (subpasta + arquivo), nunca pelo conteúdo: executar
+    e salvar um exemplo grava saídas no .ipynb, e uma comparação por hash deixaria de reconhecê-lo.
+    Consequência: um notebook do usuário no mesmo caminho de um exemplo é tratado como exemplo.
     """
     store: NotebookStore = request.app.state.store
-    names = sorted(p.stem for p in SAMPLES_DIR.glob(f"*{NOTEBOOK_SUFFIX}"))
-    return [_describe(n, f"{n}{NOTEBOOK_SUFFIX}") for n in names if _present_in_root(store, f"{n}{NOTEBOOK_SUFFIX}")]
+    rels = [(rel.stem, rel.as_posix()) for rel in bundled_samples()]
+    return [_describe(name, path) for name, path in rels if _present_in_root(store, path)]

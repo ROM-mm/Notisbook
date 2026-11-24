@@ -54,15 +54,23 @@ def _publish_sample(sample: Path, target: Path) -> None:
         Path(tmp_name).unlink(missing_ok=True)
 
 
+def bundled_samples() -> list[Path]:
+    """Caminhos relativos a `SAMPLES_DIR` de todos os exemplos, em ordem estável; ignora pastas ocultas."""
+    found = (p.relative_to(SAMPLES_DIR) for p in SAMPLES_DIR.rglob(f"*{NOTEBOOK_SUFFIX}") if p.is_file())
+    return sorted(rel for rel in found if not any(part.startswith(".") for part in rel.parts))
+
+
 def _seed_samples(home: Path) -> None:
     """Copia os exemplos para `<home>/notebooks` e grava o marcador. Levanta OSError em falha (sem marcador)."""
-    samples = sorted(SAMPLES_DIR.glob(f"*{NOTEBOOK_SUFFIX}"))
+    samples = bundled_samples()
     if not samples:
         raise FileNotFoundError(f"no bundled samples in {SAMPLES_DIR}")
     folder = default_root(home)
     folder.mkdir(parents=True, exist_ok=True)
-    for sample in samples:
-        _publish_sample(sample, folder / sample.name)
+    for rel in samples:
+        target = folder / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _publish_sample(SAMPLES_DIR / rel, target)
     mark_samples_seeded(home)
 
 
