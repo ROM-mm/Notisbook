@@ -4,33 +4,30 @@
     "fontSize":"14px","lineColor":"#1F2937",
     "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
 graph TB
-    GH["GitHub Releases<br/>wheel, MinIO, install.sh"]
+    GHREL["GitHub Releases<br/>wheel, constraints, MinIO"]
 
-    subgraph MAC["Mac with Apple silicon"]
-        BROWSER["Browser<br/>127.0.0.1:8765"]
-        UVTOOL["uv tool env<br/>notisbook wheel"]
-        BACKEND["notisbook process<br/>FastAPI + uvicorn"]
-        MINIOBIN["MinIO binary<br/>~/.notisbook/minio/bin"]
-        MINIOPROC["MinIO process<br/>Loopback dynamic ports"]
-        ENVS[("Runtime envs<br/>~/.notisbook/envs")]
-        DATA[("Data root<br/>~/.notisbook")]
-        DIST[("MinIO package<br/>~/.local/share/notisbook")]
+    subgraph MAC["macOS Apple Silicon"]
+        INST["install.sh<br/>Confere SHA256SUMS"]
+        UVTOOL["uv tool<br/>Python 3.12"]
+        PROC["Processo notisbook<br/>127.0.0.1:8765"]
+        BROWSER["Navegador<br/>SPA embutida"]
+        ENVS["Ambientes uv<br/>~/.notisbook/envs"]
+        MINIOP["MinIO<br/>127.0.0.1 porta livre"]
+        HOME[("~/.notisbook<br/>catalog.db, minio, kernels")]
+        subgraph VMD["VM Docker"]
+            GC["notisbook-glue<br/>network host"]
+        end
     end
 
-    subgraph COLIMA["Colima VM"]
-        GLUEC["notisbook-glue<br/>Container"]
-    end
-
-    GH -->|"install.sh verifies SHA256SUMS"| UVTOOL
-    GH -->|"Tarball"| DIST
-    UVTOOL -->|"Runs"| BACKEND
-    DIST -->|"Verified install"| MINIOBIN
-    MINIOBIN -->|"Supervised child"| MINIOPROC
-    BROWSER -->|"HTTP, WS"| BACKEND
-    BACKEND -->|"Kernel processes"| ENVS
-    BACKEND -->|"State"| DATA
-    BACKEND -->|"Docker CLI"| GLUEC
-    GLUEC -->|"host.lima.internal"| BACKEND
+    GHREL -->|"curl"| INST
+    INST -->|"uv tool install"| UVTOOL
+    UVTOOL -->|"Executa"| PROC
+    BROWSER -->|"loopback"| PROC
+    PROC -->|"Processos filhos"| ENVS
+    PROC -->|"Supervisiona"| MINIOP
+    PROC -->|"Persistência"| HOME
+    PROC -->|"docker run / exec"| GC
+    GC -->|"host.lima.internal"| PROC
 
     classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
     classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
@@ -38,7 +35,8 @@ graph TB
     classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
     classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
 
-    class GH external
-    class BROWSER integration
-    class UVTOOL,BACKEND,MINIOBIN,MINIOPROC,GLUEC processing
-    class ENVS,DATA,DIST persistence
+    class GHREL external
+    class INST,UVTOOL support
+    class PROC,BROWSER,ENVS,GC processing
+    class MINIOP integration
+    class HOME persistence

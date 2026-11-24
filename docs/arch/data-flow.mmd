@@ -4,24 +4,32 @@
     "fontSize":"14px","lineColor":"#1F2937",
     "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
 graph TB
-    CELL["Notebook cell<br/>Python, SQL, DuckDB"]
-    UI["Web UI<br/>WebSocket v1"]
-    API["Backend<br/>KernelService"]
-    KERNEL["Kernel<br/>Spark, DuckDB, Glue"]
-    HOOK["Catalog hook<br/>Destination rules"]
-    CATDB[("catalog.db<br/>Registry + Iceberg")]
-    MINIO[("notislake bucket<br/>landing, bronze, silver, gold")]
-    OUT["Outputs<br/>Sanitized in browser"]
+    CELL["Célula do notebook<br/>python, sql, duckdb"]
+    SPA["SPA<br/>Canal WS v1"]
+    KSVC["kernels.service<br/>Backend"]
+    KERNEL["Kernel<br/>Spark ou DuckDB"]
+    HOOK["_notisbook_catalog<br/>Hook injetado"]
+    LAYER["Regras de camada<br/>landing, bronze, silver, gold"]
+    MINIO["Notislake<br/>s3a://notislake"]
+    CATDB[("catalog.db<br/>nb_* e Iceberg")]
+    RTC["runtime-catalog<br/>Backend"]
+    ICE["iceberg_rest<br/>Backend"]
+    OUT["Saída<br/>DOMPurify + Shadow DOM"]
 
-    CELL -->|"execute"| UI
-    UI -->|"execute frame"| API
-    API -->|"Jupyter execute_request"| KERNEL
-    KERNEL -->|"Write table"| HOOK
-    HOOK -->|"Registers table"| CATDB
-    KERNEL -->|"Data files via S3A or httpfs"| MINIO
-    KERNEL -->|"IOPub messages"| API
-    API -->|"output, execute_reply"| UI
-    UI -->|"Renders"| OUT
+    CELL -->|"execute"| SPA
+    SPA -->|"frame v1"| KSVC
+    KSVC -->|"ZMQ"| KERNEL
+    KERNEL -->|"write / createTable"| HOOK
+    HOOK -->|"Valida destino"| LAYER
+    LAYER -->|"Dados Parquet/Delta/Hudi/Iceberg"| MINIO
+    HOOK -->|"Registro local via SQLite"| CATDB
+    HOOK -->|"Registro Docker via HTTP"| RTC
+    RTC -->|"nb_*"| CATDB
+    KERNEL -->|"Tabelas Iceberg no Docker/DuckDB"| ICE
+    ICE -->|"Commit com CAS"| CATDB
+    KERNEL -->|"output"| KSVC
+    KSVC -->|"frame output"| SPA
+    SPA -->|"Renderiza"| OUT
 
     classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
     classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
@@ -29,6 +37,8 @@ graph TB
     classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
     classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
 
-    class CELL,UI,OUT integration
-    class API,KERNEL,HOOK processing
-    class CATDB,MINIO persistence
+    class CELL,OUT external
+    class SPA,KSVC,KERNEL,HOOK,ICE,RTC processing
+    class LAYER integration
+    class MINIO support
+    class CATDB persistence

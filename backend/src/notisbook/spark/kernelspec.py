@@ -118,6 +118,8 @@ def write_kernelspec(home: Path, version: str, env_dir: Path, java_home: str, s3
         "PYSPARK_PYTHON": python,
         "PYSPARK_DRIVER_PYTHON": python,
         "SPARK_CONF_DIR": str(conf_dir(env_dir)),
+        # The Web UI ignores `spark.driver.bindAddress` and binds to this variable (see `render_base_defaults`).
+        "SPARK_LOCAL_IP": "127.0.0.1",
     }
     notisbook: dict[str, Any] = {
         "version": version,
