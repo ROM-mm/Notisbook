@@ -194,3 +194,14 @@
   color: var(--color-text-subtle);
   font-size: var(--font-size-sm);
 }
+
+/* Rótulo de categoria nas linhas da lista Installed. */
+.category {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}

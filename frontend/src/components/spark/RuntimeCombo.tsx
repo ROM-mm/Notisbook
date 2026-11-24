@@ -322,3 +322,14 @@ export function RuntimeCombo({ options, value, onChange, disabled = false, place
     </div>
   );
 }
+
+/** Rótulo de categoria com ícone (lista Installed). */
+export function CategoryTag({ category }: { category: RuntimeCategory }) {
+  const { title, Icon } = CATEGORY[category];
+  return (
+    <span className={styles.category} data-category={category}>
+      <Icon size={12} />
+      {title}
+    </span>
+  );
+}

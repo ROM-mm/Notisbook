@@ -1,22 +1,31 @@
 /**
- * Config de um ambiente Spark: lista as libs (base incluída) e permite adicionar (＋),
- * desinstalar (−) e atualizar (↑) as marcadas. PyPI apenas.
+ * Config de um ambiente (Spark ou DuckDB): lista as libs e permite adicionar (＋),
+ * desinstalar (−) e atualizar (↑) as marcadas. PyPI apenas. As rotas vêm do adaptador
+ * (`PackagesAdapter`); `readOnly` só lista; `children` entra antes da tabela (ex.: extensões do DuckDB).
  *
  * Modal nativo (`showModal`). Durante um job fica travado: Esc/Close/backdrop não fecham e,
  * se o navegador fechar mesmo assim, o diálogo reabre.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError, errorMessage } from "../../api/http";
 import type { PackageItem, RequirementRow, SessionInfo } from "../../api/types";
 import { AddLibraryDialog } from "./AddLibraryDialog";
 import { JobProgress, type JobLabels } from "./JobProgress";
-import { rowErrors, usePackages } from "./usePackages";
+import { type PackagesAdapter, rowErrors, usePackages } from "./usePackages";
 import dlg from "../../styles/dialog.module.css";
 import styles from "./Spark.module.css";
 
 interface Props {
+  /** Nome do runtime no título (ex.: "Spark 3.5.10", "DuckDB 2.0.1"). */
+  title: string;
   version: string;
   envDir: string | null;
+  /** Rotas de libs do ambiente; identidade estável (useMemo por versão). */
+  adapter: PackagesAdapter;
+  /** Só lista as libs, sem adicionar/remover/atualizar. */
+  readOnly?: boolean;
+  /** Conteúdo extra antes da tabela de libs. */
+  children?: ReactNode;
   /** Sessões abertas do kernel deste ambiente (bloqueiam as ações). */
   sessions: SessionInfo[];
   onClose: () => void;
@@ -36,12 +45,14 @@ function actionError(err: unknown): string {
   return errorMessage(err);
 }
 
-function Row({ item, selected, changed, added, disabled, onToggle }: { item: PackageItem; selected: boolean; changed: boolean; added: boolean; disabled: boolean; onToggle: () => void }) {
+function Row({ item, selected, changed, added, disabled, readOnly, onToggle }: { item: PackageItem; selected: boolean; changed: boolean; added: boolean; disabled: boolean; readOnly: boolean; onToggle: () => void }) {
   return (
     <tr className={`${selected ? styles.pkgSelected : ""} ${changed ? styles.pkgChanged : ""}`} data-testid="spark-package-row" data-name={item.name}>
-      <td className={styles.pkgCheck}>
-        <input type="checkbox" checked={selected} disabled={disabled} aria-label={`Select ${item.name}`} onChange={onToggle} />
-      </td>
+      {readOnly ? null : (
+        <td className={styles.pkgCheck}>
+          <input type="checkbox" checked={selected} disabled={disabled} aria-label={`Select ${item.name}`} onChange={onToggle} />
+        </td>
+      )}
       <td className={styles.pkgName}>
         <span>{item.name}</span>
         {added ? <span className={`${styles.tag} ${styles.tagNew}`}>new</span> : null}
@@ -51,9 +62,9 @@ function Row({ item, selected, changed, added, disabled, onToggle }: { item: Pac
   );
 }
 
-export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
+export function PackagesDialog({ title, version, envDir, adapter, readOnly = false, children, sessions, onClose }: Props) {
   const ref = useRef<HTMLDialogElement>(null);
-  const pk = usePackages(version);
+  const pk = usePackages(adapter, version);
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [addOpen, setAddOpen] = useState(false);
@@ -141,10 +152,10 @@ export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
       <div className={dlg.head}>
         <div>
           <h2 id="pkg-title" className={dlg.title}>
-            Spark {version} — Libraries
+            {title} — Libraries
           </h2>
           <p className={styles.text}>
-            {envDir ? <span>{envDir}</span> : null} · PyPI only
+            {envDir ? <span>{envDir}</span> : null} · {readOnly ? "read-only" : "PyPI only"}
           </p>
         </div>
         <button type="button" className="btn btn-ghost" aria-label="Close dialog" disabled={locked} onClick={close}>
@@ -153,21 +164,25 @@ export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
       </div>
 
       <div className={styles.pkgToolbar}>
-        <span title={blockReason ?? "Add libraries"}>
-          <button type="button" className="btn btn-primary" aria-label="Add libraries" disabled={!!blockReason || pk.loading} onClick={() => setAddOpen(true)}>
-            ＋
-          </button>
-        </span>
-        <span title={blockReason ?? needsSelection ?? "Uninstall selected"}>
-          <button type="button" className={`btn ${styles.dangerBtn}`} aria-label="Uninstall selected" disabled={!!blockReason || !!needsSelection} onClick={uninstall}>
-            −
-          </button>
-        </span>
-        <span title={blockReason ?? needsSelection ?? "Upgrade selected to the latest version"}>
-          <button type="button" className="btn" aria-label="Upgrade selected" disabled={!!blockReason || !!needsSelection} onClick={upgrade}>
-            ↑
-          </button>
-        </span>
+        {readOnly ? null : (
+          <>
+            <span title={blockReason ?? "Add libraries"}>
+              <button type="button" className="btn btn-primary" aria-label="Add libraries" disabled={!!blockReason || pk.loading} onClick={() => setAddOpen(true)}>
+                ＋
+              </button>
+            </span>
+            <span title={blockReason ?? needsSelection ?? "Uninstall selected"}>
+              <button type="button" className={`btn ${styles.dangerBtn}`} aria-label="Uninstall selected" disabled={!!blockReason || !!needsSelection} onClick={uninstall}>
+                −
+              </button>
+            </span>
+            <span title={blockReason ?? needsSelection ?? "Upgrade selected to the latest version"}>
+              <button type="button" className="btn" aria-label="Upgrade selected" disabled={!!blockReason || !!needsSelection} onClick={upgrade}>
+                ↑
+              </button>
+            </span>
+          </>
+        )}
         <input
           className={`${styles.input} ${styles.pkgFilter}`}
           type="search"
@@ -179,7 +194,7 @@ export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
         />
       </div>
 
-      {sessionReason && !locked ? <p className={styles.notice}>{sessionReason}</p> : null}
+      {sessionReason && !locked && !readOnly ? <p className={styles.notice}>{sessionReason}</p> : null}
       {chosen.length > 0 ? (
         <p className={styles.pkgSummary} data-testid="spark-packages-selected">
           {chosen.length} selected: {chosen.map((p) => `${p.name} ${p.version}`).join(", ")} — − uninstalls · ↑ upgrades to latest
@@ -218,20 +233,21 @@ export function PackagesDialog({ version, envDir, sessions, onClose }: Props) {
       ) : null}
 
       <div className={styles.pkgScroll}>
+        {children}
         {pk.loading ? <p className={styles.text}>Loading…</p> : null}
         {pk.error ? <p className={styles.error}>Could not list the libraries: {pk.error}</p> : null}
         {!pk.loading && !pk.error ? (
           <table className={styles.pkgTable}>
             <thead>
               <tr>
-                <th />
+                {readOnly ? null : <th />}
                 <th>Library</th>
                 <th>Version</th>
               </tr>
             </thead>
             <tbody>
               {visible.map((p) => (
-                <Row key={p.name} item={p} selected={selected.has(p.name)} changed={pk.changed.has(p.name)} added={pk.added.has(p.name)} disabled={locked} onToggle={() => toggle(p.name)} />
+                <Row key={p.name} item={p} selected={selected.has(p.name)} changed={pk.changed.has(p.name)} added={pk.added.has(p.name)} disabled={locked} readOnly={readOnly} onToggle={() => toggle(p.name)} />
               ))}
             </tbody>
           </table>

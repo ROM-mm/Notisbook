@@ -1,12 +1,13 @@
 /**
- * Linha de um runtime Docker na lista Installed: container, estado e versões, com Details
- * (somente leitura) e Remove. Montagens defasadas (ex.: Connections trocada) mostram um aviso
+ * Linha de um runtime Docker na lista Installed: container, estado e versões, com Config
+ * (detalhes e libs, somente leitura) e Remove. Montagens defasadas (ex.: Connections trocada) mostram um aviso
  * com Recriar. Docker parado não quebra a lista: o estado do container fica "unavailable".
  */
 import { useState } from "react";
 import { ApiError } from "../../api/http";
 import type { DockerRuntime, SessionInfo } from "../../api/types";
 import { containerState, DockerDetailsDialog, dockerError } from "./DockerDetailsDialog";
+import { CategoryTag } from "./RuntimeCombo";
 import styles from "./Spark.module.css";
 
 interface Props {
@@ -57,7 +58,7 @@ export function DockerInstalledRow({ runtime, connectionsDir, sessions, onAction
       <div className={styles.rowMain}>
         <div className={styles.rowTitle}>
           <span className={styles.rowVersion}>{runtime.label}</span>
-          <span className={`${styles.tag} ${styles.tagDocker}`}>docker</span>
+          <CategoryTag category="docker" />
           {using.length > 0 ? <span className={`${styles.tag} ${styles.tagActive}`}>in use</span> : null}
           {runtime.busy ? <span className={`${styles.tag} ${styles.tagActive}`}>working</span> : null}
         </div>
@@ -84,9 +85,9 @@ export function DockerInstalledRow({ runtime, connectionsDir, sessions, onAction
         ) : null}
       </div>
       <span className={styles.rowActions}>
-        <span title={`Details of ${runtime.label}`} className={styles.rowAction}>
-          <button type="button" className="btn" data-testid="docker-runtime-details" disabled={busy} aria-label={`Details of ${runtime.label}`} onClick={() => setDetailsOpen(true)}>
-            Details
+        <span title={`Configuration of ${runtime.label} (read-only)`} className={styles.rowAction}>
+          <button type="button" className="btn" data-testid="docker-runtime-config" disabled={busy} aria-label={`Configuration of ${runtime.label}`} onClick={() => setDetailsOpen(true)}>
+            Config
           </button>
         </span>
         <span title={reason ?? `Remove ${runtime.label} (the image is kept)`} className={styles.rowAction}>
