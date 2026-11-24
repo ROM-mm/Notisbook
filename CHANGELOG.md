@@ -7,6 +7,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-24
+
+The AWS Glue runtime now reads and writes Apache Hudi tables, its cell output is no longer flooded by Spark logs, and
+the Catalog tree is lighter: tables are leaves and their columns live in the Table info panel.
+
+### Added
+
+- **Hudi in the AWS Glue runtime.** The Glue Spark session loads the Hudi extension
+  (`HoodieSparkSessionExtension`) with the Kryo serializer Hudi requires, in the same order as the local Spark
+  runtime, and the catalog registry and layer check accept Hudi tables created in the Docker runtime.
+- **Iceberg and Hudi class check in the Glue container.** Validating the Glue runtime now confirms that the Iceberg
+  and Hudi classes actually load inside the container, so a broken image is reported before the first notebook runs.
+- **Hudi tables in the Glue example.** `glue.ipynb` creates a managed and an external Hudi table; the load into the
+  external table uses `MERGE INTO`, so running the whole notebook twice finishes without errors.
+- **Community files.** The repository now has a contributing guide (`CONTRIBUTING.md`), a pull request template, a
+  code of conduct (`CODE_OF_CONDUCT.md`) and a security policy (`SECURITY.md`).
+
+### Changed
+
+- **Tables are leaves in the Catalog tree.** Expanding a table no longer lists its columns; a click or Enter opens
+  Table info, whose Columns tab shows them. The `GET /api/catalog/columns` route was removed (it served only the
+  tree); Table info keeps using `GET /api/catalog/table`.
+- **Layers always visible on `spark` and `hudi`.** Both catalog nodes always show `bronze`, `silver` and `gold`, and
+  an empty `default` schema is hidden.
+- **`tornado` 6.6.1.** The backend dependency was bumped from 6.6 to 6.6.1.
+
+### Fixed
+
+- **Quiet Spark output in the Glue runtime.** The Spark driver now logs only errors, through a log4j2 configuration
+  added after any existing `SPARK_SUBMIT_OPTS`, and the kernel relay drops SLF4J lines and JOL warnings, matching the
+  local Spark runtime.
+- **No "0 rows" on load cells.** The load cells of `glue.ipynb` no longer print an empty "0 rows" result.
+- **`landing/` prefix in Notislake.** The MinIO bootstrap now creates `landing/` alongside `bronze/`, `silver/` and
+  `gold/`.
+- **Exact names in the Catalog.** Layer and `default` names are compared with their exact spelling when the tree
+  labels schemas, while the check for an existing `default` schema ignores letter case.
+
 ## [0.10.0] - 2026-11-23
 
 Notisbook can now update and uninstall itself from the command line, and a release can be rehearsed on your own Mac
