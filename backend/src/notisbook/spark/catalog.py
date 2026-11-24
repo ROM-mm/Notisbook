@@ -2,6 +2,8 @@
 
 The PyPI client is stdlib `urllib` run in a worker thread: one short GET per hour
 does not justify a new runtime dependency, and the call stays off the event loop.
+
+Accepted lines: 3.5 and every line from 4.0 on (>= 4.0); anything older is never offered.
 """
 
 import asyncio
@@ -26,6 +28,8 @@ PYPI_PATH = "/pypi/pyspark/json"
 
 # fullmatch + ASCII: `$` would accept a trailing newline and `\d` non-ASCII digits.
 _VERSION = re.compile(r"\d+\.\d+\.\d+", re.ASCII)
+# Any release key (stable, pre-release, yanked) still tells which line PyPI knows about.
+_LINE_PREFIX = re.compile(r"(\d+\.\d+)(?!\d)", re.ASCII)
 
 
 def is_valid_version(version: str) -> bool:
@@ -91,13 +95,17 @@ def _release_date(files: Any) -> datetime | None:
 def parse_pypi(payload: Any) -> Catalog:
     """Highest stable non-yanked patch of line 3.5 and of every line from 4.0 on, bundle or not (newest first).
 
-    A fallback line PyPI has no usable release for is added from `FALLBACK_PATCH` and marks the catalog as fallback.
+    Only lines absent from the payload are completed from `FALLBACK_PATCH` (marking the catalog as fallback);
+    a line present with no valid stable release (pre-release only, all yanked) is dropped without that mark.
     """
     releases = payload.get("releases") if isinstance(payload, dict) else None
     if not isinstance(releases, dict):
         raise TypeError("unexpected PyPI payload")
     best: dict[str, CatalogEntry] = {}
+    seen: set[str] = set()
     for version, files in releases.items():
+        if isinstance(version, str) and (prefix := _LINE_PREFIX.match(version)):
+            seen.add(prefix.group(1))
         if not isinstance(version, str) or not is_valid_version(version):
             continue
         line = _line_of(version)
@@ -108,7 +116,7 @@ def parse_pypi(payload: Any) -> Catalog:
             best[line] = CatalogEntry(version, released, line)
     if not best:
         raise ValueError("no offered stable release in PyPI payload")
-    missing = [e for e in _static_entries() if e.line not in best]
+    missing = [e for e in _static_entries() if e.line not in seen]
     return Catalog("pypi", bool(missing), _newest_first([*best.values(), *missing]))
 
 
