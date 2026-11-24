@@ -7,6 +7,153 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-24
+
+A documentation release: the project documentation is rewritten from the current code, with no change to the app.
+
+### Added
+
+- **Architecture guide.** `docs/ARCHITECTURE.md` describes how Notisbook works today: the single local process on
+  `127.0.0.1`, the Spark, DuckDB and AWS Glue 6.0 runtimes, the SQLite catalog, the local MinIO storage, the security
+  controls and the release pipeline, each point pointing to the source file it comes from.
+- **Diagrams.** Five Mermaid diagrams in `docs/arch/`: system context, containers, backend components, deployment on
+  the Mac and the path of a cell execution.
+- **HTTP API reference.** `docs/api/swagger.yaml` is an OpenAPI 3.0 description of the backend API, including the
+  three WebSocket endpoints and the three kinds of token (UI, runtime and shutdown).
+- **Decision records.** 26 architecture decision records in `docs/adr/`, from the WebSocket protocol to the Apple
+  silicon–only support. Where the code does not show why a choice was made, the record says so.
+
+### Changed
+
+- **README.** Rewritten around what Notisbook does, who it is for, the requirements and a quick start, now citing
+  AWS Glue 6.0.
+
+## [0.13.0] - 2026-11-24
+
+The AWS Glue runtime moves to Glue 6.0 (Spark 4.1, Scala 2.13, Python 3.13), and only the latest Glue version is
+offered from now on, because each image takes more than 10 GB.
+
+### Changed
+
+- **AWS Glue 6.0.** The Docker runtime is built on `public.ecr.aws/glue/aws-glue-libs:6.0`, pinned by digest: Spark
+  4.1.1, Scala 2.13, Python 3.13, Delta 4.2.0, Iceberg 1.11.0 and Hudi 1.1.1. Delta, Iceberg and Hudi keep working in
+  SQL and DataFrames, with Spark 4's default ANSI mode, as in AWS Glue itself.
+- **Only the latest Glue version.** Glue 5.0 was removed from Settings › Runtimes; there is a single AWS Glue
+  runtime.
+- **Version-free names.** The runtime, its container and its kernel are now `glue`, `notisbook-glue` and
+  `notisbook-docker-glue`; the version shows only in the label ("AWS Glue 6.0"), so future Glue upgrades no longer
+  break saved notebooks. Notebooks saved with the Glue 5.0 kernel ask for a kernel once: pick "AWS Glue 6.0".
+- **Glue examples.** `glue/delta`, `glue/hudi` and `glue/iceberg` open on the new kernel.
+
+### Removed
+
+- **Glue 5.0 leftovers, automatically.** On startup, Notisbook removes the kernel, container and `notisbook/*` image
+  of runtimes that left the catalog, such as Glue 5.0. Only items marked as Notisbook's are touched, and a failure
+  never stops the app from starting. The AWS base image `public.ecr.aws/glue/aws-glue-libs:5` (about 12 GB) is not
+  Notisbook's and stays: remove it with `docker rmi public.ecr.aws/glue/aws-glue-libs:5`. If you had already removed
+  the Glue 5.0 runtime, also run `docker image rm notisbook/glue:5.0`.
+
+### Fixed
+
+- **Clear error without Delta.** If the Delta jar is missing from the Glue image, the kernel stops with a clear error
+  instead of starting a session without Delta.
+
+## [0.12.0] - 2026-11-24
+
+DuckDB now has managed versions with their own libraries, like Spark; kernels live inside the Notisbook data folder;
+Spark jars are downloaded once and shared; and the example notebooks are organized by runtime.
+
+### Added
+
+- **Managed DuckDB versions.** Several DuckDB versions can be installed side by side (2.0.1 and 1.5.6 are in the
+  catalog), each with its own kernel (`duckdb-<major>-<minor>-<patch>`). Installing or removing one leaves the others
+  untouched.
+- **Libraries per DuckDB version.** Each DuckDB version has its own PyPI libraries (add, upgrade, uninstall), with the
+  same rules as Spark; `duckdb` and `ipykernel` are protected.
+- **Shared jar cache.** Spark jars are stored once in `~/.notisbook/jars/<sha256>/` and referenced by every
+  environment, so installing another Spark version no longer downloads the AWS SDK again. Each jar is checked against
+  its sha256, and jars no environment uses anymore are removed automatically.
+- **S3A for every Spark version.** The S3A jars now follow the Hadoop shipped inside pyspark, so Spark versions without
+  a Delta/Iceberg/Hudi bundle install and open sessions with S3A, without the table formats.
+- **One install picker in Settings › Runtimes.** A single combo groups Spark (Data processing), DuckDB (Analytics) and
+  Docker (AWS Glue), shows what is installed or installing, labels the supported table formats and works from the
+  keyboard.
+- **Grouped kernel selector.** Kernels are grouped by runtime: Spark, DuckDB, Docker and Other.
+- **Examples by runtime.** New `spark/` and `glue/` notebooks for Delta, Hudi and Iceberg, plus `duckdb/duckdb.ipynb`.
+  The Home lists `spark/delta`, `duckdb/duckdb` and `glue/iceberg`.
+
+### Changed
+
+- **Kernels live in the data folder.** Kernelspecs are written to `~/.notisbook/kernels` (or `$NOTISBOOK_HOME/kernels`)
+  instead of the global Jupyter folder. On startup, Notisbook moves its own kernels from the global folder, and removes
+  kernels whose environment no longer exists.
+- **Only Notisbook kernels are listed.** Jupyter kernels installed outside Notisbook no longer appear in the app and
+  cannot be started from it. Notisbook kernels also no longer appear in other Jupyter tools.
+- **DuckDB API by version.** The `/api/duckdb` routes now take a version: `POST /versions`, `DELETE /versions/{v}`,
+  `GET /versions/{v}/extensions`, and `GET`/`POST /versions/{v}/packages` with `/upgrade` and `/uninstall`.
+  `GET /api/duckdb` returns lists for `installed` and `installing`, plus the `catalog`.
+- **Spark catalog.** The catalog offers the latest patch of 3.5 and of each 4.x line; lines before 3.5 are no longer
+  offered.
+- **Settings › Runtimes.** A single Installed list covers Spark, DuckDB and Docker, and "Reload catalog" refreshes the
+  three. The separate DuckDB section was removed.
+- **`notisbook uninstall`** also removes `~/.notisbook/kernels`, `~/.notisbook/jars` and this data folder's kernels
+  left in the global Jupyter folder.
+- **Busy DuckDB versions.** Opening a session is refused while that DuckDB version is being installed or its libraries
+  are changing.
+
+### Removed
+
+- **Old DuckDB routes.** `GET /api/duckdb/extensions`, `POST /api/duckdb/install` and `DELETE /api/duckdb` were
+  replaced by the versioned routes above.
+- **Old loose examples.** `delta.ipynb`, `glue.ipynb`, `hudi.ipynb` and `iceberg.ipynb` were replaced by the
+  per-runtime notebooks.
+
+### Fixed
+
+- **Spark install check.** The install smoke test no longer fails when the Spark progress bar shares a line with the
+  success marker.
+- **Missing runtimes.** Opening a notebook whose kernel was removed now returns `runtime_not_installed`, pointing to
+  Settings › Runtimes, and notebooks saved with the `duckdb` kernel open on the newest installed DuckDB version.
+- **Orphan kernels on uninstall.** `notisbook uninstall` also removes kernels whose environment was already gone.
+- **Docker hint.** The message for a missing Docker container points to "Recreate" in Settings › Runtimes.
+
+## [0.11.0] - 2026-11-24
+
+The AWS Glue runtime now reads and writes Apache Hudi tables, its cell output is no longer flooded by Spark logs, and
+the Catalog tree is lighter: tables are leaves and their columns live in the Table info panel.
+
+### Added
+
+- **Hudi in the AWS Glue runtime.** The Glue Spark session loads the Hudi extension
+  (`HoodieSparkSessionExtension`) with the Kryo serializer Hudi requires, in the same order as the local Spark
+  runtime, and the catalog registry and layer check accept Hudi tables created in the Docker runtime.
+- **Iceberg and Hudi class check in the Glue container.** Validating the Glue runtime now confirms that the Iceberg
+  and Hudi classes actually load inside the container, so a broken image is reported before the first notebook runs.
+- **Hudi tables in the Glue example.** `glue.ipynb` creates a managed and an external Hudi table; the load into the
+  external table uses `MERGE INTO`, so running the whole notebook twice finishes without errors.
+- **Community files.** The repository now has a contributing guide (`CONTRIBUTING.md`), a pull request template, a
+  code of conduct (`CODE_OF_CONDUCT.md`) and a security policy (`SECURITY.md`).
+
+### Changed
+
+- **Tables are leaves in the Catalog tree.** Expanding a table no longer lists its columns; a click or Enter opens
+  Table info, whose Columns tab shows them. The `GET /api/catalog/columns` route was removed (it served only the
+  tree); Table info keeps using `GET /api/catalog/table`.
+- **Layers always visible on `spark` and `hudi`.** Both catalog nodes always show `bronze`, `silver` and `gold`, and
+  an empty `default` schema is hidden.
+- **`tornado` 6.6.1.** The backend dependency was bumped from 6.6 to 6.6.1.
+
+### Fixed
+
+- **Quiet Spark output in the Glue runtime.** The Spark driver now logs only errors, through a log4j2 configuration
+  added after any existing `SPARK_SUBMIT_OPTS`, and the kernel relay drops SLF4J lines and JOL warnings, matching the
+  local Spark runtime.
+- **No "0 rows" on load cells.** The load cells of `glue.ipynb` no longer print an empty "0 rows" result.
+- **`landing/` prefix in Notislake.** The MinIO bootstrap now creates `landing/` alongside `bronze/`, `silver/` and
+  `gold/`.
+- **Exact names in the Catalog.** Layer and `default` names are compared with their exact spelling when the tree
+  labels schemas, while the check for an existing `default` schema ignores letter case.
+
 ## [0.10.0] - 2026-11-23
 
 Notisbook can now update and uninstall itself from the command line, and a release can be rehearsed on your own Mac
