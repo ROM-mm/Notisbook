@@ -2,28 +2,35 @@
 
 `kernel.json` is written directly (not via `ipykernel install`) so the kernel
 gets an explicit `env`: JAVA_HOME plus PYSPARK_PYTHON/PYSPARK_DRIVER_PYTHON,
-and never SPARK_HOME/PYTHONPATH. Kernelspecs go to the user kernels dir, which
-honours JUPYTER_DATA_DIR (the only location `jupyter_client` scans here).
+and never SPARK_HOME/PYTHONPATH. Kernelspecs live in `<home>/kernels`, the only folder the app's
+`KernelSpecManager` scans; the global Jupyter folder is read only to migrate or remove legacy specs.
 """
 
+import errno
 import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from jupyter_core.paths import jupyter_data_dir
 
-from .bundles import bundle_for
+from .bundles import S3A_BY_HADOOP, S3aSet, bundle_for, installed_hadoop
 
 METADATA_KEY = "notisbook"
 ENVS_DIR = "envs"
+KERNELS_DIR = "kernels"
 TRASH_PREFIX = ".trash-"
 LEGACY_PREFIX = ".venv-spark"
+# `metadata.notisbook.s3a.store`: the S3A jars live in the shared cache (`<home>/jars`), not inside the env.
+STORE_SHARED = "shared"
 _DISPLAY_VERSION = re.compile(r"Apache Spark (\d+\.\d+\.\d+)", re.ASCII)
+_SPARK_NAME = re.compile(r"spark\d+", re.ASCII)
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,8 @@ class InstalledVersion:
     env_dir: Path
     formats: tuple[str, ...] | None = None
     bundle_status: str = "unsupported"
+    # S3A jars status (same values as `bundle_status`); `bundle_status` covers only the Delta/Iceberg/Hudi formats.
+    s3a_status: str = "unsupported"
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -45,6 +54,7 @@ class InstalledVersion:
             "env_dir": str(self.env_dir),
             "formats": list(self.formats) if self.formats is not None else None,
             "bundle_status": self.bundle_status,
+            "s3a_status": self.s3a_status,
         }
 
 
@@ -56,8 +66,40 @@ def display_name(version: str) -> str:
     return f"Apache Spark {version}"
 
 
-def kernels_dir() -> Path:
+def is_spark_kernel_name(name: str) -> bool:
+    return _SPARK_NAME.fullmatch(name) is not None
+
+
+def kernels_dir(home: Path) -> Path:
+    """Folder with the kernelspecs of this data home (exclusive to the app)."""
+    return home / KERNELS_DIR
+
+
+def legacy_kernels_dir() -> Path:
+    """Global Jupyter kernels folder used before specs moved into the home; only migration and uninstall touch it."""
     return Path(jupyter_data_dir()) / "kernels"
+
+
+class PythonState(Enum):
+    USABLE = "usable"
+    UNUSABLE = "unusable"  # ausente, symlink quebrado/em laço, não é arquivo ou sem X_OK
+    INACCESSIBLE = "inaccessible"  # o teste falhou por permissão/E/S: pode ser um env bom, só bloqueado
+
+
+def python_state(python: Path) -> PythonState:
+    """Classifica o interpretador de um kernelspec (symlinks seguidos); total em E/S, nunca levanta."""
+    try:
+        mode = python.stat().st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return PythonState.UNUSABLE
+    except OSError as exc:
+        return PythonState.UNUSABLE if exc.errno == errno.ELOOP else PythonState.INACCESSIBLE
+    usable = stat.S_ISREG(mode) and os.access(python, os.X_OK)
+    return PythonState.USABLE if usable else PythonState.UNUSABLE
+
+
+def python_usable(python: Path) -> bool:
+    return python_state(python) is PythonState.USABLE
 
 
 def conf_dir(env_dir: Path) -> Path:
@@ -68,7 +110,7 @@ def jars_dir(env_dir: Path) -> Path:
     return env_dir / "notisbook" / "jars"
 
 
-def write_kernelspec(version: str, env_dir: Path, java_home: str) -> Path:
+def write_kernelspec(home: Path, version: str, env_dir: Path, java_home: str, s3a: S3aSet) -> Path:
     """Create or atomically replace `kernel.json`; the previous file survives any failure."""
     python = str(env_dir / "bin" / "python")
     env = {
@@ -77,7 +119,10 @@ def write_kernelspec(version: str, env_dir: Path, java_home: str) -> Path:
         "PYSPARK_DRIVER_PYTHON": python,
         "SPARK_CONF_DIR": str(conf_dir(env_dir)),
     }
-    notisbook: dict[str, Any] = {"version": version}
+    notisbook: dict[str, Any] = {
+        "version": version,
+        "s3a": {"hadoop": s3a.hadoop, "revision": s3a.revision, "store": STORE_SHARED},
+    }
     bundle = bundle_for(version)
     if bundle is not None:
         notisbook["bundle"] = {"key": bundle.key, "line": bundle.line, "revision": bundle.revision, "formats": list(bundle.formats)}
@@ -88,7 +133,7 @@ def write_kernelspec(version: str, env_dir: Path, java_home: str) -> Path:
         "env": env,
         "metadata": {METADATA_KEY: notisbook},
     }
-    target = kernels_dir() / kernel_name(version)
+    target = kernels_dir(home) / kernel_name(version)
     target.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=target, prefix=".kernel.", suffix=".tmp")
     try:
@@ -103,12 +148,27 @@ def write_kernelspec(version: str, env_dir: Path, java_home: str) -> Path:
     return target / "kernel.json"
 
 
-def remove_kernelspec(name: str) -> None:
+def remove_kernelspec(home: Path, name: str) -> None:
     """Apaga o kernelspec; já ausente é ok, qualquer outra falha de E/S sobe como OSError."""
     try:
-        shutil.rmtree(kernels_dir() / name)
+        shutil.rmtree(kernels_dir(home) / name)
     except FileNotFoundError:
         pass
+
+
+def copy_kernel_json(source_dir: Path, target_dir: Path) -> None:
+    """Copy `kernel.json` into `target_dir` atomically; an existing one survives any failure."""
+    data = (source_dir / "kernel.json").read_bytes()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=target_dir, prefix=".kernel.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, target_dir / "kernel.json")
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _abs(path: str | Path) -> Path:
@@ -130,12 +190,37 @@ def _bundle_info(version: str, recorded: Any) -> tuple[tuple[str, ...] | None, s
     return listed, "installed"
 
 
+def s3a_plan(env_dir: Path, version: str, ours: dict[str, Any]) -> tuple[str, S3aSet | None, bool]:
+    """S3A status of a managed env, the set its jars follow and whether they live in the shared cache.
+
+    A recorded `s3a` entry must match the current set revision, the Hadoop inside the env and the shared store. Envs installed
+    before `s3a` existed that carry a formats bundle keep their jars under `env/notisbook/jars` (old layout).
+    Anything else is `outdated` and has to be reinstalled. The set is None unless the status is `installed`.
+    """
+    hadoop = installed_hadoop(env_dir)
+    current = S3A_BY_HADOOP.get(hadoop) if hadoop is not None else None
+    recorded = ours.get("s3a")
+    if isinstance(recorded, dict):
+        if (
+            current is not None
+            and recorded.get("hadoop") == current.hadoop
+            and recorded.get("revision") == current.revision
+            and recorded.get("store") == STORE_SHARED
+        ):
+            return "installed", current, True
+        return "outdated", None, True
+    if current is not None and isinstance(ours.get("bundle"), dict) and bundle_for(version) is not None:
+        return "installed", current, False
+    return "outdated", None, False
+
+
 def is_managed_env(base_dir: Path, env_dir: Path) -> bool:
     """True para `base_dir/envs/spark-*`: o ambiente gerenciado (não o legado `.venv-spark*`)."""
     return env_dir.parent == base_dir / ENVS_DIR and env_dir.name.startswith("spark-")
 
 
-def _entry(base_dir: Path, spec_dir: Path) -> InstalledVersion | None:
+def _read_owned(base_dir: Path, spec_dir: Path) -> tuple[InstalledVersion, Path] | None:
+    """Spec that points into `base_dir` (managed or legacy env) and the interpreter it names; no existence check."""
     try:
         spec = json.loads((spec_dir / "kernel.json").read_text(encoding="utf-8"))
         python = _abs(spec["argv"][0])
@@ -158,18 +243,34 @@ def _entry(base_dir: Path, spec_dir: Path) -> InstalledVersion | None:
     if version is None:
         return None
     formats, status = _bundle_info(version, ours.get("bundle"))
-    return InstalledVersion(
-        version, spec_dir.name, display or display_name(version), legacy and not managed, env_dir, formats, status
+    is_legacy = legacy and not managed
+    s3a_status = "unsupported" if is_legacy else s3a_plan(env_dir, version, ours)[0]
+    entry = InstalledVersion(
+        version, spec_dir.name, display or display_name(version), is_legacy, env_dir, formats, status, s3a_status
     )
+    return entry, python
+
+
+def owned_specs(base_dir: Path, root: Path) -> list[tuple[Path, InstalledVersion, PythonState]]:
+    """`(spec_dir, entry, state)` of the `spark*` specs in `root` that point into `base_dir`.
+
+    Orphans and blocked envs are included with their non-usable `state`; reconciliation and uninstall rely on that.
+    """
+    try:
+        spec_dirs = sorted(p for p in root.glob("spark*") if p.is_dir())
+    except OSError:
+        return []
+    found = []
+    for spec_dir in spec_dirs:
+        read = _read_owned(base_dir, spec_dir)
+        if read is not None:
+            found.append((spec_dir, read[0], python_state(read[1])))
+    return found
 
 
 def discover(base_dir: Path) -> list[InstalledVersion]:
-    """Kernelspecs whose interpreter lives under `base_dir/envs/` or a legacy `.venv-spark*`."""
-    root = kernels_dir()
-    if not root.is_dir():
-        return []
-    entries = (_entry(base_dir, spec_dir) for spec_dir in sorted(root.glob("spark*")) if spec_dir.is_dir())
-    return [entry for entry in entries if entry is not None]
+    """Installed Spark kernels of this home: the spec points into `base_dir` and its interpreter exists."""
+    return [entry for _spec_dir, entry, state in owned_specs(base_dir, kernels_dir(base_dir)) if state is PythonState.USABLE]
 
 
 def is_removable_env(base_dir: Path, env_dir: Path) -> bool:

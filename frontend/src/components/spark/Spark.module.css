@@ -155,16 +155,6 @@
   gap: var(--space-2);
 }
 
-.selectWrap {
-  flex: 1 1 280px;
-  min-width: 0;
-}
-
-.select {
-  width: 100%;
-  font-size: var(--font-size-sm);
-}
-
 /* Jobs */
 .jobs {
   display: flex;
@@ -611,10 +601,6 @@
 }
 
 /* Runtimes Docker */
-.tagDocker {
-  background: var(--color-accent-subtle);
-}
-
 .dockerFacts {
   margin: 0 var(--space-5);
   grid-template-columns: 104px minmax(0, 1fr);

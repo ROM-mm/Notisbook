@@ -16,12 +16,17 @@ export interface ContentEntry {
 
 export type CreateKind = "notebook" | "directory";
 
+/** Tipo de runtime de um kernel: Spark local, DuckDB ou container Docker (Glue). */
+export type KernelRuntimeKind = "local" | "docker" | "duckdb";
+
 export interface Kernelspec {
   name: string;
   display_name: string;
   language: string;
   /** Linguagens de célula que o kernel executa, em ordem canônica; ausente em backends antigos. */
   cell_languages?: CellLanguage[];
+  /** Tipo de runtime do kernel; ausente em backends antigos. */
+  runtime_kind?: KernelRuntimeKind;
 }
 
 export type KernelState = "starting" | "idle" | "busy" | "restarting" | "dead";
@@ -58,6 +63,10 @@ export interface CatalogVersion {
   version: string;
   released_at: string | null;
   installed: boolean;
+  /** Linha de bundle curada (`"3.5"`, `"4.1"`); ausente fora de `GET /api/spark/catalog`. */
+  line?: string;
+  /** Formatos de tabela do bundle da versão (`delta`, `iceberg`, `hudi`); `null` sem bundle. */
+  formats?: string[] | null;
 }
 
 export interface SparkCatalog {
@@ -72,8 +81,12 @@ export interface InstalledSpark {
   display_name: string;
   legacy: boolean;
   env_dir: string | null;
+  /** Formatos de tabela gravados no kernelspec (`delta`, `iceberg`, `hudi`); `null` sem bundle/legado. */
+  formats?: string[] | null;
   /** `installed`, `outdated` (env anterior à matriz atual), `missing` ou `unsupported`. */
   bundle_status?: string;
+  /** Jars S3A do env frente aos da versão atual (independe dos formatos); `outdated` impede abrir o kernel. */
+  s3a_status?: "installed" | "outdated" | "unsupported";
 }
 
 export interface InstallingSpark {
@@ -98,13 +111,27 @@ export interface InstalledDuckDB {
   extensions: string[];
 }
 
-export interface DuckDBStatus {
+/** Versão do DuckDB no catálogo curado (manifesto por versão). */
+export interface DuckDBCatalogItem {
+  version: string;
+  installed: boolean;
+  /** Extensões do manifesto da versão. */
+  extensions: string[];
+}
+
+export interface InstallingDuckDB {
   kernel_name: string;
+  job_id: string;
+  /** "duckdb-install" (instalação da versão) ou "duckdb-packages" (mudança de libs do ambiente). */
+  kind: "duckdb-install" | "duckdb-packages";
+}
+
+export interface DuckDBStatus {
   supported: boolean;
-  /** Versão fixada no manifesto; `null` se o manifesto não carregou. */
-  version: string | null;
-  installed: InstalledDuckDB | null;
-  installing: { job_id: string; kind: string } | null;
+  /** Versões instaláveis, mais nova primeiro; vazio se os manifestos não carregaram. */
+  catalog: DuckDBCatalogItem[];
+  installed: InstalledDuckDB[];
+  installing: InstallingDuckDB[];
 }
 
 export interface DuckDBExtension {
@@ -222,9 +249,12 @@ export interface DockerRuntimeDetails extends DockerRuntime {
 
 /** Exemplo empacotado presente na raiz atual (`GET /api/samples`). */
 export interface Sample {
-  /** Nome do exemplo, sem extensão (ex.: `delta`). */
+  /**
+   * Nome do arquivo sem extensão (ex.: `delta`). Não é único entre runtimes:
+   * `delta` existe em `spark/` e em `glue/`. Use `path` como identificador.
+   */
   name: string;
-  /** Caminho relativo à raiz atual (ex.: `delta.ipynb`). */
+  /** Caminho relativo à raiz atual, com a subpasta do runtime (ex.: `spark/delta.ipynb`). */
   path: string;
   /** Kernel que o notebook abre (`metadata.kernelspec.name`). */
   kernel_name: string;

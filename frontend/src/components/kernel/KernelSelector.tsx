@@ -13,6 +13,7 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useKernel, useKernelStore, useNotebook } from "../../state/notebookContext";
 import { refreshKernelspecs } from "../../state/workspace";
+import type { KernelRuntimeKind, Kernelspec } from "../../api/types";
 import { DuckdbIcon, GlueIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
 import menuStyles from "../shell/Menu.module.css";
 import { useKernelDescription } from "./KernelStatus";
@@ -21,36 +22,58 @@ import styles from "./Kernel.module.css";
 const SWITCH_BUSY =
   "Cells are running or queued. Switching runtimes ends the current session (pending runs are discarded). Continue?";
 
-type Runtime = "spark" | "glue" | "duckdb" | "other";
+/** Tipo do runtime para ícone/agrupamento; "other" = kernel sem `runtime_kind` reconhecível. */
+type Runtime = KernelRuntimeKind | "other";
 
-/** Ícone por runtime (`shell/techIcons`); `null` (runtime "other") fica sem ícone. */
+/**
+ * Ícone por tipo de runtime (`shell/techIcons`); `null` ("other") fica sem ícone.
+ * A ordem das chaves é a dos grupos na lista: Spark local, DuckDB, Docker e os demais.
+ */
 const RUNTIME_ICON: Record<Runtime, TechIcon | null> = {
-  spark: SparkIcon,
-  glue: GlueIcon,
+  local: SparkIcon,
   duckdb: DuckdbIcon,
+  docker: GlueIcon,
   other: null,
 };
 
-/** Nome fixo do kernelspec DuckDB (backend `runtimes/duckdb/kernelspec.py`). */
-const DUCKDB_KERNEL_NAME = "duckdb";
+const GROUP_ORDER = Object.keys(RUNTIME_ICON) as Runtime[];
+
+/** Rótulo acessível de cada grupo da lista (`role="group"`). */
+const GROUP_LABEL: Record<Runtime, string> = {
+  local: "Spark",
+  duckdb: "DuckDB",
+  docker: "Docker",
+  other: "Other",
+};
 
 /**
- * Tipo e versão do runtime. DuckDB vem do nome exato do kernel; glue/spark, do
- * `display_name`/`name`. A versão é a logo após a palavra do runtime (ex.:
- * "Spark 3.5.1"); sem ela, `null`.
+ * Tipo e versão do runtime. O tipo vem do `runtime_kind` do kernelspec; sem spec (kernel
+ * gravado no notebook e ainda não listado, ex. o alias DuckDB) ou em backend antigo, cai no
+ * nome do kernel e no texto do `display_name`. A versão é o primeiro número com pontos do `display_name`
+ * (ex.: "Spark 3.5.1"); sem ela, `null`.
  */
-function runtimeOf(displayName: string, name: string | null): { runtime: Runtime; version: string | null } {
-  const text = `${displayName} ${name ?? ""}`.toLowerCase();
-  const runtime: Runtime =
-    name === DUCKDB_KERNEL_NAME
-      ? "duckdb"
-      : text.includes("glue")
-        ? "glue"
-        : text.includes("spark")
-          ? "spark"
-          : "other";
-  const version = runtime !== "other" ? (displayName.match(/(?:spark|glue|duckdb)\D*(\d+(?:\.\d+)+)/i)?.[1] ?? null) : null;
+function runtimeOf(
+  displayName: string,
+  spec: Kernelspec | undefined,
+  kernelName: string | null = spec?.name ?? null,
+): { runtime: Runtime; version: string | null } {
+  const runtime: Runtime = spec?.runtime_kind ?? fallbackRuntime(displayName, kernelName);
+  const version = runtime !== "other" ? (displayName.match(/(\d+(?:\.\d+)+)/)?.[1] ?? null) : null;
   return { runtime, version };
+}
+
+/** Kernel DuckDB: o alias sem versão ou o nome por versão (`duckdb-X-Y-Z`). */
+const DUCKDB_KERNEL = /^duckdb(-\d+-\d+-\d+)?$/i;
+const DUCKDB_TEXT = /duckdb/i;
+const DUCKDB_RUNTIME: Runtime = `duckdb`;
+
+/** Sem `runtime_kind`: DuckDB pelo nome do kernel ou `display_name`; Glue roda em Docker; Spark é local. Demais ficam "other". */
+function fallbackRuntime(displayName: string, kernelName: string | null): Runtime {
+  if ((kernelName && DUCKDB_KERNEL.test(kernelName)) || DUCKDB_TEXT.test(displayName)) return DUCKDB_RUNTIME;
+  const text = displayName.toLowerCase();
+  if (text.includes("glue")) return "docker";
+  if (text.includes("spark")) return "local";
+  return "other";
 }
 
 /** Ícone do runtime; sem ícone, `spacer` mantém a coluna vazia (alinhamento da lista). */
@@ -73,8 +96,9 @@ export function KernelSelector() {
   const kernelspecs = useKernel((s) => s.kernelspecs);
   const fromMetadata = useNotebook((s) => s.metadata.kernelspec?.display_name ?? null);
   const { label: stateLabel, state, error } = useKernelDescription();
-  const display = kernelspecs.find((k) => k.name === kernelName)?.display_name ?? fromMetadata ?? kernelName;
-  const { runtime, version } = runtimeOf(display ?? "", kernelName);
+  const currentSpec = kernelspecs.find((k) => k.name === kernelName);
+  const display = currentSpec?.display_name ?? fromMetadata ?? kernelName;
+  const { runtime, version } = runtimeOf(display ?? "", currentSpec, kernelName);
   const description = `Kernel: ${display ?? "No kernel"} — ${stateLabel.toLowerCase()}`;
 
   const [open, setOpen] = useState(false);
@@ -129,6 +153,11 @@ export function KernelSelector() {
     buttons[next]?.focus();
   };
 
+  // Agrupa por tipo de runtime (ordem estável dentro do grupo); separador visual entre grupos.
+  const grouped = GROUP_ORDER.map((g) => ({ runtime: g, specs: kernelspecs.filter((k) => runtimeOf(k.display_name, k).runtime === g) })).filter(
+    (g) => g.specs.length > 0,
+  );
+
   const seen = new Set<string>();
   const duplicatedNames = new Set<string>();
   for (const k of kernelspecs) {
@@ -165,33 +194,38 @@ export function KernelSelector() {
       {open ? (
         <div ref={listRef} className={`${menuStyles.list} ${styles.selectorList}`} role="listbox" aria-label="Runtimes" data-testid="kernel-selector-list">
           {kernelspecs.length === 0 ? <div className={styles.selectorEmpty}>No runtimes installed. Install one in Settings › Runtimes.</div> : null}
-          {kernelspecs.map((k) => {
-            const current = k.name === kernelName;
-            const ambiguous = duplicatedNames.has(k.display_name);
-            return (
-              <button
-                key={k.name}
-                type="button"
-                role="option"
-                aria-selected={current}
-                aria-checked={current}
-                className={`${menuStyles.item} ${styles.selectorOption}`}
-                data-testid="kernel-option"
-                data-kernel={k.name}
-                title={ambiguous ? `${k.display_name} (${k.name})` : k.display_name}
-                onClick={() => choose(k.name)}
-              >
-                <span className={menuStyles.check} aria-hidden="true">
-                  {current ? "✓" : ""}
-                </span>
-                <RuntimeIcon runtime={runtimeOf(k.display_name, k.name).runtime} spacer />
-                <span className={`${menuStyles.label} ${styles.selectorOptionLabel}`}>
-                  <span className={styles.selectorOptionName}>{k.display_name}</span>
-                  {ambiguous ? <span className={styles.selectorKernel}>{k.name}</span> : null}
-                </span>
-              </button>
-            );
-          })}
+          {grouped.map((group, gi) => (
+            <div key={group.runtime} role="group" aria-label={GROUP_LABEL[group.runtime]}>
+              {gi > 0 ? <div className={menuStyles.separator} aria-hidden="true" /> : null}
+              {group.specs.map((k) => {
+              const current = k.name === kernelName;
+              const ambiguous = duplicatedNames.has(k.display_name);
+              return (
+                <button
+                  key={k.name}
+                  type="button"
+                  role="option"
+                  aria-selected={current}
+                  aria-checked={current}
+                  className={`${menuStyles.item} ${styles.selectorOption}`}
+                  data-testid="kernel-option"
+                  data-kernel={k.name}
+                  title={ambiguous ? `${k.display_name} (${k.name})` : k.display_name}
+                  onClick={() => choose(k.name)}
+                >
+                  <span className={menuStyles.check} aria-hidden="true">
+                    {current ? "✓" : ""}
+                  </span>
+                  <RuntimeIcon runtime={runtimeOf(k.display_name, k).runtime} spacer />
+                  <span className={`${menuStyles.label} ${styles.selectorOptionLabel}`}>
+                    <span className={styles.selectorOptionName}>{k.display_name}</span>
+                    {ambiguous ? <span className={styles.selectorKernel}>{k.name}</span> : null}
+                  </span>
+                </button>
+              );
+              })}
+            </div>
+          ))}
         </div>
       ) : null}
     </div>

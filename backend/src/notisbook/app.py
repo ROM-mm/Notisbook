@@ -24,6 +24,7 @@ from .static import mount_frontend
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     kernels: KernelService = app.state.kernels
     kernels.cleanup_orphans()
+    await asyncio.to_thread(kernels.reconcile_kernelspecs)
     kernels.start_docker_sweep()
     installer: SparkInstaller = app.state.installer
     docker: DockerRuntimes = app.state.docker
@@ -62,7 +63,7 @@ def create_app(
         kernels.has_session,
         settings.pypi_url,
     )
-    app.state.duckdb = DuckDBInstaller(settings.home, app.state.jobs, kernels.has_session)
+    app.state.duckdb = DuckDBInstaller(settings.home, app.state.jobs, kernels.has_session, pypi_url=settings.pypi_url)
     app.state.catalog = CatalogService(settings.pypi_url)
     app.state.docker = DockerRuntimes(
         settings.home,

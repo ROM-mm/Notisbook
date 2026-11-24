@@ -8,6 +8,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import shutil
 import sys
 import uuid
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
@@ -43,9 +44,11 @@ from ..runtimes.docker.service import (
     SessionsActive,
     inspect_container,
 )
+from ..runtimes.duckdb import kernelspec as duckdb_kernelspec
 from ..runtimes.duckdb.hook import build_bootstrap_code as build_duckdb_bootstrap_code
 from ..runtimes.duckdb.kernelspec import KERNEL_NAME as DUCKDB_KERNEL_NAME
 from ..runtimes.duckdb.kernelspec import METADATA_KEY as DUCKDB_METADATA_KEY
+from ..runtimes.duckdb.kernelspec import is_duckdb_kernel_name
 from ..security import RuntimeGrant, RuntimeTokens
 from ..spark.bundles import (
     UnsupportedHome,
@@ -55,7 +58,21 @@ from ..spark.bundles import (
     write_log4j2,
     write_spark_defaults,
 )
-from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
+from ..spark import kernelspec as spark_kernelspec
+from ..spark.jar_cache import JarCache
+from ..spark.kernelspec import (
+    METADATA_KEY,
+    TRASH_PREFIX,
+    PythonState,
+    copy_kernel_json,
+    is_managed_env,
+    is_spark_kernel_name,
+    jars_dir,
+    kernels_dir,
+    legacy_kernels_dir,
+    python_usable,
+    s3a_plan,
+)
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
 from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
 from .languages import CELL_LANGUAGE_LABELS, CellLanguage
@@ -122,6 +139,10 @@ SPARK_ENV_OUTDATED_CODE = "spark_env_outdated"
 SPARK_ENV_OUTDATED_MESSAGE = (
     "O runtime deste kernel não tem os jars S3A da versão atual; reinstale-o em Settings › Runtimes."
 )
+RUNTIME_NOT_INSTALLED_CODE = "runtime_not_installed"
+RUNTIME_NOT_INSTALLED_MESSAGE = (
+    "O runtime deste kernel não está instalado ou seu ambiente foi removido; instale-o em Settings › Runtimes."
+)
 S3A_LOOPBACK_HTTPS_NOTICE = (
     "s3a_unsupported_endpoint",
     "Endpoint https em localhost não é suportado no runtime Docker: a troca de host invalida o certificado.",
@@ -153,7 +174,15 @@ class NotislakeUnavailable(Exception):
 
 
 class SparkEnvOutdated(Exception):
-    """O ambiente Spark gerenciado não tem todos os jars do bundle (S3A inclusive); ele manteria o warehouse local."""
+    """O ambiente Spark gerenciado não tem todos os jars S3A (ou do bundle) que o conf nomeia; ele manteria o warehouse local."""
+
+
+class RuntimeNotInstalled(Exception):
+    """Kernel com nome do Notisbook cujo kernelspec ou interpretador não existe (runtime não instalado ou env removido)."""
+
+    def __init__(self, kernel_name: str) -> None:
+        super().__init__(f"runtime not installed: {kernel_name}")
+        self.kernel_name = kernel_name
 
 
 @dataclass(frozen=True)
@@ -198,15 +227,16 @@ class KernelSpecInfo(TypedDict):
     display_name: str
     language: str
     cell_languages: list[CellLanguage]
+    runtime_kind: RuntimeKind
 
 
 def runtime_kind(kernel_name: str, metadata: object, docker: bool | None = None) -> RuntimeKind:
     """Tipo de runtime do kernel, na precedência do despacho: duckdb > docker > local.
 
-    DuckDB: nome fixo e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo,
+    DuckDB: nome `duckdb` ou `duckdb-<maj>-<min>-<patch>` e a chave `notisbook_duckdb` no metadata do kernelspec. Docker: nome no catálogo,
     ou `docker` quando o chamador já o consultou. `metadata` que não seja dict conta como vazio.
     """
-    if kernel_name == DUCKDB_KERNEL_NAME and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata:
+    if is_duckdb_kernel_name(kernel_name) and isinstance(metadata, dict) and DUCKDB_METADATA_KEY in metadata:
         return "duckdb"
     if docker is None:
         docker = docker_catalog.by_kernel_name(kernel_name) is not None
@@ -656,7 +686,6 @@ class KernelSession:
 
 class KernelService:
     def __init__(self, port: int, runtime_dir: Path | None = None, home: Path | None = None) -> None:
-        self._specs = KernelSpecManager()
         self._sessions: dict[str, KernelSession] = {}
         self._starting: dict[str, str] = {}  # session_id -> kernel_name while `start` is pending
         self._starting_paths: dict[str, Path | None] = {}  # session_id -> resolved target while `start` is pending
@@ -669,6 +698,8 @@ class KernelService:
         self._prefix = f"notisbook-{port}-"
         self._runtime_dir = runtime_dir or Path(jupyter_runtime_dir()) / "notisbook"
         self._home = Path(os.path.abspath((home or Settings().home).expanduser()))
+        # Só a pasta `kernels` do home: kernels de terceiros ficam fora do app, na listagem e no launch.
+        self._specs = KernelSpecManager(kernel_dirs=[str(kernels_dir(self._home))], ensure_native_kernel=False)
         self._duckdb_ext_dir = str((home or Settings().home) / "duckdb" / "extensions")
         self._catalog_db_path = str(catalog_db_path(self._home))
 
@@ -682,8 +713,112 @@ class KernelService:
                     removed += 1
         return removed
 
+    def reconcile_kernelspecs(self) -> None:
+        """Migra os specs legados da pasta global e remove os do home cujo interpretador sumiu; nunca levanta.
+
+        Env inacessível (permissão) é deixado como está, com warning.
+        """
+        for step in (self._migrate_legacy_kernelspecs, self._migrate_legacy_docker, self._remove_orphan_kernelspecs):
+            try:
+                step()
+            except Exception as exc:  # o startup não pode cair por causa da limpeza; o próximo boot tenta de novo
+                log.warning("kernelspec reconciliation step %s failed: %s", step.__name__, type(exc).__name__)
+
+    def _owned_specs(self, root: Path) -> list[tuple[Path, Path, PythonState]]:
+        """`(spec_dir, env_dir, state)` dos specs Spark e DuckDB de `root` que apontam para este home."""
+        found = [(d, e.env_dir, state) for d, e, state in spark_kernelspec.owned_specs(self._home, root)]
+        found.extend((d, e.env_dir, state) for d, e, state in duckdb_kernelspec.owned_specs(self._home, root))
+        return found
+
+    def _migrate_legacy_kernelspecs(self) -> None:
+        """Move para `<home>/kernels` os specs globais deste home com env instalado; os demais deste home só são apagados.
+
+        Specs de outro home ou não reconhecidos não são tocados; o Docker global tem passo próprio.
+        """
+        target_root = kernels_dir(self._home)
+        present = {d.name for d, _env, state in self._owned_specs(target_root) if state is PythonState.USABLE}
+        for spec_dir, env_dir, state in self._owned_specs(legacy_kernels_dir()):
+            name = spec_dir.name
+            if state is PythonState.INACCESSIBLE:
+                log.warning("kernelspec %s: env %s is not accessible, left untouched", name, env_dir.name)
+                continue
+            try:
+                migrate = state is PythonState.USABLE and name not in present
+                if migrate:
+                    copy_kernel_json(spec_dir, target_root / name)
+                shutil.rmtree(spec_dir)
+                log.info("%s legacy kernelspec %s", "migrated" if migrate else "removed", name)
+            except OSError as exc:
+                log.warning("cannot migrate legacy kernelspec %s: %s", name, type(exc).__name__)
+
+    def _migrate_legacy_docker(self) -> None:
+        """Move para o home o spec Docker global válido cujo `argv[0]` está sob este Python e que o home ainda não tem."""
+        legacy_root = legacy_kernels_dir()
+        for runtime in docker_catalog.CATALOG:
+            source = legacy_root / runtime.kernel_name
+            try:
+                if not docker_spec.is_ours_at(source, runtime) or docker_spec.read_registration(self._home, runtime) is not None:
+                    continue
+                docker_spec.copy_registration(source, self._home, runtime)
+                shutil.rmtree(source)
+                log.info("migrated legacy kernelspec %s", runtime.kernel_name)
+            except OSError as exc:
+                log.warning("cannot migrate legacy kernelspec %s: %s", runtime.kernel_name, type(exc).__name__)
+
+    def _remove_orphan_kernelspecs(self) -> None:
+        """Remove os specs do home sem interpretador utilizável; um env que ainda existe vai para a lixeira.
+
+        Env inacessível não é removido nem movido: pode ser um env bom, só bloqueado.
+        """
+        for spec_dir, env_dir, state in self._owned_specs(kernels_dir(self._home)):
+            if state is PythonState.USABLE:
+                continue
+            if state is PythonState.INACCESSIBLE:
+                log.warning("kernelspec %s: env %s is not accessible, left untouched", spec_dir.name, env_dir.name)
+                continue
+            try:
+                env_present = env_dir.is_dir()
+                if env_present and self._is_managed_env(env_dir) and not self._trash_env(env_dir):
+                    log.warning("kernelspec %s kept: env %s is unusable and could not be trashed", spec_dir.name, env_dir.name)
+                    continue
+                shutil.rmtree(spec_dir)
+                reason = "interpreter unusable, env moved to trash" if env_present else "env is missing"
+                log.info("removed kernelspec %s: %s (%s)", spec_dir.name, reason, env_dir.name)
+            except OSError as exc:
+                log.warning("cannot remove kernelspec %s: %s", spec_dir.name, type(exc).__name__)
+
+    def _is_managed_env(self, env_dir: Path) -> bool:
+        return spark_kernelspec.is_managed_env(self._home, env_dir) or duckdb_kernelspec.is_managed_env(self._home, env_dir)
+
+    def _trash_env(self, env_dir: Path) -> bool:
+        """Renomeia o env para `.trash-<nome>` (o `sweep_trash` apaga); False se não conseguir."""
+        doomed = env_dir.parent / f"{TRASH_PREFIX}{env_dir.name}"
+        try:
+            if doomed.exists():
+                shutil.rmtree(doomed)
+            os.rename(env_dir, doomed)
+        except OSError:
+            return False
+        return True
+
+    def _managed_kernel_names(self) -> set[str]:
+        """Nomes dos kernels instalados pelo Notisbook: Spark e DuckDB gerenciados e Docker registrados."""
+        names = {entry.kernel_name for entry in spark_kernelspec.discover(self._home)}
+        names.update(entry.kernel_name for entry in duckdb_kernelspec.discover(self._home))
+        names.update(
+            runtime.kernel_name
+            for runtime in docker_catalog.CATALOG
+            if docker_spec.read_registration(self._home, runtime) is not None
+        )
+        return names
+
+    def _list_managed_specs(self) -> dict[str, Any]:
+        managed = self._managed_kernel_names()
+        return {name: info for name, info in self._specs.get_all_specs().items() if name in managed}
+
     async def kernelspecs(self) -> list[KernelSpecInfo]:
-        specs = await asyncio.to_thread(self._specs.get_all_specs)
+        """Só os kernels instalados pelo Notisbook; kernels de terceiros da máquina não são listados."""
+        specs = await asyncio.to_thread(self._list_managed_specs)
         result: list[KernelSpecInfo] = []
         for name, info in specs.items():
             spec = info["spec"]
@@ -696,6 +831,7 @@ class KernelService:
                     "display_name": spec.get("display_name", name),
                     "language": language,
                     "cell_languages": list(cell_languages_for(kind, language)),
+                    "runtime_kind": kind,
                 }
             )
         # Docker por último: o frontend usa o primeiro item como padrão e o Spark Local não pode mudar.
@@ -846,7 +982,8 @@ class KernelService:
             raise DockerRuntimeError(503, "Docker não respondeu ao consultar o container do runtime") from exc
         if info is None:
             raise DockerRuntimeError(
-                409, f"O container {runtime.container} não existe: instale o runtime Docker (Spark > Install > Docker)"
+                409,
+                f"O container {runtime.container} não existe: use Recriar no runtime Docker (Settings › Runtimes)",
             )
         if not info.owned_by(runtime):
             raise DockerRuntimeError(409, f"O container {runtime.container} não pertence ao Notisbook; ele não foi alterado")
@@ -881,7 +1018,7 @@ class KernelService:
         """Regrava o kernelspec se o `argv[0]` não for o Python deste app (ex.: venv recriada)."""
         spec = self._specs.get_kernel_spec(runtime.kernel_name)
         if not spec.argv or spec.argv[0] != sys.executable:
-            docker_spec.write_kernelspec(runtime)
+            docker_spec.write_kernelspec(self._home, runtime)
 
     def _ensure_log4j2(self, spec: Any) -> None:
         """Keep the log4j2 config of a Notisbook-managed Spark env current; never blocks the start."""
@@ -896,8 +1033,9 @@ class KernelService:
     def _ensure_spark_defaults(self, spec: Any) -> None:
         """Re-render `spark-defaults.conf` from the current matrix, only when every jar it names is installed.
 
-        The kernel is offline, so nothing is downloaded here. A managed env with no bundle, or missing a jar
-        of its bundle (the S3A ones included), has no S3A config to run on: raises `SparkEnvOutdated`.
+        The kernel is offline, so nothing is downloaded here. A managed env without a current S3A record (or
+        missing any jar the conf names, formats bundle included) has no S3A config to run on: raises `SparkEnvOutdated`.
+        The bundle is optional: an env without it runs S3A only.
         So does a conf that cannot be rewritten (unsupported home, write error), unless the current one already
         points `spark.sql.warehouse.dir` at the local safety warehouse. That fallback only applies once the env is
         confirmed as a managed Spark env; any other failure is logged and never blocks the start.
@@ -910,18 +1048,21 @@ class KernelService:
             if not (managed and conf.name == "spark-conf" and is_managed_env(self._home, env_dir)):
                 return
             confirmed = True
-            version = spec.metadata[METADATA_KEY].get("version")
-            bundle = bundle_for(version) if isinstance(version, str) else None
-            if bundle is None:
-                log.warning("spark env %s has no bundle with the S3A jars; reinstall the Spark version", env_dir.name)
+            meta = spec.metadata[METADATA_KEY]
+            version = meta.get("version")
+            status, s3a, shared = s3a_plan(env_dir, version, meta) if isinstance(version, str) else ("outdated", None, False)
+            if s3a is None:
+                log.warning("spark env %s has no current S3A jars (%s); reinstall the Spark version", env_dir.name, status)
                 raise SparkEnvOutdated
-            jars = jars_dir(env_dir)
-            missing = [a.filename for a in (*bundle.artifacts, *bundle.driver_artifacts) if not (jars / a.filename).is_file()]
+            bundle = bundle_for(version) if isinstance(meta.get("bundle"), dict) else None
+            resolve = JarCache(self._home).path if shared else (lambda artifact: jars_dir(env_dir) / artifact.filename)
+            needed = (*(bundle.artifacts if bundle else ()), *(bundle.driver_artifacts if bundle else ()), *s3a.artifacts)
+            missing = [a.filename for a in needed if not resolve(a).is_file()]
             if missing:
                 log.warning("spark env %s is outdated: missing %s; reinstall the Spark version", env_dir.name, ", ".join(missing))
                 raise SparkEnvOutdated
-            if write_spark_defaults(conf, render_spark_defaults(bundle, jars, self._home)):
-                log.info("spark-defaults.conf of %s updated to bundle r%d", env_dir.name, bundle.revision)
+            if write_spark_defaults(conf, render_spark_defaults(bundle, s3a, resolve, self._home)):
+                log.info("spark-defaults.conf of %s updated", env_dir.name)
         except SparkEnvOutdated:
             raise
         except UnsupportedHome as exc:
@@ -944,6 +1085,38 @@ class KernelService:
         if not values or values[-1] != safety_warehouse_uri(self._home):  # the last duplicate wins in a properties file
             raise SparkEnvOutdated
 
+    @staticmethod
+    def _unmanaged_error(kernel_name: str) -> Exception:
+        """Nome com nomenclatura do Notisbook sem runtime instalado é `RuntimeNotInstalled`; qualquer outro, `KernelNotFound`."""
+        notisbook_name = (
+            is_spark_kernel_name(kernel_name)
+            or is_duckdb_kernel_name(kernel_name)
+            or docker_catalog.by_kernel_name(kernel_name) is not None
+        )
+        return RuntimeNotInstalled(kernel_name) if notisbook_name else KernelNotFound(kernel_name)
+
+    @staticmethod
+    def _interpreter_ready(spec: Any) -> bool:
+        argv = getattr(spec, "argv", None)
+        return bool(argv) and python_usable(Path(os.path.abspath(argv[0])))
+
+    def resolve_kernel_name(self, kernel_name: str) -> str:
+        """Resolve the alias `duckdb` using only managed kernelspecs (third-party ones are ignored).
+
+        Sync on purpose (a directory listing): callers resolve and register the session with no await between.
+        A managed legacy `duckdb` wins; otherwise the newest managed `duckdb-*`. Any other name, or an alias
+        with nothing managed installed, is returned unchanged.
+        """
+        if kernel_name != DUCKDB_KERNEL_NAME:
+            return kernel_name
+        # `discover` só devolve kernelspecs cujo ambiente é gerenciado e já vem do mais novo ao mais antigo.
+        managed = duckdb_kernelspec.discover(self._home)
+        if not managed:
+            return kernel_name
+        if any(spec.kernel_name == DUCKDB_KERNEL_NAME for spec in managed):
+            return DUCKDB_KERNEL_NAME
+        return managed[0].kernel_name
+
     async def create(
         self, path: str, kernel_name: str, cwd: Path | None = None, target: Path | None = None
     ) -> KernelSession:
@@ -952,6 +1125,8 @@ class KernelService:
         Levanta `ConfigInvalid` (conexão manual inválida) ou `NotislakeUnavailable` (automático sem MinIO `running`);
         só sessões novas são recusadas. Uma conexão manual válida abre mesmo com o MinIO local fora.
         """
+        # Antes de registrar em `_starting`, para `has_session` enxergar o nome real do kernel.
+        kernel_name = self.resolve_kernel_name(kernel_name)
         # Sem o metadata do kernelspec (só chega após o await) o DuckDB não é visível; docker e local já se decidem aqui.
         docker_runtime = docker_catalog.by_kernel_name(kernel_name)
         is_docker = docker_runtime is not None
@@ -966,10 +1141,15 @@ class KernelService:
             if docker_runtime is not None and self._docker is not None:
                 # Antes de qualquer await: a recusa vale para o instante em que a requisição chegou.
                 self._refuse_if_mutating(self._docker, docker_runtime)
+            # Sem await desde o registro: kernel de terceiros é recusado como um kernel inexistente.
+            if kernel_name not in self._managed_kernel_names():
+                raise self._unmanaged_error(kernel_name)
             try:
                 spec = await asyncio.to_thread(self._specs.get_kernel_spec, kernel_name)
             except NoSuchKernel as exc:
                 raise KernelNotFound(kernel_name) from exc
+            if docker_runtime is None and not self._interpreter_ready(spec):
+                raise RuntimeNotInstalled(kernel_name)
             runtime_grant: RuntimeGrant | None = None
             spec_metadata = getattr(spec, "metadata", None)
             kind = runtime_kind(kernel_name, spec_metadata, docker=is_docker)
@@ -987,7 +1167,9 @@ class KernelService:
                 await asyncio.to_thread(self._ensure_spark_defaults, spec)
             self._runtime_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             connection_file = str(self._runtime_dir / f"{self._prefix}{session_id}.json")
-            manager = AsyncKernelManager(kernel_name=kernel_name, connection_file=connection_file)
+            manager = AsyncKernelManager(
+                kernel_name=kernel_name, connection_file=connection_file, kernel_spec_manager=self._specs
+            )
             manager.shutdown_wait_time = SHUTDOWN_WAIT
             local_factory = None if is_duckdb else self._local_catalog_factory()
             catalog_factory = None
