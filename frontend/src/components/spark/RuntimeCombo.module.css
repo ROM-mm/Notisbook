@@ -170,6 +170,14 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
   line-height: 16px;
+  white-space: nowrap;
+}
+
+/* Sem formato de tabela: mesmo selo, mais apagado. */
+.badgeMuted {
+  border-style: dashed;
+  color: var(--color-text-subtle);
+  opacity: 0.8;
 }
 
 .optionState {

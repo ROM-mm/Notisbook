@@ -14,6 +14,7 @@ import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from 
 import { DuckdbIcon, GlueIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
 import menuStyles from "../shell/Menu.module.css";
 import styles from "./RuntimeCombo.module.css";
+import { hasFormats, supportLabel } from "./supportLabel";
 
 export type RuntimeCategory = "processing" | "analytics" | "docker";
 
@@ -36,7 +37,7 @@ export interface RuntimeOption {
   /** Data de lançamento, imagem ou outro detalhe curto. */
   description?: string | null;
   state?: RuntimeOptionState | null;
-  /** Formatos de tabela do bundle; com delta, iceberg e hudi mostra o selo "Complete". */
+  /** Formatos de tabela do bundle (só Spark); `null` sem bundle. Em Spark sempre mostra o selo de suporte. */
   formats?: string[] | null;
   /** Não selecionável (instalado, instalando ou indisponível). */
   disabled: boolean;
@@ -47,12 +48,6 @@ const STATE_TEXT: Record<RuntimeOptionState, string> = {
   installing: "installing…",
   unavailable: "Docker unavailable",
 };
-
-const COMPLETE_FORMATS = ["delta", "iceberg", "hudi"];
-const COMPLETE_BADGE = "Complete · Delta · Iceberg · Hudi";
-
-export const isComplete = (formats: string[] | null | undefined) =>
-  !!formats && COMPLETE_FORMATS.every((f) => formats.map((x) => x.toLowerCase()).includes(f));
 
 /** Janela do type-ahead: teclas dentro dela formam um prefixo só. */
 const TYPEAHEAD_MS = 600;
@@ -305,7 +300,7 @@ export function RuntimeCombo({ options, value, onChange, disabled = false, place
                         <span className={styles.optionLabel}>{o.label}</span>
                         <span className={styles.optionDesc}>
                           {o.description}
-                          {isComplete(o.formats) ? <span className={styles.badge}>{COMPLETE_BADGE}</span> : null}
+                          {o.category === "processing" ? <SupportBadge formats={o.formats} /> : null}
                         </span>
                         <span className={styles.optionState} data-state={o.state ?? undefined}>
                           {o.state ? STATE_TEXT[o.state] : ""}
@@ -324,6 +319,16 @@ export function RuntimeCombo({ options, value, onChange, disabled = false, place
 }
 
 /** Rótulo de categoria com ícone (lista Installed). */
+/** Selo do suporte real a formatos de tabela; apagado quando não há nenhum. */
+export function SupportBadge({ formats }: { formats: string[] | null | undefined }) {
+  const supported = hasFormats(formats);
+  return (
+    <span className={supported ? styles.badge : `${styles.badge} ${styles.badgeMuted}`} data-testid="support-badge" data-supported={supported}>
+      {supportLabel(formats)}
+    </span>
+  );
+}
+
 export function CategoryTag({ category }: { category: RuntimeCategory }) {
   const { title, Icon } = CATEGORY[category];
   return (

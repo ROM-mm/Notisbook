@@ -81,6 +81,8 @@ export interface InstalledSpark {
   display_name: string;
   legacy: boolean;
   env_dir: string | null;
+  /** Formatos de tabela gravados no kernelspec (`delta`, `iceberg`, `hudi`); `null` sem bundle/legado. */
+  formats?: string[] | null;
   /** `installed`, `outdated` (env anterior à matriz atual), `missing` ou `unsupported`. */
   bundle_status?: string;
 }

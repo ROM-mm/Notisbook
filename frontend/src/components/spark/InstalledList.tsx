@@ -14,7 +14,7 @@ import { ApiError, errorMessage } from "../../api/http";
 import type { DockerRuntime, DockerRuntimes, DuckDBExtensions, DuckDBStatus, InstalledDuckDB, InstalledSpark, SessionInfo, SparkVersions } from "../../api/types";
 import { DockerInstalledRow } from "./DockerInstalledRow";
 import { PackagesDialog } from "./PackagesDialog";
-import { CategoryTag } from "./RuntimeCombo";
+import { CategoryTag, SupportBadge } from "./RuntimeCombo";
 import { duckdbPackages, sparkPackages } from "./usePackages";
 import type { Loadable } from "./useSparkData";
 import styles from "./Spark.module.css";
@@ -93,6 +93,7 @@ function SparkRow({ item, sessions, installing, installingVersion, onRemove }: {
             </span>
           ) : null}
           {using.length > 0 ? <span className={`${styles.tag} ${styles.tagActive}`}>in use</span> : null}
+          <SupportBadge formats={item.formats} />
         </div>
         <div className={styles.rowMeta}>
           <span>{item.display_name}</span>
