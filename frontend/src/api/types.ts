@@ -222,9 +222,12 @@ export interface DockerRuntimeDetails extends DockerRuntime {
 
 /** Exemplo empacotado presente na raiz atual (`GET /api/samples`). */
 export interface Sample {
-  /** Nome do exemplo, sem extensão (ex.: `delta`). */
+  /**
+   * Nome do arquivo sem extensão (ex.: `delta`). Não é único entre runtimes:
+   * `delta` existe em `spark/` e em `glue/`. Use `path` como identificador.
+   */
   name: string;
-  /** Caminho relativo à raiz atual (ex.: `delta.ipynb`). */
+  /** Caminho relativo à raiz atual, com a subpasta do runtime (ex.: `spark/delta.ipynb`). */
   path: string;
   /** Kernel que o notebook abre (`metadata.kernelspec.name`). */
   kernel_name: string;
