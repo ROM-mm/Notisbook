@@ -43,11 +43,11 @@ from ..runtimes.docker.service import (
     SessionsActive,
     inspect_container,
 )
+from ..runtimes.duckdb import kernelspec as duckdb_kernelspec
 from ..runtimes.duckdb.hook import build_bootstrap_code as build_duckdb_bootstrap_code
 from ..runtimes.duckdb.kernelspec import KERNEL_NAME as DUCKDB_KERNEL_NAME
 from ..runtimes.duckdb.kernelspec import METADATA_KEY as DUCKDB_METADATA_KEY
-from ..runtimes.duckdb.kernelspec import is_duckdb_kernel_name, version_of_kernel_name
-from ..runtimes.duckdb.manifest import version_key as duckdb_version_key
+from ..runtimes.duckdb.kernelspec import is_duckdb_kernel_name
 from ..security import RuntimeGrant, RuntimeTokens
 from ..spark.bundles import (
     UnsupportedHome,
@@ -949,7 +949,7 @@ class KernelService:
             raise SparkEnvOutdated
 
     def resolve_kernel_name(self, kernel_name: str) -> str:
-        """Resolve the alias `duckdb`: with no kernelspec of that name, the newest installed `duckdb-*`.
+        """Resolve the alias `duckdb`: with no kernelspec of that name, the newest managed `duckdb-*`.
 
         Sync on purpose (a directory listing): callers resolve and register the session with no await between.
         Any other name, or an alias with nothing installed, is returned unchanged.
@@ -962,8 +962,9 @@ class KernelService:
             return kernel_name
         if DUCKDB_KERNEL_NAME in names:
             return kernel_name
-        versioned = [(version, name) for name in names if (version := version_of_kernel_name(name)) is not None]
-        return max(versioned, key=lambda pair: duckdb_version_key(pair[0]))[1] if versioned else kernel_name
+        # `discover` só devolve kernelspecs cujo ambiente é gerenciado e já vem do mais novo ao mais antigo.
+        managed = duckdb_kernelspec.discover(self._home)
+        return managed[0].kernel_name if managed else kernel_name
 
     async def create(
         self, path: str, kernel_name: str, cwd: Path | None = None, target: Path | None = None

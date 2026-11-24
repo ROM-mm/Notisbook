@@ -257,8 +257,8 @@ def _clean_kernels(home: Path, failures: list[str]) -> None:
     try:
         for entry in spark_kernelspec.discover(home):
             spark_kernelspec.remove_kernelspec(entry.kernel_name)
-        if duckdb_kernelspec.discover(home):
-            duckdb_kernelspec.remove_kernelspec()
+        for entry in duckdb_kernelspec.discover(home):
+            duckdb_kernelspec.remove_kernelspec(entry.kernel_name)
     except OSError as exc:
         failures.append(f"Jupyter kernels: {exc.strerror}")
 

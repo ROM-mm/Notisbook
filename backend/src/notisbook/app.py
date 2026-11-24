@@ -62,7 +62,7 @@ def create_app(
         kernels.has_session,
         settings.pypi_url,
     )
-    app.state.duckdb = DuckDBInstaller(settings.home, app.state.jobs, kernels.has_session)
+    app.state.duckdb = DuckDBInstaller(settings.home, app.state.jobs, kernels.has_session, pypi_url=settings.pypi_url)
     app.state.catalog = CatalogService(settings.pypi_url)
     app.state.docker = DockerRuntimes(
         settings.home,

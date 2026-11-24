@@ -99,19 +99,17 @@ def write_kernelspec(version: str, env_dir: Path, extensions: tuple[str, ...]) -
     return target / "kernel.json"
 
 
-def remove_kernelspec(name: str | None = None) -> None:
-    """Apaga o kernelspec `name`; sem nome, todos os do DuckDB (legado e por versão).
+def remove_kernelspec(name: str) -> None:
+    """Apaga o kernelspec `name` (legado ou por versão); quem chama escolhe só os gerenciados via `discover`.
 
     Já ausente é ok, qualquer outra falha de E/S sobe como OSError.
     """
-    names = [name] if name is not None else [p.name for p in _spec_dirs()]
-    for each in names:
-        if not is_duckdb_kernel_name(each):
-            raise ValueError(f"not a DuckDB kernel name: {each!r}")
-        try:
-            shutil.rmtree(kernels_dir() / each)
-        except FileNotFoundError:
-            pass
+    if not is_duckdb_kernel_name(name):
+        raise ValueError(f"not a DuckDB kernel name: {name!r}")
+    try:
+        shutil.rmtree(kernels_dir() / name)
+    except FileNotFoundError:
+        pass
 
 
 def _spec_dirs() -> list[Path]:

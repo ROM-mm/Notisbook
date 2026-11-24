@@ -118,6 +118,7 @@ async def get_status(installer: Installer) -> dict[str, Any]:
         "installing": [
             {"kernel_name": name, "job_id": job_id, "kind": kind}
             for name, (job_id, kind) in installer.active_jobs().items()
+            if kind != "remove"
         ],
     }
 
