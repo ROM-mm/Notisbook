@@ -181,8 +181,7 @@ def _docker_spec_is_ours() -> bool:
 
 def _kernel_names(home: Path) -> list[str]:
     names = [entry.kernel_name for entry in spark_kernelspec.discover(home)]
-    if duckdb_kernelspec.discover(home) is not None:
-        names.append(duckdb_kernelspec.KERNEL_NAME)
+    names.extend(entry.kernel_name for entry in duckdb_kernelspec.discover(home))
     return names
 
 
@@ -258,7 +257,7 @@ def _clean_kernels(home: Path, failures: list[str]) -> None:
     try:
         for entry in spark_kernelspec.discover(home):
             spark_kernelspec.remove_kernelspec(entry.kernel_name)
-        if duckdb_kernelspec.discover(home) is not None:
+        if duckdb_kernelspec.discover(home):
             duckdb_kernelspec.remove_kernelspec()
     except OSError as exc:
         failures.append(f"Jupyter kernels: {exc.strerror}")
