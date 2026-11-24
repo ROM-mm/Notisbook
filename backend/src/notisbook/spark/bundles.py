@@ -131,6 +131,13 @@ S3A_BY_HADOOP: dict[str, S3aSet] = {
             Artifact("org.apache.hadoop", "hadoop-aws", "3.5.0", "66bd9eefb938b1a1657487324b63c13df2d8b17164a1dd24e0ef37b905bc5baa"),
             Artifact("software.amazon.awssdk", "bundle", "2.35.4", "db4b55f24ad1b4e70f17eb1717a4de76a8dadc5a27d764be7c44ff67b2c1c677"),
             Artifact("org.wildfly.openssl", "wildfly-openssl", "2.2.5.Final", "71fb7932f99a727edb23c5a2cb8c6855ac7196fad41aa0669b3998e277165154"),
+            # S3AFileSystem 3.5.0 loads this class while initializing, even with the default input stream type.
+            Artifact(
+                "software.amazon.s3.analyticsaccelerator",
+                "analyticsaccelerator-s3",
+                "1.3.1",
+                "4959a9747cbb479c73c3ffbcd479bee5b014f8b2880994585a8693fb9d24675e",
+            ),
         ),
         SDK_PROBE_V2,
     ),
