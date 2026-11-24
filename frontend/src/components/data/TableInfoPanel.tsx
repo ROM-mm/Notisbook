@@ -5,7 +5,7 @@
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
  */
 import type { ReactNode } from "react";
-import type { TableQuery, TableHistoryEntry, TableInfo, TableVersion } from "../../api/catalog";
+import type { TableHistoryEntry, TableInfo, TableQuery, TableVersion } from "../../api/catalog";
 import { TABLE_INFO_PANEL_ID, tableRef, useCatalog } from "../../state/catalog";
 import { formatSize } from "../files/format";
 import { TableIcon } from "../shell/icons";

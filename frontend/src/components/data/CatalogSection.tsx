@@ -18,9 +18,9 @@ import {
   schemaReasonMessage,
   type CatalogNode,
   type CatalogTable,
-  type TableQuery,
   type SchemaDeletion,
   type SchemaPreview,
+  type TableQuery,
 } from "../../api/catalog";
 import {
   CATALOG_INFO_PANEL_ID,
