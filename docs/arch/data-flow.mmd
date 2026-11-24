@@ -1,0 +1,34 @@
+%%{init: {"theme":"base",
+  "fontFamily":"ui-monospace, SFMono-Regular, Menlo, monospace",
+  "themeVariables":{
+    "fontSize":"14px","lineColor":"#1F2937",
+    "clusterBkg":"#FFFFFF","clusterBorder":"#E2E8F0"}}}%%
+graph TB
+    CELL["Notebook cell<br/>Python, SQL, DuckDB"]
+    UI["Web UI<br/>WebSocket v1"]
+    API["Backend<br/>KernelService"]
+    KERNEL["Kernel<br/>Spark, DuckDB, Glue"]
+    HOOK["Catalog hook<br/>Destination rules"]
+    CATDB[("catalog.db<br/>Registry + Iceberg")]
+    MINIO[("notislake bucket<br/>landing, bronze, silver, gold")]
+    OUT["Outputs<br/>Sanitized in browser"]
+
+    CELL -->|"execute"| UI
+    UI -->|"execute frame"| API
+    API -->|"Jupyter execute_request"| KERNEL
+    KERNEL -->|"Write table"| HOOK
+    HOOK -->|"Registers table"| CATDB
+    KERNEL -->|"Data files via S3A or httpfs"| MINIO
+    KERNEL -->|"IOPub messages"| API
+    API -->|"output, execute_reply"| UI
+    UI -->|"Renders"| OUT
+
+    classDef external    fill:#FFFFFF,stroke:#F97316,stroke-width:2px,color:#7C2D12
+    classDef integration fill:#FFFFFF,stroke:#6366F1,stroke-width:2px,color:#312E81
+    classDef processing  fill:#FFFFFF,stroke:#22C55E,stroke-width:2px,color:#14532D
+    classDef persistence fill:#FEF2F2,stroke:#EF4444,stroke-width:2px,color:#7F1D1D
+    classDef support     fill:#FFFFFF,stroke:#38BDF8,stroke-width:2px,color:#075985
+
+    class CELL,UI,OUT integration
+    class API,KERNEL,HOOK processing
+    class CATDB,MINIO persistence
