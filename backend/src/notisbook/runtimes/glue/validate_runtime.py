@@ -25,6 +25,11 @@ from typing import Any
 
 KERNEL_TIMEOUT_S = 60
 S3A_FILESYSTEM_CLASS = "org.apache.hadoop.fs.s3a.S3AFileSystem"
+LAKEHOUSE_CLASSES = {
+    "iceberg_catalog": "org.apache.iceberg.spark.SparkCatalog",
+    "hudi_extension": "org.apache.spark.sql.hudi.HoodieSparkSessionExtension",
+    "hudi_kryo_registrar": "org.apache.spark.HoodieSparkKryoRegistrar",
+}
 # Padrão do Spark para `spark.redaction.regex` quando a conf não está definida.
 DEFAULT_REDACTION_REGEX = "(?i)secret|password|token|access.key"
 S3A_SENSITIVE_KEYS = ("fs.s3a.bucket.notislake.secret.key", "fs.s3a.bucket.notislake.access.key")
@@ -196,6 +201,22 @@ def check_s3a(state: dict[str, Any]) -> Result:
     return result
 
 
+def check_lakehouse_classes(state: dict[str, Any]) -> Result:
+    jvm = state["spark"]._jvm
+    loaded: dict[str, bool] = {}
+    for name, class_name in LAKEHOUSE_CLASSES.items():
+        try:
+            jvm.java.lang.Class.forName(class_name)
+            loaded[name] = True
+        except Exception:  # noqa: BLE001 - classe ausente é o resultado que a verificação mede
+            loaded[name] = False
+    missing = [LAKEHOUSE_CLASSES[name] for name, ok in loaded.items() if not ok]
+    result: Result = {"ok": not missing, "classes": dict(LAKEHOUSE_CLASSES), "loaded": loaded}
+    if missing:
+        result["error"] = f"classes não carregadas: {', '.join(missing)}"
+    return result
+
+
 def check_glue_context(state: dict[str, Any]) -> Result:
     from awsglue.context import GlueContext
 
@@ -245,6 +266,9 @@ def run_checks() -> dict[str, Result]:
         "spark_session": _guard(lambda: check_spark_session(state)),
     }
     results["s3a"] = _dependent(state, "spark", lambda: check_s3a(state))
+    results["lakehouse_classes"] = _dependent(
+        state, "spark", lambda: check_lakehouse_classes(state)
+    )
     results["glue_context"] = _dependent(state, "spark", lambda: check_glue_context(state))
     results["dynamicframe"] = _dependent(
         state, "glue_context", lambda: check_dynamicframe(state)

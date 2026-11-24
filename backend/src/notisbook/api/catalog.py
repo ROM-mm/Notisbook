@@ -1,4 +1,4 @@
-"""Catálogo persistente (`<home>/catalog.db`): databases, tabelas e colunas, sem SparkSession nem kernel."""
+"""Catálogo persistente (`<home>/catalog.db`): databases e tabelas, sem SparkSession nem kernel."""
 
 import asyncio
 import sqlite3
@@ -55,7 +55,10 @@ def _open(home: Path) -> sqlite3.Connection | None:
 def _read_catalogs(home: Path) -> list[dict[str, Any]]:
     conn = _open(home)
     if conn is None:
-        return [{"name": registry.SPARK_CATALOG, "databases": [{"name": registry.DEFAULT_DATABASE, "tables": []}]}]
+        return [
+            {"name": node, "databases": [{"name": ns, "tables": []} for ns in registry.empty_display_names()]}
+            for node in (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
+        ]
     try:
         databases, used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES)
         hudi_dbs, hudi_used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES - used, hudi=True)
@@ -105,18 +108,6 @@ def _dispatch[T](
         conn.close()
 
 
-def _read_columns(
-    home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
-) -> list[dict[str, Any]] | None:
-    return _dispatch(
-        home,
-        catalog,
-        spark=lambda conn: registry.read_columns(conn, database, table),
-        hudi=lambda conn: registry.read_columns(conn, database, table, hudi_only=True),
-        iceberg=lambda conn: iceberg_jdbc.read_columns(conn, database, table, open_store),
-    )
-
-
 def _read_table_info(
     home: Path, catalog: str, database: str, table: str, open_store: iceberg_jdbc.StoreOpener
 ) -> dict[str, Any] | None:
@@ -136,24 +127,6 @@ async def get_catalog(home: Home) -> dict[str, Any]:
     except sqlite3.Error as exc:
         raise HTTPException(503, "Catalog database unavailable") from exc
     return {"status": "ok", "catalogs": catalogs}
-
-
-@router.get("/columns")
-async def get_columns(request: Request, home: Home, catalog: Name, database: Name, table: Name) -> list[dict[str, Any]]:
-    """Colunas de uma tabela; 404 se inexistente, 409 se o formato do catálogo ou do metadata não for legível, 503 se o bucket estiver fora do ar."""
-    try:
-        columns = await asyncio.to_thread(_read_columns, home, catalog, database, table, _store_opener(request))
-    except iceberg_jdbc.UnsupportedIcebergSchema as exc:
-        raise HTTPException(409, iceberg_jdbc.ERR_UNSUPPORTED) from exc
-    except iceberg_jdbc.MetadataStoreUnavailable as exc:
-        raise HTTPException(503, "Object store unavailable") from exc
-    except iceberg_jdbc.IcebergMetadataError as exc:
-        raise HTTPException(409, "Table metadata unavailable") from exc
-    except sqlite3.Error as exc:
-        raise HTTPException(503, "Catalog database unavailable") from exc
-    if columns is None:
-        raise HTTPException(404, "Table not found")
-    return columns
 
 
 @router.get("/table")

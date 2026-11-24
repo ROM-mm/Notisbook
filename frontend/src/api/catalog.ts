@@ -42,7 +42,7 @@ export interface CatalogColumn {
   description: string | null;
 }
 
-export interface ColumnsQuery {
+export interface TableQuery {
   catalog: string;
   database: string;
   table: string;
@@ -50,14 +50,6 @@ export interface ColumnsQuery {
 
 export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
   return request<CatalogResponse>("/api/catalog", { signal });
-}
-
-/** 404 tabela inexistente, 409 metadados ilegíveis, 503 `catalog.db` indisponível. */
-export function getColumns(q: ColumnsQuery, signal?: AbortSignal): Promise<CatalogColumn[]> {
-  return request<CatalogColumn[]>("/api/catalog/columns", {
-    query: { catalog: q.catalog, database: q.database, table: q.table },
-    signal,
-  });
 }
 
 export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg";
@@ -107,7 +99,7 @@ export interface TableInfo {
 }
 
 /** 404 tabela inexistente, 409 schema Iceberg não suportado, 503 `catalog.db` indisponível. */
-export function getTableInfo(q: ColumnsQuery, signal?: AbortSignal): Promise<TableInfo> {
+export function getTableInfo(q: TableQuery, signal?: AbortSignal): Promise<TableInfo> {
   return request<TableInfo>("/api/catalog/table", {
     query: { catalog: q.catalog, database: q.database, table: q.table },
     signal,
@@ -202,7 +194,7 @@ export interface SchemaDeletion {
   folder_kept: boolean;
 }
 
-/** 409 `catalog_changed`/`cannot_drop_default`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
+/** 409 `catalog_changed`/`cannot_drop_default`/`cannot_drop_layer`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
 export function deleteSchema(catalog: string, schema: string, etag: string): Promise<SchemaDeletion> {
   return request<SchemaDeletion>("/api/catalog/schemas", { method: "DELETE", query: { catalog, schema, etag } });
 }
@@ -216,6 +208,7 @@ const SCHEMA_ERRORS: Record<string, string> = {
   catalog_unavailable: "Catalog database unavailable. Try again.",
   schema_not_found: "The schema no longer exists.",
   cannot_drop_default: "The default schema cannot be deleted.",
+  cannot_drop_layer: "Layer schemas (bronze, silver, gold) cannot be deleted.",
   has_child_namespaces: "The schema has nested namespaces and cannot be deleted.",
   kernel_busy: "A kernel is using the catalog. Try again when it is idle.",
   catalog_changed: "The schema changed. Review and confirm again.",

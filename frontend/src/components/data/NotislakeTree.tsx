@@ -61,8 +61,9 @@ const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 /** Pastas da raiz exibidas atenuadas (área de pouso, fora das camadas). */
 const MUTED_ROOT_DIRS = new Set(["landing"]);
 /**
- * Pastas da raiz sempre exibidas, nesta ordem, mesmo sem o prefixo no bucket (o bootstrap só cria
- * as camadas). São só de exibição: expandir uma pasta inexistente lista vazio.
+ * Pastas da raiz sempre exibidas, nesta ordem: no modo manual (S3 externo) os prefixos podem
+ * não existir no bucket, por isso a lista é fixa na exibição. Expandir uma pasta inexistente
+ * lista vazio.
  */
 const FIXED_ROOT_DIRS = ["landing", "bronze", "silver", "gold"];
 
