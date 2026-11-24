@@ -57,6 +57,7 @@ from ..spark.bundles import (
     write_log4j2,
     write_spark_defaults,
 )
+from ..spark import kernelspec as spark_kernelspec
 from ..spark.kernelspec import METADATA_KEY, is_managed_env, jars_dir
 from .catalog_hook import build_ensure_code as build_catalog_ensure_code
 from .catalog_hook import build_http_ensure_code as build_catalog_http_ensure_code
@@ -685,8 +686,24 @@ class KernelService:
                     removed += 1
         return removed
 
+    def _managed_kernel_names(self) -> set[str]:
+        """Nomes dos kernels instalados pelo Notisbook: Spark e DuckDB gerenciados e Docker registrados."""
+        names = {entry.kernel_name for entry in spark_kernelspec.discover(self._home)}
+        names.update(entry.kernel_name for entry in duckdb_kernelspec.discover(self._home))
+        names.update(
+            runtime.kernel_name
+            for runtime in docker_catalog.CATALOG
+            if docker_spec.read_registration(runtime) is not None
+        )
+        return names
+
+    def _list_managed_specs(self) -> dict[str, Any]:
+        managed = self._managed_kernel_names()
+        return {name: info for name, info in self._specs.get_all_specs().items() if name in managed}
+
     async def kernelspecs(self) -> list[KernelSpecInfo]:
-        specs = await asyncio.to_thread(self._specs.get_all_specs)
+        """Só os kernels instalados pelo Notisbook; kernels de terceiros da máquina não são listados."""
+        specs = await asyncio.to_thread(self._list_managed_specs)
         result: list[KernelSpecInfo] = []
         for name, info in specs.items():
             spec = info["spec"]
@@ -990,6 +1007,9 @@ class KernelService:
             if docker_runtime is not None and self._docker is not None:
                 # Antes de qualquer await: a recusa vale para o instante em que a requisição chegou.
                 self._refuse_if_mutating(self._docker, docker_runtime)
+            # Sem await desde o registro: kernel de terceiros é recusado como um kernel inexistente.
+            if kernel_name not in self._managed_kernel_names():
+                raise KernelNotFound(kernel_name)
             try:
                 spec = await asyncio.to_thread(self._specs.get_kernel_spec, kernel_name)
             except NoSuchKernel as exc:
