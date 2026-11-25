@@ -90,12 +90,11 @@
   --color-danger-text: #c42424;
   --color-danger-subtle: #f4e4e2;
   --color-code-bg: #ffffff;
-  --color-code-inline-bg: transparent;
+  --color-code-inline-bg: #e9eaed; /* mesmo cinza de --color-selection: destaque do código inline */
   --color-code-border: var(--color-border);
   --color-bg-panel: #ffffff; /* fundo de faixas/cabeçalhos grandes (igual ao fundo da página nos dois temas) */
   --color-overlay: rgba(28, 28, 26, 0.35);
   --color-cell-bg: #ffffff;
-  --color-cell-bg-active: #f2f3f5;
   --color-editor-selection: #d0d2d6;
   --color-bg-side: #ffffff; /* fundo das laterais e da barra superior (não usar --color-bg-panel, que pinta diálogos e tabelas) */
   --color-selection: #e9eaed; /* seleção cinza suave das árvores (Catalog, Notislake) */
@@ -217,7 +216,6 @@
     --color-bg-panel: #121212;
     --color-overlay: rgba(0, 0, 0, 0.6);
     --color-cell-bg: #121212;
-    --color-cell-bg-active: #1a1a1a;
     --color-editor-selection: #3a3a3a;
     --color-bg-side: #121212;
     --color-selection: #2a2a2a;
@@ -299,7 +297,6 @@
   --color-bg-panel: #121212;
   --color-overlay: rgba(0, 0, 0, 0.6);
   --color-cell-bg: #121212;
-  --color-cell-bg-active: #1a1a1a;
   --color-editor-selection: #3a3a3a;
   --color-bg-side: #121212;
   --color-selection: #2a2a2a;

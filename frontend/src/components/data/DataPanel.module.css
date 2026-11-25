@@ -194,10 +194,11 @@
   outline-offset: -3px;
 }
 
-/* Seleção: cinza suave, sem barra lateral. */
+/* Seleção: cinza suave com borda de 1px (padrão do Catalog), sem barra lateral. */
 .treeRow[aria-selected="true"] {
   border-left-color: transparent;
   background-color: var(--color-selection);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
   color: var(--color-text);
 }
 

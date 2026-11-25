@@ -197,7 +197,8 @@
 .facts dd {
   min-width: 0;
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-bold);
   white-space: nowrap;
 }
 
@@ -207,6 +208,13 @@
 
 .mono {
   font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.value {
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

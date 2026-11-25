@@ -35,7 +35,7 @@ import { SystemResources } from "./SystemResources";
 const IS_MAC = isMac();
 
 // Atalhos do rodapé: seleção declarada (pelo texto de tecla) dentro de SHORTCUTS.
-const FOOTER_KEYS = ["Shift+Enter", "⌘S / Ctrl+S", "Esc", "⌘. / Ctrl+.", "⌘B / Ctrl+B", "⌥⌘B / Ctrl+Alt+B"];
+const FOOTER_KEYS = ["Shift+Enter", "⌘Enter / Ctrl+Enter", "⌘S / Ctrl+S", "Esc", "⌘. / Ctrl+."];
 const FOOTER_SHORTCUTS = FOOTER_KEYS.map((k) => {
   const found = SHORTCUTS.find(([keys]) => keys === k);
   if (!found && import.meta.env.DEV) console.warn(`Atalho do rodapé ausente em SHORTCUTS: ${k}`);
