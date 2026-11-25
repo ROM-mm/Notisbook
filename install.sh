@@ -206,7 +206,10 @@ do_install() {
   ensure_uv
 
   tmp="$(mktemp -d 2>/dev/null || mktemp -d -t notisbook)"
-  trap 'rm -rf "$tmp"' EXIT INT TERM
+  # INT/TERM must also end the script (a handler that only cleans lets it keep going); EXIT cleans again, harmlessly.
+  trap 'rm -rf "$tmp"' EXIT
+  trap 'rm -rf "$tmp"; exit 130' INT
+  trap 'rm -rf "$tmp"; exit 143' TERM
 
   if [ -n "$install_from" ]; then
     [ -d "$install_from" ] || err "NOTISBOOK_INSTALL_FROM is not a directory: $install_from"
@@ -281,7 +284,11 @@ do_install() {
       warn "could not install all default runtimes; install them in Settings › Runtimes"
     fi
     # --if-missing: an existing notebooks folder is never touched. A failure must not fail the install.
-    if ! "$bin" --seed-samples --if-missing </dev/null; then
+    seed_rc=0
+    "$bin" --seed-samples --if-missing </dev/null || seed_rc=$?
+    # 130 = Ctrl+C during the copy: the user gave up, so stop instead of warning about a failure.
+    [ "$seed_rc" -eq 130 ] && exit 130
+    if [ "$seed_rc" -ne 0 ]; then
       samples_failed=1
       warn "could not copy the sample notebooks; the app still works without them"
     fi
