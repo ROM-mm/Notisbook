@@ -86,7 +86,6 @@ function SparkRow({ item, sessions, installing, installingVersion, onRemove }: {
         <div className={styles.rowTitle}>
           <span className={styles.rowVersion}>Spark {item.version}</span>
           <CategoryTag category="processing" />
-          <span className={styles.rowKernel}>{item.kernel_name}</span>
           {item.legacy ? (
             <span className={styles.tag} title="Runtime created outside Notisbook (.venv-spark*)">
               legacy
@@ -209,7 +208,6 @@ function DuckDBRow({ item, sessions, installing, installingVersion, onRemove }: 
         <div className={styles.rowTitle}>
           <span className={styles.rowVersion}>DuckDB {item.version}</span>
           <CategoryTag category="analytics" />
-          <span className={styles.rowKernel}>{item.kernel_name}</span>
           {using.length > 0 ? <span className={`${styles.tag} ${styles.tagActive}`}>in use</span> : null}
         </div>
         <div className={styles.rowMeta}>

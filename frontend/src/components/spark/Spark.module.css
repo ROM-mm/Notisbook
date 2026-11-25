@@ -344,12 +344,6 @@
   font-weight: var(--font-weight-semibold);
 }
 
-.rowKernel {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
 .rowMeta {
   display: flex;
   flex-wrap: wrap;
