@@ -233,12 +233,13 @@
 
 .barFill {
   height: 100%;
-  background: var(--color-text);
+  background: var(--color-success);
   transition: width var(--transition-normal);
 }
 
+/* Concluída: mantém o verde de marca (a barra não escurece ao terminar). */
 .bar_succeeded {
-  background: var(--color-success-subtle);
+  background: var(--color-success);
 }
 
 .bar_failed,
