@@ -286,8 +286,8 @@ do_install() {
 
   # Clear only on a terminal and only when nothing failed: the runtime warning must stay on screen.
   if [ -t 1 ] && [ "$runtimes_failed" = 0 ]; then
-    # -x keeps the scrollback; fall back to a plain ANSI clear where `clear -x` is unsupported.
-    clear -x 2>/dev/null || printf '\033[2J\033[H'
+    # Home + erase display only: the scrollback must survive, so avoid the tool that also erases it.
+    printf '\033[H\033[2J'
   fi
 
   say ""
