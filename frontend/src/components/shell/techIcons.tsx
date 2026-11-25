@@ -44,11 +44,16 @@ const stroke2 = {
 
 const LINES_13_31 = "M0 13H32M0 16H32M0 19H32M0 22H32M0 25H32M0 28H32M0 31H32";
 
+/** Forma do logo do Apache Spark: estrela assimétrica e inclinada, oca, com traço grosso e pontas arredondadas. */
 export const SparkIcon = (p: IconProps) => (
   <TechSvg {...p}>
-    <polygon
-      points="20.01,1.83 20.35,13.28 29.48,16.09 20.70,19.85 21.20,30.34 14.55,22.21 5.90,24.98 10.41,17.09 4.26,9.18 13.99,11.57"
-      stroke="none"
+    <path
+      d="M14.3 3.3L19.3 9.4L28.1 7.5L22.8 15.3L25.6 22.8L17.8 21.3L10.3 28.7L10.6 18.8L3.8 15L11.9 11.9Z"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="3"
+      strokeLinejoin="round"
+      strokeLinecap="round"
     />
   </TechSvg>
 );

@@ -140,7 +140,12 @@ export function DockerDetailsDialog({ runtime, connectionsDir, sessions, onActio
         </dd>
         <dt>State</dt>
         <dd className={styles.dockerState}>
-          <span data-testid="docker-details-state">● {containerState(rt)}</span>
+          <span data-testid="docker-details-state">
+            <span className={running ? styles.stateDotRunning : styles.stateDot} data-state={containerState(rt)} aria-hidden="true">
+              ●
+            </span>{" "}
+            {containerState(rt)}
+          </span>
           <span title={blockReason ?? "Stop the container"}>
             <button type="button" className="btn" data-testid="docker-details-stop" disabled={!running || !!blockReason || acting !== null} onClick={() => void act("stop")}>
               {acting === "stop" ? "Stopping…" : "Stop"}

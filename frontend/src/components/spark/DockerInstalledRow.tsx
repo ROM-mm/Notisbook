@@ -51,7 +51,7 @@ export function DockerInstalledRow({ runtime, connectionsDir, sessions, onAction
     }
   };
 
-  const meta = [`container ${runtime.container_name}`, `● ${state}`, v.spark && `Spark ${v.spark}`, v.python && `Python ${v.python}`].filter(Boolean);
+  const versions = [v.spark && `Spark ${v.spark}`, v.python && `Python ${v.python}`].filter(Boolean);
 
   return (
     <li className={styles.row} data-testid="docker-runtime-row" data-runtime={runtime.key} data-kernel={runtime.kernel_name}>
@@ -63,7 +63,14 @@ export function DockerInstalledRow({ runtime, connectionsDir, sessions, onAction
           {runtime.busy ? <span className={`${styles.tag} ${styles.tagActive}`}>working</span> : null}
         </div>
         <div className={`${styles.rowMeta} ${styles.mono}`} data-testid="docker-runtime-meta">
-          {meta.map((m) => (
+          <span>{`container ${runtime.container_name}`}</span>
+          <span>
+            <span className={state === "running" ? styles.stateDotRunning : styles.stateDot} data-state={state} aria-hidden="true">
+              ●
+            </span>{" "}
+            {state}
+          </span>
+          {versions.map((m) => (
             <span key={String(m)}>{m}</span>
           ))}
         </div>

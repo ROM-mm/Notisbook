@@ -14,6 +14,7 @@ from .preferences import (
     RootRejected,
     mark_samples_seeded,
     preferences_path,
+    read_notebooks_root,
     validate_notebooks_root,
     write_notebooks_root,
 )
@@ -62,15 +63,7 @@ def bundled_samples() -> list[Path]:
 
 def _seed_samples(home: Path) -> None:
     """Copia os exemplos para `<home>/notebooks` e grava o marcador. Levanta OSError em falha (sem marcador)."""
-    samples = bundled_samples()
-    if not samples:
-        raise FileNotFoundError(f"no bundled samples in {SAMPLES_DIR}")
-    folder = default_root(home)
-    folder.mkdir(parents=True, exist_ok=True)
-    for rel in samples:
-        target = folder / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        _publish_sample(SAMPLES_DIR / rel, target)
+    seed_samples_into(default_root(home))
     mark_samples_seeded(home)
 
 
@@ -87,6 +80,50 @@ def _adopt_legacy_root(home: Path) -> bool:
         return False
     write_notebooks_root(home, resolved, samples_seeded=True)
     return True
+
+
+def adopt_legacy_root(home: Path) -> bool:
+    """Mesma adoção de `~/notebooks` do onboarding (grava `preferences.json`); True se adotou. Levanta OSError ao gravar."""
+    return _adopt_legacy_root(home)
+
+
+def saved_or_default_root(home: Path, *, warn: bool = True) -> tuple[Path, str]:
+    """Pasta de notebooks e sua origem (`"saved"` ou `"default"`), sem criar nada.
+
+    Usa o `notebooks_root` salvo quando passa na validação da API (precisa existir); senão avisa no stderr
+    e cai em `default_root(home)`. Fonte única para o app e para `--seed-samples`; o seed avisa, salvo com
+    `NOTISBOOK_SEED_QUIET_ROOT_WARNING=1` (que o `start.sh` usa porque o app avisa ao subir).
+    """
+    saved = read_notebooks_root(home)
+    if saved is not None:
+        try:
+            return validate_notebooks_root(saved, home), "saved"
+        except RootRejected as exc:
+            if warn:
+                print(f"Notisbook: saved notebooks folder {saved} is not usable ({exc.message}); using the default.", file=sys.stderr)
+    return default_root(home).resolve(), "default"
+
+
+def seed_samples_into(folder: Path) -> tuple[int, int]:
+    """Cria `folder` se faltar e copia os exemplos que ainda não existem nele; devolve (copiados, já existentes).
+
+    Nunca sobrescreve (`lexists` cobre também link simbólico). Não grava o marcador `samples_seeded`.
+    Levanta OSError em falha, inclusive FileNotFoundError se o pacote não traz exemplos.
+    """
+    samples = bundled_samples()
+    if not samples:
+        raise FileNotFoundError(f"no bundled samples in {SAMPLES_DIR}")
+    folder.mkdir(parents=True, exist_ok=True)
+    copied = existing = 0
+    for rel in samples:
+        target = folder / rel
+        if os.path.lexists(target):
+            existing += 1
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _publish_sample(SAMPLES_DIR / rel, target)
+        copied += 1
+    return copied, existing
 
 
 def run_onboarding(home: Path, cli_root: Path | None) -> None:

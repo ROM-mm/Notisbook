@@ -138,8 +138,14 @@
 }
 
 .badgeOk {
+  border-color: var(--color-success);
   background: var(--color-success-subtle);
   color: var(--color-text);
+}
+
+/* O "✓" (primeiro span, aria-hidden) no verde de marca; o rótulo fica em --color-text. */
+.badgeOk > [aria-hidden="true"] {
+  color: var(--color-success);
 }
 
 .badgeBad {
@@ -227,12 +233,13 @@
 
 .barFill {
   height: 100%;
-  background: var(--color-text);
+  background: var(--color-success);
   transition: width var(--transition-normal);
 }
 
+/* Concluída: mantém o verde de marca (a barra não escurece ao terminar). */
 .bar_succeeded {
-  background: var(--color-success-subtle);
+  background: var(--color-success);
 }
 
 .bar_failed,
@@ -335,12 +342,6 @@
 
 .rowVersion {
   font-weight: var(--font-weight-semibold);
-}
-
-.rowKernel {
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
 }
 
 .rowMeta {
@@ -604,6 +605,15 @@
 .dockerFacts {
   margin: 0 var(--space-5);
   grid-template-columns: 104px minmax(0, 1fr);
+}
+
+/* Verde só em running: é o único estado saudável do container. */
+.stateDot {
+  color: inherit;
+}
+
+.stateDotRunning {
+  color: var(--color-success);
 }
 
 .dockerState {

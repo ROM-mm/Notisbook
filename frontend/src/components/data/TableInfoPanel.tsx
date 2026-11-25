@@ -181,7 +181,7 @@ function History({ info }: { info: TableInfo }) {
           const isCurrent = current !== null && h.id === current;
           return (
             <tr key={h.id ?? `row-${i}`} className={isCurrent ? own.current : undefined} aria-current={isCurrent || undefined}>
-              <td className={styles.mono} title={h.parent_id ? `parent ${h.parent_id}` : undefined}>
+              <td className={styles.value} title={h.parent_id ? `parent ${h.parent_id}` : undefined}>
                 {h.id ?? DASH}
                 {isCurrent ? <span className={styles.flag}>current</span> : null}
               </td>
@@ -213,8 +213,8 @@ function Properties({ info }: { info: TableInfo }) {
       <tbody>
         {entries.map(([k, v]) => (
           <tr key={k}>
-            <td className={styles.mono}>{k}</td>
-            <td className={styles.mono}>{v}</td>
+            <td className={styles.value}>{k}</td>
+            <td className={styles.value}>{v}</td>
           </tr>
         ))}
       </tbody>

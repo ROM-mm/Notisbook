@@ -226,6 +226,20 @@ export function languageFamily(language: CellLanguage): LanguageFamily {
   return language === "python" ? "python" : "sql";
 }
 
+/**
+ * Ao trocar a célula ativa, a markdown que estava em edição volta a ser renderizada
+ * (ex.: `j`/`k` sem foco no editor). A célula que continua ativa não é afetada.
+ */
+function stopEditingPrevious(
+  editing: Record<string, boolean>,
+  prevId: string | null,
+  nextId: string,
+): Record<string, boolean> {
+  if (prevId === null || prevId === nextId || !editing[prevId]) return editing;
+  const { [prevId]: _prev, ...rest } = editing;
+  return rest;
+}
+
 /** Linguagem da célula code (`metadata.notisbook.language`); ausente ou desconhecida = python. */
 export function cellLanguage(cell: EditorCell): CellLanguage {
   const ns = cell.metadata.notisbook;
@@ -366,7 +380,8 @@ export function createNotebookStore(path: string): NotebookStore {
           else index = where === "above" ? ref : ref + 1;
           const cells = s.cells.slice();
           cells.splice(index, 0, cell);
-          const editingMarkdown = type === "markdown" ? { ...s.editingMarkdown, [cell.id]: true } : s.editingMarkdown;
+          const kept = stopEditingPrevious(s.editingMarkdown, s.activeId, cell.id);
+          const editingMarkdown = type === "markdown" ? { ...kept, [cell.id]: true } : kept;
           return { cells, activeId: cell.id, editingMarkdown };
         });
         return cell.id;
@@ -426,14 +441,19 @@ export function createNotebookStore(path: string): NotebookStore {
           };
         }),
 
-      selectCell: (id, mode) => set((s) => ({ activeId: id, mode: mode ?? s.mode })),
+      selectCell: (id, mode) =>
+        set((s) => ({
+          activeId: id,
+          mode: mode ?? s.mode,
+          editingMarkdown: stopEditingPrevious(s.editingMarkdown, s.activeId, id),
+        })),
 
       selectAdjacent: (delta) => {
         const s = get();
         const i = s.cells.findIndex((c) => c.id === s.activeId);
         const next = s.cells[i < 0 ? 0 : i + delta];
         if (!next) return null;
-        set({ activeId: next.id });
+        set({ activeId: next.id, editingMarkdown: stopEditingPrevious(s.editingMarkdown, s.activeId, next.id) });
         return next.id;
       },
 

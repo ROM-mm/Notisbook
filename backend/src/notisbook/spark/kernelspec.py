@@ -90,7 +90,7 @@ def python_state(python: Path) -> PythonState:
     """Classifica o interpretador de um kernelspec (symlinks seguidos); total em E/S, nunca levanta."""
     try:
         mode = python.stat().st_mode
-    except (FileNotFoundError, NotADirectoryError):
+    except (FileNotFoundError, NotADirectoryError, ValueError):
         return PythonState.UNUSABLE
     except OSError as exc:
         return PythonState.UNUSABLE if exc.errno == errno.ELOOP else PythonState.INACCESSIBLE
@@ -212,7 +212,14 @@ def s3a_plan(env_dir: Path, version: str, ours: dict[str, Any]) -> tuple[str, S3
             return "installed", current, True
         return "outdated", None, True
     if current is not None and isinstance(ours.get("bundle"), dict) and bundle_for(version) is not None:
-        return "installed", current, False
+        # The old layout is only usable while the jars of the current set are still inside the env.
+        # is_file() only swallows ENOENT/ENOTDIR/EBADF/ELOOP; EACCES propagates and must not break the listing.
+        try:
+            complete = all((jars_dir(env_dir) / artifact.filename).is_file() for artifact in current.artifacts)
+        except OSError:
+            complete = False
+        if complete:
+            return "installed", current, False
     return "outdated", None, False
 
 
@@ -225,7 +232,10 @@ def _read_owned(base_dir: Path, spec_dir: Path) -> tuple[InstalledVersion, Path]
     """Spec that points into `base_dir` (managed or legacy env) and the interpreter it names; no existence check."""
     try:
         spec = json.loads((spec_dir / "kernel.json").read_text(encoding="utf-8"))
-        python = _abs(spec["argv"][0])
+        raw_python = spec["argv"][0]
+        if not isinstance(raw_python, str) or "\x00" in raw_python:
+            return None
+        python = _abs(raw_python)
         display = str(spec.get("display_name", ""))
     except (OSError, ValueError, KeyError, IndexError, TypeError):
         return None

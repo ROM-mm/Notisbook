@@ -11,10 +11,16 @@ from urllib.parse import quote
 
 import nbformat
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, field_validator
 
 from ..export.common import download_name, validate_notebook
-from ..export.html_report import to_html_report
+from ..export.html_report import (
+    DEFAULT_CODE_FONT,
+    DEFAULT_MARKDOWN_FONT,
+    ExportFonts,
+    to_html_report,
+    validate_font_name,
+)
 from ..export.py_source import to_databricks_py
 from ..notebooks.store import StoreError
 from ..security import require_token
@@ -30,9 +36,20 @@ CONTENT_TYPES: dict[str, str] = {
 }
 
 
+class FontsBody(BaseModel):
+    code: str = DEFAULT_CODE_FONT
+    markdown: str = DEFAULT_MARKDOWN_FONT
+
+    @field_validator("code", "markdown")
+    @classmethod
+    def _safe_name(cls, value: str) -> str:
+        return validate_font_name(value)
+
+
 class ExportBody(BaseModel):
     notebook: dict[str, Any]
     filename: str = ""
+    fonts: FontsBody | None = None
 
 
 def _too_large() -> HTTPException:
@@ -59,11 +76,11 @@ def _content_disposition(name: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name, safe='')}"
 
 
-def _render(fmt: str, nb: Any, filename: str) -> bytes:
+def _render(fmt: str, nb: Any, filename: str, fonts: FontsBody | None) -> bytes:
     if fmt == "py":
         return to_databricks_py(nb)
     if fmt == "html":
-        return to_html_report(nb, filename)
+        return to_html_report(nb, filename, fonts=ExportFonts(**fonts.model_dump()) if fonts else None)
     return nbformat.writes(nb).encode("utf-8")
 
 
@@ -81,7 +98,7 @@ def export_notebook(fmt: ExportFormat, raw: Annotated[bytes, Depends(read_limite
         nb = validate_notebook(body.notebook)
     except StoreError as exc:
         raise HTTPException(exc.status_code, str(exc) or type(exc).__name__) from exc
-    content = _render(fmt, nb, body.filename)
+    content = _render(fmt, nb, body.filename, body.fonts)
     headers = {
         "Content-Type": CONTENT_TYPES[fmt],
         "Content-Disposition": _content_disposition(download_name(body.filename, fmt)),
@@ -89,6 +106,6 @@ def export_notebook(fmt: ExportFormat, raw: Annotated[bytes, Depends(read_limite
         "Cache-Control": "no-store",
     }
     if fmt == "html":
-        headers["Content-Security-Policy"] = "sandbox; default-src 'none'"
+        headers["Content-Security-Policy"] = "sandbox; default-src 'none'; font-src data:"
     logger.info("export format=%s bytes=%d ms=%d", fmt, len(content), (time.perf_counter() - started) * 1000)
     return Response(content=content, headers=headers)

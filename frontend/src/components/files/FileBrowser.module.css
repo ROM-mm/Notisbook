@@ -71,18 +71,18 @@
   background: var(--color-bg-hover);
 }
 
-/* Notebook aberto na aba ativa: barra de 2px sem preenchimento. */
+/* Notebook aberto na aba ativa: padrão do Catalog (cinza + borda de 1px). */
 .row[data-active] {
-  border-left-color: var(--color-accent);
-  background: var(--color-bg-subtle);
+  background-color: var(--color-selection);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
   font-weight: var(--font-weight-medium);
 }
 
-/* Seleção: fundo neutro ativo e barra de 2px à esquerda. */
+/* Seleção: mesmo padrão do Catalog, sem barra lateral. */
 .row[data-selected],
 .row[data-selected][data-active] {
-  border-left-color: var(--color-accent);
-  background: var(--color-bg-active);
+  background-color: var(--color-selection);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
   color: var(--color-text);
 }
 

@@ -15,6 +15,7 @@ import {
   type TableInfo,
 } from "../api/catalog";
 import { ApiError, errorMessage } from "../api/http";
+import { useWorkspace } from "./workspace";
 
 /** Painel Table info: a tabela aberta e a última leitura de `/api/catalog/table`. */
 export interface TableInfoState {
@@ -215,6 +216,8 @@ export const useCatalog = create<CatalogState>((set, get) => {
     },
 
     openInfo: (query) => {
+      // O painel de info ocupa a direita: fecha a barra de Notebooks sem zerar `browsing` (fechar o info não a reabre).
+      useWorkspace.getState().hideRight();
       const info = get().info;
       // Clicar de novo na linha não deve refazer a requisição nem perder a aba atual do painel;
       // após erro (sem data e sem carga em curso), reabrir a mesma tabela tenta de novo.
@@ -223,6 +226,8 @@ export const useCatalog = create<CatalogState>((set, get) => {
     },
 
     openCatalogInfo: (name) => {
+      // O painel de info ocupa a direita: fecha a barra de Notebooks sem zerar `browsing` (fechar o info não a reabre).
+      useWorkspace.getState().hideRight();
       const info = get().info;
       // Mesmo comportamento do Table info: reabrir o mesmo catálogo não relê nem perde a aba; após erro, tenta de novo.
       if (info?.kind === "catalog" && info.name === name && (info.loading || info.data)) return;

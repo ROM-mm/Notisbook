@@ -197,7 +197,8 @@
 .facts dd {
   min-width: 0;
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-bold);
   white-space: nowrap;
 }
 
@@ -205,8 +206,20 @@
   color: var(--color-text-subtle);
 }
 
+/* `.facts dd` (0,1,1) vence `.na` (0,1,0): o travessão de valor ausente sai sem negrito. */
+.facts dd.na {
+  font-weight: var(--font-weight-regular);
+}
+
 .mono {
   font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.value {
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-bold);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

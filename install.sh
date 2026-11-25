@@ -162,11 +162,14 @@ warn_path() {
 }
 
 warn_brew() {
+  brew_note=""
   command -v brew >/dev/null 2>&1 || return 0
   prefix="$(brew --prefix 2>/dev/null)" || return 0
   [ -n "$prefix" ] && [ -e "$prefix/bin/notisbook" ] || return 0
   warn "a Homebrew copy of notisbook exists at $prefix/bin/notisbook and may shadow this install."
   warn "remove it with: brew uninstall notisbook && brew untap rom-mm/tap"
+  # Kept for the final block: the screen clear there would erase the warning above.
+  brew_note="a Homebrew copy of notisbook exists at $prefix/bin/notisbook and may shadow this install; remove it with: brew uninstall notisbook && brew untap rom-mm/tap"
 }
 
 do_uninstall() {
@@ -203,7 +206,10 @@ do_install() {
   ensure_uv
 
   tmp="$(mktemp -d 2>/dev/null || mktemp -d -t notisbook)"
-  trap 'rm -rf "$tmp"' EXIT INT TERM
+  # INT/TERM must also end the script (a handler that only cleans lets it keep going); EXIT cleans again, harmlessly.
+  trap 'rm -rf "$tmp"' EXIT
+  trap 'rm -rf "$tmp"; exit 130' INT
+  trap 'rm -rf "$tmp"; exit 143' TERM
 
   if [ -n "$install_from" ]; then
     [ -d "$install_from" ] || err "NOTISBOOK_INSTALL_FROM is not a directory: $install_from"
@@ -244,6 +250,12 @@ do_install() {
   uvx --from "$tmp/$wheel" -c "$tmp/$constraints" --python "$PYTHON_VERSION" --managed-python --no-build \
     notisbook --stop-running </dev/null || err "could not stop the running Notisbook; nothing was changed"
 
+  # First install = no tool before this point and not launched by `notisbook update`; set before the tool exists.
+  fresh=0
+  if [ -z "$(notisbook_bin)" ] && [ -z "${NOTISBOOK_UPDATING:-}" ]; then
+    fresh=1
+  fi
+
   say "Installing Notisbook $version..."
   uv tool install --force --python "$PYTHON_VERSION" --managed-python --no-build \
     -c "$tmp/$constraints" "$tmp/$wheel" </dev/null || err "uv could not install the Notisbook wheel"
@@ -261,10 +273,48 @@ do_install() {
   [ -n "$bin" ] || err "the notisbook executable was not found after installing"
   env -u NOTISBOOK_MINIO_DIST "$bin" --check-notislake || err "the MinIO package check failed"
 
+  runtimes_failed=0
+  samples_failed=0
+  runtimes_note=""
+  if [ "$fresh" = 1 ]; then
+    say "Installing default runtimes (may take several minutes)..."
+    # A runtime failure must not fail the install (set -e): the user can add them in the app.
+    if ! "$bin" --install-default-runtimes </dev/null; then
+      runtimes_failed=1
+      warn "could not install all default runtimes; install them in Settings › Runtimes"
+    fi
+    # --if-missing: an existing notebooks folder is never touched. A failure must not fail the install.
+    seed_rc=0
+    "$bin" --seed-samples --if-missing </dev/null || seed_rc=$?
+    # 130 = Ctrl+C during the copy: the user gave up, so stop instead of warning about a failure.
+    [ "$seed_rc" -eq 130 ] && exit 130
+    if [ "$seed_rc" -ne 0 ]; then
+      samples_failed=1
+      warn "could not copy the sample notebooks; the app still works without them"
+    fi
+  elif [ -z "${NOTISBOOK_UPDATING:-}" ]; then
+    # Kept for the final block: the screen clear below would erase it.
+    runtimes_note="Default runtimes are installed only on the first install; add them in Settings › Runtimes."
+  fi
+
+  # Clear only on a terminal and only when nothing failed: the runtime and samples warnings must stay on screen.
+  if [ -t 1 ] && [ "$runtimes_failed" = 0 ] && [ "$samples_failed" = 0 ]; then
+    # Home + erase display only: the scrollback must survive, so avoid the tool that also erases it.
+    printf '\033[H\033[2J'
+  fi
+
   say ""
-  say "Installed Notisbook $("$bin" --version 2>/dev/null || echo "$version")."
+  say "Notisbook $("$bin" --version 2>/dev/null || echo "$version") installed"
+  say "  binary   $bin"
+  say ""
+  say "Runtimes"
+  # A failed summary is cosmetic: warn and carry on.
+  "$bin" --runtimes-summary </dev/null || warn "could not list the installed runtimes"
+  [ -z "$runtimes_note" ] || say "  $runtimes_note"
+  [ -z "$brew_note" ] || warn "$brew_note"
   warn_path
-  say "Run \`notisbook\` to start."
+  say ""
+  say "To start: notisbook"
 }
 
 main() {
