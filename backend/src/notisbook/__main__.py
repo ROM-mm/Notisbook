@@ -77,23 +77,22 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.command and _server_flags_set(args):
         parser.error(f"server options cannot be combined with the '{args.command}' command")
-    if args.install_default_runtimes and _server_options_set(args):
+    if args.install_default_runtimes and _serve_options_set(args):
         parser.error("--install-default-runtimes cannot be combined with server options")
     if args.port is None:
         args.port = DEFAULT_PORT
     return args
 
 
-def _server_options_set(args: argparse.Namespace) -> bool:
+def _serve_options_set(args: argparse.Namespace) -> bool:
+    """True se alguma opção que configura o servidor (--port, --root, --no-browser) foi passada."""
     return args.port is not None or args.root is not None or args.no_browser
 
 
 def _server_flags_set(args: argparse.Namespace) -> bool:
     """True se alguma flag do modo servidor foi passada (argparse aceitaria `--port 1 update` em silêncio)."""
     return (
-        args.port is not None
-        or args.root is not None
-        or args.no_browser
+        _serve_options_set(args)
         or args.check_notislake
         or args.stop_running
         or args.install_default_runtimes
