@@ -91,8 +91,8 @@ def saved_or_default_root(home: Path, *, warn: bool = True) -> tuple[Path, str]:
     """Pasta de notebooks e sua origem (`"saved"` ou `"default"`), sem criar nada.
 
     Usa o `notebooks_root` salvo quando passa na validação da API (precisa existir); senão avisa no stderr
-    e cai em `default_root(home)`. Fonte única para o app e para `--seed-samples`; este passa `warn=False`
-    para o aviso sair uma vez por partida (o app o emite).
+    e cai em `default_root(home)`. Fonte única para o app e para `--seed-samples`; o seed avisa, salvo com
+    `NOTISBOOK_SEED_QUIET_ROOT_WARNING=1` (que o `start.sh` usa porque o app avisa ao subir).
     """
     saved = read_notebooks_root(home)
     if saved is not None:
