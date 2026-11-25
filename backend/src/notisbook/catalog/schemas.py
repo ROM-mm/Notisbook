@@ -12,14 +12,13 @@ import hashlib
 import json
 import re
 import sqlite3
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from ..notislake import locations
 from . import iceberg_jdbc, registry
 from .store import catalog_db_path, connect, ensure_catalog_db
+from .store import immediate as _immediate
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 RESERVED_SPARK = {"global_temp"}
@@ -50,7 +49,7 @@ class SchemaError(Exception):
 def validate(catalog: str, name: str) -> None:
     if catalog not in (*_SPARK_NODES, iceberg_jdbc.ICEBERG_CATALOG):
         raise SchemaError("invalid_catalog")
-    if not NAME_RE.match(name):
+    if NAME_RE.fullmatch(name) is None:
         raise SchemaError("invalid_name")
 
 
@@ -89,20 +88,6 @@ def _open_write(home: Path) -> sqlite3.Connection:
     if not catalog_db_path(home).exists():
         ensure_catalog_db(home)
     return connect(home)
-
-
-@contextmanager
-def _immediate(conn: sqlite3.Connection) -> Iterator[None]:
-    conn.execute("BEGIN IMMEDIATE")
-    try:
-        yield
-    except BaseException:
-        try:
-            conn.execute("ROLLBACK")
-        except sqlite3.Error:
-            pass
-        raise
-    conn.execute("COMMIT")
 
 
 def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:

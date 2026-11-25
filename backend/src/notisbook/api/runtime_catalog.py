@@ -29,7 +29,7 @@ from pydantic import (
     ValidationError,
 )
 
-from ..catalog import iceberg_jdbc, registry
+from ..catalog import glue_repo, iceberg_jdbc, registry
 from ..catalog.store import catalog_db_path, connect, ensure_catalog_db
 from ..fs_safety import is_within
 from ..notislake import locations as notislake_locations
@@ -297,14 +297,15 @@ def _iceberg_tables(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 def _registry(home: Path) -> dict[str, Any]:
     conn = _open_read(home)
     if conn is None:
-        return {"generation": 0, "tables": [], "namespaces": [], "iceberg": []}
+        return {"generation": 0, "tables": [], "namespaces": [], "iceberg": [], "glue": []}
     try:
         generation, rows, namespaces = registry.read_snapshot(conn)
         iceberg = _iceberg_tables(conn)
+        glue = glue_repo.registry_tables(conn)
     finally:
         conn.close()
     tables = [{"db": db, "name": name, **row} for (db, name), row in sorted(rows.items())]
-    return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces), "iceberg": iceberg}
+    return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces), "iceberg": iceberg, "glue": glue}
 
 
 def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:

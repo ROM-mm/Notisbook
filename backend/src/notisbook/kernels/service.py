@@ -955,21 +955,30 @@ class KernelService:
 
         return build
 
-    def _runtime_grant(self, session_id: str, plan: MountPlan, s3a_fingerprint: str | None = None) -> RuntimeGrant:
+    def _runtime_grant(
+        self, session_id: str, plan: MountPlan, s3a_fingerprint: str | None = None, *, glue: bool = False
+    ) -> RuntimeGrant:
         """Raízes locais do token: todas as montagens do plano (por realpath), Connections inclusive quando montada."""
         roots = tuple(dict.fromkeys(os.path.realpath(p) for p in plan.paths))
         return RuntimeGrant(
             session_id=session_id,
             roots=roots,
             s3a_fingerprint=s3a_fingerprint,
+            glue=glue,
         )
 
-    def _docker_catalog_factory(self, grant: RuntimeGrant) -> Callable[[str, Mapping[str, str] | None], str]:
-        """Snippet do hook com transporte HTTP; o container alcança o backend pelo `host.lima.internal`."""
+    def _docker_catalog_factory(
+        self, grant: RuntimeGrant, *, glue: bool = False
+    ) -> Callable[[str, Mapping[str, str] | None], str]:
+        """Snippet do hook com transporte HTTP; o container alcança o backend pelo `host.lima.internal`.
+
+        No runtime Glue o snippet leva o id da sessão (access key do endpoint Glue); o segredo é o token de cada kernel.
+        """
         base_url = f"http://{RUNTIME_HOST}:{self._port}/api/runtime-catalog"
+        access_key = grant.session_id if glue else None
 
         def build(token: str, s3a: Mapping[str, str] | None) -> str:
-            return build_catalog_http_ensure_code(base_url, token, grant.roots, s3a=s3a)
+            return build_catalog_http_ensure_code(base_url, token, grant.roots, s3a=s3a, glue_access_key=access_key)
 
         return build
 
@@ -1166,7 +1175,10 @@ class KernelService:
                 runtime_grant = RuntimeGrant(session_id=session_id, roots=(), s3a_fingerprint=s3a.fingerprint)
             elif docker_runtime is not None:
                 runtime_grant = self._runtime_grant(
-                    session_id, await self._prepare_docker(docker_runtime), s3a.fingerprint
+                    session_id,
+                    await self._prepare_docker(docker_runtime),
+                    s3a.fingerprint,
+                    glue=docker_runtime.key == "glue",
                 )
             else:
                 await asyncio.to_thread(self._ensure_log4j2, spec)
@@ -1182,7 +1194,7 @@ class KernelService:
             if is_duckdb:
                 catalog_factory = self._duckdb_bootstrap_factory(spec)
             elif docker_runtime is not None and runtime_grant is not None:
-                catalog_factory = self._docker_catalog_factory(runtime_grant)
+                catalog_factory = self._docker_catalog_factory(runtime_grant, glue=docker_runtime.key == "glue")
             session = KernelSession(
                 session_id,
                 path,

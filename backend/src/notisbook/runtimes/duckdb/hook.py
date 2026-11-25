@@ -11,14 +11,21 @@ from collections.abc import Mapping
 from urllib.parse import urlsplit
 
 from ...kernels.sql_cell import MODULE_NAME
+from ...notislake.locations import known_buckets
 
 REST_PATH = "/iceberg"
 SECRET_S3 = "notisbook_s3"
+SECRET_S3_DENY = "notisbook_s3_deny"
 SECRET_ICEBERG = "notisbook_iceberg"
 CATALOG = "notislake"
-# Mesmo bucket com os dois esquemas: um SCOPE só com um deles dá 403 no outro.
+# Esquemas S3 que o DuckDB aceita; o mesmo bucket sob todos eles, pois um SCOPE só com um esquema dá 403 nos outros.
+_S3_SCHEMES = ("s3", "s3a", "s3n")
 # A barra final impede casar outro bucket com o mesmo prefixo (`s3://notislake-outro`).
-S3_SCOPES = ("s3://notislake/", "s3a://notislake/")
+S3_SCOPES = tuple(f"{scheme}://{bucket}/" for bucket in known_buckets() for scheme in _S3_SCHEMES)
+# Fail-closed: qualquer outro bucket cai neste secret, de escopo mais curto, e vai para uma porta morta
+# (a mesma do Spark) em vez de sair sem credencial para a AWS. O SCOPE mais longo do secret real vence nos buckets conhecidos.
+DENY_SCOPES = tuple(f"{scheme}://" for scheme in _S3_SCHEMES)
+DENY_ENDPOINT = "127.0.0.1:1"
 REQUIRED_EXTENSIONS = ("httpfs", "iceberg", "avro")
 _S3A_PREFIX = "fs.s3a.bucket.notislake."
 
@@ -63,6 +70,11 @@ try:
         except Exception:
             if name in cfg["required"]:
                 raise
+    con.execute(
+        "CREATE OR REPLACE TEMPORARY SECRET " + cfg["deny_name"] + " (TYPE S3, KEY_ID 'denied', SECRET 'denied', ENDPOINT "
+        + q(cfg["deny_endpoint"]) + ", URL_STYLE 'path', USE_SSL false, REGION 'us-east-1', SCOPE ["
+        + ", ".join(q(s) for s in cfg["deny_scopes"]) + "])"
+    )
     if cfg.get("s3"):
         s3 = cfg["s3"]
         con.execute(
@@ -117,6 +129,9 @@ def build_bootstrap_code(
         "s3_name": SECRET_S3,
         "ice_name": SECRET_ICEBERG,
         "scopes": list(S3_SCOPES),
+        "deny_name": SECRET_S3_DENY,
+        "deny_scopes": list(DENY_SCOPES),
+        "deny_endpoint": DENY_ENDPOINT,
         "key_id": (options or {}).get(f"{_S3A_PREFIX}access.key"),
         "secret": (options or {}).get(f"{_S3A_PREFIX}secret.key"),
         "token": token,

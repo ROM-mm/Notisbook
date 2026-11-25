@@ -1,10 +1,13 @@
-"""Criação e conexão do `catalog.db`: registro `nb_*` do Notisbook e tabelas do Iceberg JdbcCatalog.
+"""Criação e conexão do `catalog.db`: registro `nb_*` do Notisbook, tabelas do Iceberg JdbcCatalog e catálogo `glue_*`.
 
 O backend é o único que cria/altera tabelas. O DDL `iceberg_*` replica o que o `JdbcCatalog` do
 Iceberg 1.10.1 (schema V1) cria, mas com `IF NOT EXISTS`, para que kernels concorrentes não disputem a criação.
+O DDL `glue_*` guarda o payload do AWS Glue (JSON) para o endpoint Glue responder como a AWS; também é idempotente.
 """
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +32,41 @@ _ICEBERG_DDL = (
   property_key VARCHAR(255),
   property_value VARCHAR(1000),
   PRIMARY KEY (catalog_name, namespace, property_key))""",
+)
+
+# Catálogo `glue`: o payload do Glue (StorageDescriptor, Parameters...) fica em JSON para voltar no GetTable como foi
+# gravado. `location` é a forma canônica (`s3a://`, sem `/` final) usada só nas checagens de sobreposição.
+# Datas em segundos desde a época (o protocolo Glue serializa timestamps assim).
+_GLUE_DDL = (
+    """CREATE TABLE IF NOT EXISTS glue_databases (
+  name         TEXT PRIMARY KEY,
+  description  TEXT,
+  location_uri TEXT,
+  parameters   TEXT NOT NULL DEFAULT '{}',
+  create_time  REAL NOT NULL)""",
+    """CREATE TABLE IF NOT EXISTS glue_tables (
+  database_name      TEXT NOT NULL,
+  name               TEXT NOT NULL,
+  table_type         TEXT NOT NULL DEFAULT 'EXTERNAL_TABLE',
+  description        TEXT,
+  storage_descriptor TEXT NOT NULL DEFAULT '{}',
+  partition_keys     TEXT NOT NULL DEFAULT '[]',
+  parameters         TEXT NOT NULL DEFAULT '{}',
+  extra              TEXT NOT NULL DEFAULT '{}',
+  location           TEXT,
+  create_time        REAL NOT NULL,
+  update_time        REAL NOT NULL,
+  version_id         INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY (database_name, name))""",
+    "CREATE INDEX IF NOT EXISTS glue_tables_location ON glue_tables(location)",
+    """CREATE TABLE IF NOT EXISTS glue_partitions (
+  database_name      TEXT NOT NULL,
+  table_name         TEXT NOT NULL,
+  values_json        TEXT NOT NULL,
+  storage_descriptor TEXT NOT NULL DEFAULT '{}',
+  parameters         TEXT NOT NULL DEFAULT '{}',
+  create_time        REAL NOT NULL,
+  PRIMARY KEY (database_name, table_name, values_json))""",
 )
 
 # Migrações do registro `nb_*`: índice i leva `user_version` de i para i+1.
@@ -118,6 +156,17 @@ def _seed_layers(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'")
 
 
+def _seed_glue_layers(conn: sqlite3.Connection) -> None:
+    """Garante as camadas como databases do `glue` (idempotente). Não mexe na `generation`: o `glue` não é lido pelo hook."""
+    stamp = datetime.now(timezone.utc).timestamp()
+    for layer in locations.LAYERS:
+        conn.execute(
+            "INSERT OR IGNORE INTO glue_databases (name, description, location_uri, parameters, create_time) "
+            "VALUES (?, NULL, NULL, '{}', ?)",
+            (layer, stamp),
+        )
+
+
 def catalog_db_path(home: Path) -> Path:
     return home / CATALOG_DB
 
@@ -130,6 +179,21 @@ def connect(home: Path) -> sqlite3.Connection:
     return conn
 
 
+@contextmanager
+def immediate(conn: sqlite3.Connection) -> Iterator[None]:
+    """Transação de escrita (`BEGIN IMMEDIATE`): COMMIT ao sair, ROLLBACK se levantar. A conexão deve estar em autocommit."""
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield
+    except BaseException:
+        try:
+            conn.execute("ROLLBACK")
+        except sqlite3.Error:
+            pass
+        raise
+    conn.execute("COMMIT")
+
+
 def ensure_catalog_db(home: Path) -> None:
     """Cria/migra o `catalog.db` e semeia as camadas; idempotente e seguro com partidas concorrentes. Levanta `sqlite3.Error`."""
     conn = connect(home)
@@ -137,7 +201,7 @@ def ensure_catalog_db(home: Path) -> None:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("BEGIN IMMEDIATE")
         try:
-            for statement in _ICEBERG_DDL:
+            for statement in (*_ICEBERG_DDL, *_GLUE_DDL):
                 conn.execute(statement)
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             for target, statements in enumerate(_NB_MIGRATIONS[version:], start=version + 1):
@@ -145,6 +209,7 @@ def ensure_catalog_db(home: Path) -> None:
                     conn.execute(statement)
                 conn.execute(f"PRAGMA user_version={target}")
             _seed_layers(conn)
+            _seed_glue_layers(conn)
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")

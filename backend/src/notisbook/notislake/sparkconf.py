@@ -1,6 +1,6 @@
 """Opções S3A do bucket do notislake a partir da conexão resolvida (módulo puro, sem I/O).
 
-Só gera chaves `fs.s3a.bucket.notislake.*`: a configuração por bucket não afeta outros destinos S3.
+Só gera chaves `fs.s3a.bucket.notislake.*` (e `scheme_options`, o mapeamento de `s3://`): a configuração por bucket não afeta outros destinos S3.
 O resultado de `s3a_options` carrega o segredo, então `repr`/`str` o mascaram; quem grava na sessão
 Spark usa `items()`. `closed_options` é a config fechada (sem segredo) para processos sem o hook.
 """
@@ -23,6 +23,8 @@ _SECRET_KEY = f"{_PREFIX}secret.key"
 _CREDENTIALS_PROVIDER = "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
 _ANONYMOUS_PROVIDER = "org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider"
 _DEAD_ENDPOINT = "http://127.0.0.1:1"
+_S3A_FS = "org.apache.hadoop.fs.s3a.S3AFileSystem"
+_S3A_ABSTRACT_FS = "org.apache.hadoop.fs.s3a.S3A"
 # Sem retry/timeout curtos, uma queda do MinIO prende a célula por minutos (padrões do Hadoop).
 _RETRIES = "2"
 _CONNECT_TIMEOUT_MS = "5000"
@@ -52,6 +54,14 @@ def closed_options() -> dict[str, str]:
         f"{_PREFIX}attempts.maximum": "1",
         f"{_PREFIX}retry.limit": "0",
     }
+
+
+def scheme_options() -> dict[str, str]:
+    """Mapeia `s3://` para o S3A (sinônimo de `s3a://`); sem segredo. O PySpark local não traz esse mapeamento.
+
+    As chaves por bucket de `closed_options`/`s3a_options` valem para os dois esquemas; o hook grava estas na sessão.
+    """
+    return {"fs.s3.impl": _S3A_FS, "fs.AbstractFileSystem.s3.impl": _S3A_ABSTRACT_FS}
 
 
 def _container_endpoint(endpoint: str) -> str:

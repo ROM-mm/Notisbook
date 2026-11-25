@@ -3,7 +3,8 @@
  * catálogo persistente (`catalog.db`), sem depender de kernel ou notebook.
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
- * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
+ * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema. O nó `glue` é só leitura
+ * (o backend recusa `catalog=glue` em `/api/catalog/schemas`): sem menu de contexto e fora do destino do "+".
  * Linha de tabela é folha (sem chevron): clique (ou Enter) abre o painel Table info, que mostra as colunas.
  * Linha de catálogo: clique (ou Enter) abre o painel Catalog info e expande o nó se recolhido (nunca recolhe);
  * o chevron (ou Space/setas) segue expandindo/recolhendo. Um painel lateral por vez.
@@ -47,7 +48,7 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, GLUE_CATALOG, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
@@ -77,6 +78,7 @@ function orderSchemas<T extends { name: string }>(databases: T[]): T[] {
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
   iceberg_catalog_unreadable: "Iceberg tables unavailable: catalog could not be read.",
+  glue_catalog_unreadable: "Glue tables unavailable: catalog could not be read.",
 };
 
 interface Row {
@@ -363,8 +365,9 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  /** Itens do menu de contexto; tabelas não têm menu. */
+  /** Itens do menu de contexto; tabelas e o nó `glue` (só leitura) não têm menu. */
   function menuItems(row: Row): MenuItem[] | null {
+    if (row.catalog === GLUE_CATALOG) return null;
     if (row.kind === "catalog" && row.catalog) {
       const catalog = row.catalog;
       return [{ label: "Create Schema…", disabled: row.catalogError, onSelect: () => onCreate(catalog), testId: "catalog-create-schema" }];
@@ -621,9 +624,12 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   );
 }
 
-/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o nó `hudi` só pelo menu de contexto). */
+/**
+ * Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o nó `hudi` só pelo menu de
+ * contexto; o `glue` nunca, pois não aceita criar schema).
+ */
 function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
-  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== HUDI_CATALOG);
+  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== HUDI_CATALOG && c.name !== GLUE_CATALOG);
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 

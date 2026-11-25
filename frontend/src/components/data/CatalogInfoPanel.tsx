@@ -9,7 +9,7 @@ import type { CatalogInfo, CatalogInfoStatus, CatalogKind } from "../../api/cata
 import { CATALOG_INFO_PANEL_ID, useCatalog } from "../../state/catalog";
 import { DatabaseIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, GLUE_CATALOG, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import { tableFormatLabel } from "./tableFormat";
@@ -43,6 +43,14 @@ const STATUS_ERRORS: Partial<Record<CatalogInfoStatus, string>> = {
 const PROFILE_NOTE =
   "Config shown is the local Spark runtime profile. In Docker/Glue and DuckDB runtimes, iceberg is reached through the app's REST catalog and the token is applied to the session.";
 
+const GLUE_NOTE =
+  "Local AWS Glue Data Catalog served by the app. Glue runtimes reach it through the AWS Glue API endpoint; schemas and tables are created from notebooks, not from this panel.";
+
+/** Nota de rodapé do Overview por catálogo. */
+function profileNote(name: string): string {
+  return name === GLUE_CATALOG ? GLUE_NOTE : PROFILE_NOTE;
+}
+
 const numberFormat = new Intl.NumberFormat("en-US");
 
 function CatalogIcon({ name, size }: { name: string; size: number }) {
@@ -50,9 +58,11 @@ function CatalogIcon({ name, size }: { name: string; size: number }) {
   return icon ? <BrandIcon icon={icon} size={size} /> : <DatabaseIcon size={size} />;
 }
 
-/** Caminho do cabeçalho: chave de config do catálogo, ou o catálogo real por trás do nó `hudi`. */
+/** Caminho do cabeçalho: chave de config do catálogo, o catálogo real por trás do nó `hudi`, ou o Glue local. */
 function catalogPath(name: string): string {
-  return name === HUDI_CATALOG ? `${SPARK_CATALOG} · Hudi tables` : `spark.sql.catalog.${name}`;
+  if (name === HUDI_CATALOG) return `${SPARK_CATALOG} · Hudi tables`;
+  if (name === GLUE_CATALOG) return `${GLUE_CATALOG} · AWS Glue Data Catalog`;
+  return `spark.sql.catalog.${name}`;
 }
 
 function formatsText(formats: Record<string, number>): string {
@@ -89,7 +99,7 @@ function Overview({ info }: { info: CatalogInfo }) {
         </p>
       ) : null}
       <Facts facts={facts} />
-      <p className={styles.note}>{PROFILE_NOTE}</p>
+      <p className={styles.note}>{profileNote(info.name)}</p>
     </>
   );
 }

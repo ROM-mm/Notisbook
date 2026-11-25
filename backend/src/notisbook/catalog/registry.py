@@ -331,13 +331,15 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
     `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (só remove a linha), `new_dbs`, `gone_dbs`.
     `rec_loc` é a trava: só mexe na linha que ainda aponta para ele. `type_from_row`: tipo do update vem da linha (HTTP).
     `destination` (`locations.table_destination`) liga a regra do notislake: camada pelo schema, sem sobrepor outra tabela
-    (registro ou Iceberg) e sem `<schema>.<t>` repetido no Iceberg; recusas vão em `rejected` `(key, code)`, sem gravar.
+    (registro, Iceberg ou `glue`) e sem `<schema>.<t>` repetido no Iceberg ou no `glue`; recusas vão em `rejected`
+    `(key, code)`, sem gravar.
     `protected_dbs` (camadas) nunca saem de `gone_dbs`. `deletions`/`files_kept`: MANAGED sem outro uso / ainda em uso.
     """
     out = {"changed": False, "adopted": [], "conflicts": [], "updated_ok": [], "renamed_ok": [],
            "dropped_ok": [], "deletions": [], "files_kept": [], "rejected": []}
     changed = False
     has_iceberg = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone()
+    has_glue = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone()
 
     def on_lake(loc):
         scheme, sep, rest = loc.partition("://")
@@ -348,7 +350,10 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
     # a pasta de uma tabela Iceberg é o pai de `metadata/`.
     spark_locs = {}
     iceberg_locs = []
+    glue_locs = []
     if destination is not None:
+        if has_glue:
+            glue_locs = [loc for (loc,) in conn.execute("SELECT location FROM glue_tables WHERE location IS NOT NULL")]
         for ns, name, loc in conn.execute(
                 "SELECT namespace, table_name, location FROM nb_tables WHERE catalog_name = 'spark_catalog'"):
             spark_locs[(ns, name)] = loc
@@ -363,18 +368,23 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             del spark_locs[key]
 
     def known_locations(skip_key):
-        return [loc for key, loc in spark_locs.items() if key != skip_key] + iceberg_locs
+        return [loc for key, loc in spark_locs.items() if key != skip_key] + iceberg_locs + glue_locs
 
     def name_in_iceberg(key):
         return bool(has_iceberg) and conn.execute(
             "SELECT 1 FROM iceberg_tables WHERE catalog_name = 'iceberg' AND lower(table_namespace) = lower(?) "
             "AND lower(table_name) = lower(?)", key).fetchone() is not None
 
+    def name_in_glue(key):
+        return bool(has_glue) and conn.execute(
+            "SELECT 1 FROM glue_tables WHERE lower(database_name) = lower(?) AND lower(name) = lower(?)",
+            key).fetchone() is not None
+
     def refusal(key, loc, skip_key, new_name):
         """Código da recusa (`InvalidLocation.code` ou nome repetido) ou `None`; sem `destination` a regra está desligada."""
         if destination is None:
             return None
-        if new_name and name_in_iceberg(key):
+        if new_name and (name_in_iceberg(key) or name_in_glue(key)):
             return "name_in_other_catalog"
         if not on_lake(loc):
             return None

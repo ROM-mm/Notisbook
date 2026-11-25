@@ -1,15 +1,17 @@
 /**
  * Painel Table info: encaixado à direita do conteúdo (não é modal), mostra os
  * metadados de `/api/catalog/table` da tabela aberta pela árvore do Catalog.
- * Só dados que não dependem do kernel; `history`/`properties`/`stats` só no Iceberg.
+ * Só dados que não dependem do kernel; `history`/`stats` só no Iceberg, `properties` no Iceberg e no `glue`.
+ * Tabelas do `glue` trazem ainda o armazenamento do AWS Glue (classification, formatos, SerDe) e não têm DROP.
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
  */
 import type { ReactNode } from "react";
-import type { TableHistoryEntry, TableInfo, TableQuery, TableVersion } from "../../api/catalog";
+import type { GlueStorage, TableHistoryEntry, TableInfo, TableQuery, TableVersion } from "../../api/catalog";
 import { TABLE_INFO_PANEL_ID, tableRef, useCatalog } from "../../state/catalog";
 import { formatSize } from "../files/format";
 import { TableIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
+import { GLUE_CATALOG } from "./catalogLabels";
 import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import own from "./TableInfoPanel.module.css";
@@ -43,7 +45,7 @@ function formatCount(value: number | null): string {
 
 function formatVersion(version: TableVersion | null): string {
   if (!version || version.value === null || version.value === "") return DASH;
-  if (version.kind === "delta_version") return `version ${version.value}`;
+  if (version.kind === "delta_version" || version.kind === "glue_version") return `version ${version.value}`;
   if (version.kind === "hudi_instant") return `instant ${version.value}`;
   return `snapshot ${version.value}`;
 }
@@ -75,9 +77,29 @@ function dropSentence(info: TableInfo): ReactNode {
           only; files are deleted only with DROP TABLE … PURGE.
         </>
       );
+    case "none":
+      // O catálogo não expõe DROP (ex.: `glue`): sem frase nem ação.
+      return null;
     default:
       return null;
   }
+}
+
+function formatCompressed(value: boolean | null): string {
+  return value === null ? DASH : value ? "yes" : "no";
+}
+
+/** Linhas do armazenamento do AWS Glue (só tabelas do catálogo `glue`). */
+function glueFacts(glue: GlueStorage): [string, ReactNode][] {
+  const mono = (v: string | null): ReactNode => (v ? <span className={styles.mono}>{v}</span> : DASH);
+  return [
+    ["Glue table type", glue.glue_table_type ?? DASH],
+    ["Classification", glue.classification ?? DASH],
+    ["Input format", mono(glue.input_format)],
+    ["Output format", mono(glue.output_format)],
+    ["SerDe", mono(glue.serde_library)],
+    ["Compressed", formatCompressed(glue.compressed)],
+  ];
 }
 
 function Overview({ info }: { info: TableInfo }) {
@@ -101,6 +123,7 @@ function Overview({ info }: { info: TableInfo }) {
       ["Data files", formatCount(info.stats.total_data_files)],
     );
   }
+  if (info.glue) facts.push(...glueFacts(info.glue));
   return <Facts facts={facts} />;
 }
 
@@ -149,6 +172,16 @@ function historyDetail(h: TableHistoryEntry): string {
 
 function History({ info }: { info: TableInfo }) {
   if (info.history === null) {
+    if (info.catalog === GLUE_CATALOG) {
+      return (
+        <div className={styles.empty}>
+          <p>Glue table version history is not shown; only the current version is known from the catalog.</p>
+          <p>
+            Current version: <span className={styles.mono}>{formatVersion(info.version)}</span>
+          </p>
+        </div>
+      );
+    }
     if (info.format === "parquet") return <p className={styles.empty}>Parquet has no versions.</p>;
     if (info.format === "iceberg") {
       return <p className={styles.empty}>Snapshot history unavailable without the Iceberg metadata.</p>;

@@ -4,7 +4,7 @@ import { ApiError, errorMessage, request } from "./http";
 export interface CatalogTable {
   name: string;
   namespace: string[];
-  /** `delta`, `parquet`, `hudi` ou `iceberg`. */
+  /** `delta`, `parquet`, `hudi` ou `iceberg`; no `glue` também `csv`, `json`, `orc` ou `avro`. */
   format: string;
   /** `MANAGED` ou `EXTERNAL`. */
   table_type: string;
@@ -52,12 +52,13 @@ export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
   return request<CatalogResponse>("/api/catalog", { signal });
 }
 
-export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg";
-export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge";
+export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg" | "csv" | "json" | "orc" | "avro";
+/** `none`: o catálogo não expõe DROP (tabelas do `glue`). */
+export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge" | "none";
 export type TableMetadataError = "unavailable" | "store_unavailable";
 
 export interface TableVersion {
-  kind: "delta_version" | "hudi_instant" | "iceberg_snapshot";
+  kind: "delta_version" | "hudi_instant" | "iceberg_snapshot" | "glue_version";
   value: string | number | null;
 }
 
@@ -76,7 +77,18 @@ export interface TableStats {
   total_data_files: number | null;
 }
 
-/** Metadados de uma tabela sem kernel; `history`/`properties`/`stats` só existem no Iceberg. */
+/** Armazenamento de uma tabela do `glue` (StorageDescriptor e parâmetros do AWS Glue). */
+export interface GlueStorage {
+  classification: string | null;
+  input_format: string | null;
+  output_format: string | null;
+  serde_library: string | null;
+  compressed: boolean | null;
+  /** `TableType` do Glue (ex.: `EXTERNAL_TABLE`). */
+  glue_table_type: string | null;
+}
+
+/** Metadados de uma tabela sem kernel; `history`/`stats` só existem no Iceberg, `properties` no Iceberg e no `glue`. */
 export interface TableInfo {
   catalog: string;
   database: string;
@@ -96,6 +108,8 @@ export interface TableInfo {
   properties: Record<string, string> | null;
   stats: TableStats | null;
   metadata_error: TableMetadataError | null;
+  /** Só no catálogo `glue`. */
+  glue?: GlueStorage | null;
 }
 
 /** 404 tabela inexistente, 409 schema Iceberg não suportado, 503 `catalog.db` indisponível. */

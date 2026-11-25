@@ -2,7 +2,8 @@
 
 Módulo autocontido (só stdlib) para ser importado por catálogo, REST e hook sem ciclos. Não
 consulta rede nem disco: toda decisão é sintática e a sobreposição recebe as locations já
-conhecidas como argumento. O schema decide a camada: a tabela MANAGED fica em
+conhecidas como argumento. `s3://` é sinônimo de `s3a://` só na entrada (`canonical`); a forma interna é
+sempre `s3a`. Só os buckets de `KNOWN_BUCKETS` são acessíveis. O schema decide a camada: a tabela MANAGED fica em
 `s3a://notislake/<camada>/<tabela>`, sem `spark`/`iceberg` nem `.db` no caminho. Os erros são
 `InvalidLocation` com `code` categórico; a mensagem nunca repete a entrada.
 """
@@ -18,6 +19,9 @@ LAYERS = ("bronze", "silver", "gold")
 LANDING = "landing"  # zona externa: não é camada de catálogo; paths sob ela são livres
 MIN_DEPTH = 2  # `<camada>/<dataset>`: a raiz do bucket e uma camada sozinha não são locations de tabela
 ROOT_URI = f"{SCHEME}://{BUCKET}"  # raiz do bucket: warehouse do Iceberg, que cria `<ns>/<t>` abaixo dela
+
+# Único ponto da lista de buckets acessíveis em leitura e escrita; buckets do desenvolvedor entram aqui.
+KNOWN_BUCKETS = (BUCKET,)
 
 _PREFIX = f"{SCHEME}://{BUCKET}/"
 _ALIAS_SCHEMES = ("s3", "s3a", "s3n")
@@ -78,6 +82,31 @@ def targets_notislake(uri: str) -> bool:
         return False
     scheme, sep, rest = uri.partition("://")
     return bool(sep) and scheme.lower() in _ALIAS_SCHEMES and rest.partition("/")[0] == BUCKET
+
+
+def known_buckets() -> tuple[str, ...]:
+    """Buckets que leitura e escrita podem alcançar (hoje só o `notislake`)."""
+    return KNOWN_BUCKETS
+
+
+def canonical(uri: str) -> str:
+    """`s3://` vira `s3a://` (forma interna); qualquer outra entrada, inclusive `s3n://`, volta como veio."""
+    if isinstance(uri, str):
+        scheme, sep, rest = uri.partition("://")
+        if sep and scheme.lower() == "s3":
+            return f"{SCHEME}://{rest}"
+    return uri
+
+
+def unknown_bucket(uri: str) -> str | None:
+    """Bucket de uma URI `s3`/`s3a`/`s3n` que não está em `KNOWN_BUCKETS` (comparação exata); senão `None`."""
+    if not isinstance(uri, str):
+        return None
+    scheme, sep, rest = uri.partition("://")
+    if not sep or scheme.lower() not in _ALIAS_SCHEMES:
+        return None
+    bucket = rest.partition("/")[0]
+    return None if bucket in KNOWN_BUCKETS else bucket
 
 
 def layer_of_schema(schema: str) -> str | None:

@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from ..catalog import iceberg_jdbc, registry, schemas
+from ..catalog import glue_view, iceberg_jdbc, registry, schemas
 from ..catalog.catalog_info import KNOWN_CATALOGS, build_catalog_info
 from ..catalog.store import catalog_db_path, connect
 from ..kernels.service import KernelsBusy
@@ -56,8 +56,11 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
     conn = _open(home)
     if conn is None:
         return [
-            {"name": node, "databases": [{"name": ns, "tables": []} for ns in registry.empty_display_names()]}
-            for node in (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
+            *(
+                {"name": node, "databases": [{"name": ns, "tables": []} for ns in registry.empty_display_names()]}
+                for node in (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
+            ),
+            {"name": glue_view.GLUE_CATALOG, "databases": glue_view.empty_databases()},
         ]
     try:
         databases, used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES)
@@ -72,9 +75,18 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
         except sqlite3.Error:
             iceberg_node = iceberg_jdbc.error_entry(iceberg_jdbc.ERR_UNREADABLE)
         hudi_node: dict[str, Any] = {"name": registry.HUDI_CATALOG, "databases": hudi_dbs}
-        return [spark_node, iceberg_node, hudi_node]
+        return [spark_node, iceberg_node, hudi_node, _glue_node(conn, registry.MAX_TOTAL_TABLES - used)]
     finally:
         conn.close()
+
+
+def _glue_node(conn: sqlite3.Connection, remaining: int) -> dict[str, Any]:
+    """Nó `glue`; falha de leitura degrada só este nó (como o Iceberg), sem derrubar a árvore."""
+    try:
+        databases, _ = glue_view.list_databases(conn, remaining)
+    except sqlite3.Error:
+        return glue_view.error_entry()
+    return {"name": glue_view.GLUE_CATALOG, "databases": databases}
 
 
 def _store_opener(request: Request) -> iceberg_jdbc.StoreOpener:
@@ -91,6 +103,7 @@ def _dispatch[T](
     spark: Callable[[sqlite3.Connection], T],
     hudi: Callable[[sqlite3.Connection], T],
     iceberg: Callable[[sqlite3.Connection], T],
+    glue: Callable[[sqlite3.Connection], T],
 ) -> T | None:
     """Abre o catálogo só leitura e delega ao leitor do `catalog`; `None` se o db não existe ou o catálogo é desconhecido."""
     conn = _open(home)
@@ -103,6 +116,8 @@ def _dispatch[T](
             return hudi(conn)
         if catalog == iceberg_jdbc.ICEBERG_CATALOG:
             return iceberg(conn)
+        if catalog == glue_view.GLUE_CATALOG:
+            return glue(conn)
         return None
     finally:
         conn.close()
@@ -117,6 +132,7 @@ def _read_table_info(
         spark=lambda conn: registry.read_table_info(conn, database, table),
         hudi=lambda conn: registry.read_table_info(conn, database, table, hudi_only=True),
         iceberg=lambda conn: iceberg_jdbc.read_table_info(conn, database, table, open_store),
+        glue=lambda conn: glue_view.read_table_info(conn, database, table),
     )
 
 
@@ -149,6 +165,8 @@ async def get_table_info(request: Request, home: Home, catalog: Name, database: 
 def _read_catalog_info(home: Path, catalog: str) -> dict[str, Any]:
     conn = _open(home)
     try:
+        if catalog == glue_view.GLUE_CATALOG:
+            return glue_view.build_catalog_info(conn)
         return build_catalog_info(home, catalog, conn)
     finally:
         if conn is not None:
@@ -157,11 +175,11 @@ def _read_catalog_info(home: Path, catalog: str) -> dict[str, Any]:
 
 @router.get("/info")
 async def get_catalog_info(home: Home, catalog: Name) -> dict[str, Any]:
-    """Visão geral de um catálogo (`spark_catalog`, `iceberg` ou `hudi`), só leitura. 404 desconhecido, 503 se o db falhar.
+    """Visão geral de um catálogo (`spark_catalog`, `iceberg`, `hudi` ou `glue`), só leitura. 404 desconhecido, 503 se o db falhar.
 
     Sem `catalog.db` devolve `status: "empty"`; Iceberg ilegível devolve 200 com o status degradado. Segredos saem mascarados.
     """
-    if catalog not in KNOWN_CATALOGS:
+    if catalog not in (*KNOWN_CATALOGS, glue_view.GLUE_CATALOG):
         raise HTTPException(404, "Catalog not found")
     try:
         return await asyncio.to_thread(_read_catalog_info, home, catalog)

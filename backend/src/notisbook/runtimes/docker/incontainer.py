@@ -2,7 +2,7 @@
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
   run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]
-                         [--s3a-closed JSON]
+                         [--s3a-closed JSON] [--glue-uri URI]
                          lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
                          vira líder de grupo, grava PID+starttime em /run/notisbook e faz exec do ipykernel
   kill <tag>             SIGKILL no grupo do kernel de <tag> (validando PID+starttime)
@@ -28,7 +28,7 @@ RUN_DIR = "/run/notisbook"
 TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
-RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse", "--s3a-closed"}
+RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse", "--s3a-closed", "--glue-uri"}
 # Warehouse do Iceberg: só a raiz do bucket; espelha `notislake.locations.ROOT_URI` (o incontainer não importa `notisbook.*`).
 ICEBERG_WAREHOUSE_URI = "s3a://notislake"
 # Warehouse local de segurança do `spark_catalog`: `file:` absoluto, sem `..`, aspas, vírgula ou controle.
@@ -38,6 +38,12 @@ S3A_KEY_RE = re.compile(r"fs\.s3a\.bucket\.notislake\.[a-z][a-z0-9.]{0,80}")
 S3A_VALUE_RE = re.compile(r"[A-Za-z0-9:./_-]{1,200}")
 S3A_FORBIDDEN = ("secret", "access.key", "token")
 ICEBERG_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/iceberg")
+GLUE_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/glue")
+# Endpoint global do SDK para o que não é o Glue do app: porta morta de loopback (igual a `sparkconf._DEAD_ENDPOINT`), nada vai à AWS real.
+DEAD_ENDPOINT = "http://127.0.0.1:1"
+GLUE_REGION = "us-east-1"
+# Credenciais de ambiente que, se existissem, ganhariam do arquivo de credenciais do Glue na cadeia do SDK.
+AMBIENT_AWS_CREDENTIALS = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE")
 SUBMIT_ARGS = (
     "--conf spark.sql.catalogImplementation=in-memory "
     "--conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
@@ -118,7 +124,7 @@ def _submit_args(
 
 
 def _kernel_env() -> None:
-    """Ajusta o ambiente do kernel: `delta.tables` e falha rápida do Glue Data Catalog remoto (fora de escopo).
+    """Ajusta o ambiente do kernel: `delta.tables` e falha rápida do IMDS (o Glue do app entra em `_glue_env`).
 
     O módulo Python `delta` só existe dentro do jar do delta-spark da imagem (zipimport); resolvido por glob para não
     fixar a versão. Sem AWS, a cadeia de credenciais do SDK Java/botocore esperava o IMDS (50 tentativas na imagem).
@@ -133,6 +139,25 @@ def _kernel_env() -> None:
         raise FileNotFoundError(f"jar do delta-spark não encontrado em {', '.join(DELTA_JAR_GLOBS)}")
     os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
     os.environ.setdefault("AWS_METADATA_SERVICE_NUM_ATTEMPTS", "1")
+
+
+def _credentials_path(tag: str) -> str:
+    return os.path.join(RUN_DIR, f"{tag}.aws-credentials")
+
+
+def _glue_env(tag: str, glue_uri: str) -> None:
+    """Aponta o SDK Java e o boto3 do kernel para o Glue do app e fecha o resto do AWS.
+
+    A credencial (id da sessão + token de runtime) não passa por aqui: o hook a grava, com modo 0600, no arquivo de
+    `AWS_SHARED_CREDENTIALS_FILE`, trocado a cada kernel (restart). O endpoint não é segredo e vai no ambiente.
+    """
+    for name in AMBIENT_AWS_CREDENTIALS:
+        os.environ.pop(name, None)
+    os.environ["AWS_ENDPOINT_URL"] = DEAD_ENDPOINT
+    os.environ["AWS_ENDPOINT_URL_GLUE"] = glue_uri
+    os.environ["AWS_REGION"] = GLUE_REGION
+    os.environ["AWS_DEFAULT_REGION"] = GLUE_REGION
+    os.environ["AWS_SHARED_CREDENTIALS_FILE"] = _credentials_path(tag)
 
 
 def _jvm_logging() -> None:
@@ -236,6 +261,7 @@ def kill_tag(tag: str) -> bool:
                 _fail(3, f"kernel {tag} não encerrou em {KILL_WAIT_S:g}s")
     _unlink(_pid_path(tag))
     _unlink(_conn_path(tag))
+    _unlink(_credentials_path(tag))
     return killed
 
 
@@ -301,6 +327,8 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
         _unlink(_conn_path(tag))
         _fail(3, str(exc))
     _jvm_logging()
+    if glue_uri := options.get("--glue-uri"):
+        _glue_env(tag, glue_uri)
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
         options.get("--warehouse-dir"),
         options.get("--iceberg-uri"),
@@ -347,6 +375,8 @@ def _run_options(rest: list[str]) -> dict[str, str] | None:
         return None
     if "--s3a-closed" in options and _parse_s3a_closed(options["--s3a-closed"]) is None:
         return None
+    if "--glue-uri" in options and not GLUE_URI_RE.fullmatch(options["--glue-uri"]):
+        return None
     if ("--iceberg-uri" in options) != ("--iceberg-warehouse" in options):
         return None
     if "--iceberg-uri" in options and not ICEBERG_URI_RE.fullmatch(options["--iceberg-uri"]):
@@ -369,7 +399,7 @@ def main(argv: list[str]) -> None:
         _fail(
             2,
             "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]"
-            " [--s3a-closed JSON]"
+            " [--s3a-closed JSON] [--glue-uri URI]"
             " | kill <tag> | sweep | packages",
         )
 

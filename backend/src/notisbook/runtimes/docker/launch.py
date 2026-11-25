@@ -53,6 +53,17 @@ def iceberg_options() -> list[str]:
     return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", ROOT_URI]
 
 
+def glue_options(runtime: catalog.DockerRuntime) -> list[str]:
+    """Endpoint Glue do app (`/glue`) só para o runtime Glue; vazio sem a porta do backend no ambiente.
+
+    O container não recebe credencial por aqui: o hook a grava no tmpfs (`catalog_hook.write_glue_credentials`).
+    """
+    port = os.environ.get(PORT_ENV, "")
+    if runtime.key != "glue" or not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
+        return []
+    return ["--glue-uri", f"http://{RUNTIME_HOST}:{int(port)}/glue"]
+
+
 def safety_warehouse() -> str:
     """Warehouse local do `spark_catalog` no container, derivado do home que o backend informou em `HOME_ENV`."""
     home = os.environ.get(HOME_ENV, "")
@@ -147,6 +158,7 @@ def launch(key: str, connection_file: str) -> None:
         "--warehouse-dir",
         safety_warehouse(),
         *iceberg_options(),
+        *glue_options(runtime),
         "--s3a-closed",
         json.dumps(closed_options(), sort_keys=True),
     ]

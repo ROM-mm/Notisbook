@@ -53,7 +53,7 @@ from pyiceberg.table.update import (
     update_table_metadata,
 )
 
-from ..catalog import iceberg_jdbc
+from ..catalog import glue_repo, iceberg_jdbc
 from ..catalog.registry import ERR_NAME_IN_OTHER_CATALOG, all_table_locations, local_path, table_name_exists
 from ..catalog.store import catalog_db_path, connect
 from ..fs_safety import is_within
@@ -580,9 +580,11 @@ def _destination_refused(code: str) -> IcebergError:
 
 
 def _require_free_name(conn: sqlite3.Connection, ns: str, table: str) -> None:
-    """400 se `<ns>.<t>` já existe no registro Delta/Parquet (as duas pastas coincidiriam no notislake)."""
+    """400 se `<ns>.<t>` já existe no registro Delta/Parquet ou no `glue` (as pastas coincidiriam no notislake)."""
     if table_name_exists(conn, ns, table):
         raise _bad_request(f"A tabela já existe no catálogo spark_catalog ({ERR_NAME_IN_OTHER_CATALOG})")
+    if glue_repo.table_name_exists_in_glue(conn, ns, table):
+        raise _bad_request(f"A tabela já existe no catálogo glue ({ERR_NAME_IN_OTHER_CATALOG})")
 
 
 def _require_no_overlap(conn: sqlite3.Connection, folder: Path | None) -> None:
@@ -612,8 +614,8 @@ def _require_destination(
 ) -> None:
     """Recusa (400) antes de gravar: nome já usado no outro catálogo e destino fora da regra da camada.
 
-    Em `s3a` vale `locations.table_destination` (camada pelo namespace, sem sobrepor outra tabela; `own` é a pasta da
-    própria tabela, ignorada); em pasta local, a checagem de sobreposição local.
+    Em `s3a` vale `locations.table_destination` (camada pelo namespace, sem sobrepor outra tabela, do `glue` inclusive;
+    `own` é a pasta da própria tabela, ignorada); em pasta local, a checagem de sobreposição local.
     """
     _require_free_name(conn, ns, table)
     if not isinstance(target, locations.NotislakeLocation):
@@ -621,7 +623,8 @@ def _require_destination(
         return
     _require_exact_layer_case(ns)
     try:
-        locations.table_destination(ns, table, target.uri, iceberg_jdbc.known_table_locations(conn), own)
+        known = [*iceberg_jdbc.known_table_locations(conn), *glue_repo.table_locations(conn)]
+        locations.table_destination(ns, table, target.uri, known, own)
     except locations.InvalidLocation as exc:
         raise _destination_refused(exc.code) from None
 

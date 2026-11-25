@@ -8,6 +8,8 @@ registered; Iceberg lives in its own catalog. Each session creates the four laye
 Before a write the destination rules run in Python and raise `Refused` (pt-BR text, nothing written): the
 layer by schema, no overlap between tables, no repeated `<schema>.<t>`, no drop or move of a layer, path rules. Only a destination proven invalid is refused; a parser or registry failure lets the call go on, and the
 post-write validation (`location_problem`, `apply_plan`) stays the second net. Writes outside Python are not covered.
+`s3://notislake/...` is a synonym of `s3a://` on input (`LOCATIONS.canonical`; the internal form stays `s3a`); an s3 path of a bucket
+outside `LOCATIONS.KNOWN_BUCKETS` is refused before any read or write (`check_bucket`: readers, SparkContext, SQL text, Glue sources).
 s3a probes use the session's Hadoop FileSystem under a timeout and a 30 s breaker (`s3a_call`); the kernel deletes
 only the `managed_table` folder the registry authorized. With `transport: "http"` (Docker) the registry goes through the backend API.
 Config reaches the kernel as JSON literals; hook errors never reach the cell (kept in `STATE["errors"]`, warned once).
@@ -20,7 +22,7 @@ from collections.abc import Mapping
 
 from ..catalog.registry import apply_plan, iceberg_folder, read_snapshot
 from ..notislake import locations as notislake_locations
-from ..notislake.sparkconf import closed_options
+from ..notislake.sparkconf import closed_options, scheme_options
 
 MODULE_NAME = "_notisbook_catalog"
 
@@ -39,14 +41,18 @@ BASE_URL = CONFIG.get("base_url")
 TOKEN = CONFIG.get("token")
 # Folders shared with the runtime (http only): the backend rejects, item by item, a location outside them.
 ROOTS = tuple(CONFIG.get("roots") or ())
+# Docker Glue runtime only: `{"access_key": <session id>}` (the secret is TOKEN); None elsewhere, which turns the glue support off.
+GLUE = CONFIG.get("glue") if TRANSPORT == "http" else None
 WATCHED = ("pyspark.context", "pyspark.sql.session", "pyspark.sql.classic.session", "pyspark.sql.readwriter", "pyspark.sql.classic.readwriter",
-           "pyspark.sql.catalog", "pyspark.sql.classic.catalog")
+           "pyspark.sql.catalog", "pyspark.sql.classic.catalog", "awsglue.context", "awsglue.data_sink", "awsglue.dynamicframe")
 SUPPORTED = ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
 S3A_PREFIX = "fs.s3a.bucket.notislake."
 S3A_ROOT = "s3a://notislake/"
+S3_ROOT = "s3://notislake/"
+S3_SCHEME = CONFIG.get("s3_scheme") or {}  # `sparkconf.scheme_options()`: maps `s3://` to S3A (PySpark local has no mapping)
 S3A_CLOSED = CONFIG["s3a_closed"]  # `sparkconf.closed_options()`, the single source of the closed bucket config
 S3A_CLEARED = (S3A_PREFIX + "access.key", S3A_PREFIX + "secret.key")  # a failed setup may leave the real credential behind
 S3A_SCHEME = "s3a://"
@@ -57,13 +63,23 @@ HTTP_TIMEOUT = 8.0
 HTTP_PAUSE = 30.0
 HTTP_MAX_BYTES = 32 * 1024 * 1024
 HTTP_DETAIL_BYTES = 4096
+GLUE_CREDENTIALS_DIR = "/run/notisbook/"  # the container tmpfs; `incontainer` points AWS_SHARED_CREDENTIALS_FILE inside it
+GLUE_SECRET_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
+GLUE_SYNC_INTERVAL = 5.0  # the pre-cell glue listing runs at most this often; a cell that wrote a glue table syncs right after it
+GLUE_PAUSE = 30.0  # no glue call for this long after the endpoint failed
+GLUE_FORMATS = ("parquet", "csv", "json")
+BUCKET_RE = re.compile(r"\bs3[an]?://[^/\s'\"`)]*", re.I)
+GLUE_CELL_RE = re.compile(r"getSink|write_dynamic_frame|write_data_frame|from_catalog|updateCatalog|boto3|\bglue\b", re.I)
+GLUE_TYPE_RE = re.compile(r"[A-Za-z0-9_<>,:() ]{1,2000}")  # Hive type grammar: no `-` (comments), backtick or quote
+GLUE_PARAMS_RE = re.compile(r"\(\d{1,3}(?:, ?\d{1,3})?\)")  # `decimal(10,2)`, `varchar(20)`: the only parentheses a type may have
+GLUE_FOLDERS_TTL = 2.0  # a write check reuses the last glue listing for at most this long; a refusal always re-lists first
 REJECTED = {
     "location_outside_mounts": "a location está fora das pastas compartilhadas com o runtime",
     "location_not_local": "a location não é uma pasta local",
     "managed_location_rejected": "a location gerenciada não tem a forma s3a://notislake/<camada>/<tabela>",
     "location_not_notislake": "a location s3a não é s3a://notislake/<camada>/<dataset>",
     "schema_not_layer": "o schema não é uma camada (bronze, silver ou gold) e o notislake só recebe tabelas de camada",
-    "not_notislake": "a location não é s3a://notislake/<camada>/<dataset> (s3:// e s3n:// não são aceitos)",
+    "not_notislake": "a location não é s3://notislake/<camada>/<dataset> nem s3a://notislake/<camada>/<dataset> (s3n:// não é aceito)",
     "too_shallow": "a location precisa ter ao menos <camada>/<dataset>",
     "bad_segment": "a location ou o nome da tabela tem um segmento inválido ('.', '..', vazio ou com barra)",
     "outside_layer": "a location está fora da camada do schema da tabela",
@@ -73,6 +89,8 @@ REJECTED = {
     "layer_protected": "as camadas bronze, silver e gold não podem ser removidas nem mudar de location; "
                        "uma camada só é criada com a location dela (LOCATION 's3a://notislake/<camada>')",
     "name_in_spark_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog)",
+    "name_in_glue_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo glue",
+    "name_in_non_glue_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog) ou no Iceberg",
 }
 # Escrita por path (sem tabela): o texto fala em caminho, não em schema da tabela.
 REJECTED_PATH = {
@@ -192,6 +210,7 @@ def notislake_uri(location):
 
 def norm_loc(location):
     # Same form the backend's Iceberg reader returns (`Path.as_uri()`): one location format in the API.
+    location = LOCATIONS.canonical(location)  # `s3://notislake/...` is registered in its internal `s3a://` form
     if is_s3a(location):
         return notislake_uri(location) or location
     path = local_path(location)
@@ -796,16 +815,21 @@ def close_s3a_bucket(session):
 
 
 def renew_s3a_fs(session, hadoop_conf):
-    """Replace the cached FileSystem of the bucket by one built from `hadoop_conf` and keep a reference to it.
+    """Replace the cached FileSystems of the bucket (`s3a` and `s3`) by ones built from `hadoop_conf` and keep a reference to them.
 
     `FileSystem.get` returns one cached instance per scheme+authority+user whatever the conf of the caller, so the
     first one created wins: the old one (made before the credential) is closed, the new one is created now and held
     in STATE, and a later clone of the SparkSession without the credential finds it in the cache instead of filling it.
     """
     jvm = session.sparkContext._jvm
-    uri = jvm.java.net.URI.create(S3A_ROOT)
-    jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf).close()
-    STATE.setdefault("s3a_fs", {})[session_key(session)] = jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf)
+    for key, value in S3_SCHEME.items():
+        hadoop_conf.set(key, value)
+    held = []
+    for root in (S3A_ROOT, S3_ROOT):  # Hadoop caches `s3` and `s3a` apart: both need the new credentials
+        uri = jvm.java.net.URI.create(root)
+        jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf).close()
+        held.append(jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf))
+    STATE.setdefault("s3a_fs", {})[session_key(session)] = held
 
 
 def set_s3a(session):
@@ -893,6 +917,258 @@ def quiet_spark_logs(session):
     session.sparkContext.setLogLevel("ERROR")
 
 
+def write_glue_credentials():
+    """Write the Glue endpoint credential (access key = session id, secret = runtime token) to the 0600 file that
+    `incontainer` named in AWS_SHARED_CREDENTIALS_FILE, inside the container tmpfs.
+
+    The JVM and boto3 read it when they build their Glue client, so the secret never reaches `ps` or the spark-submit
+    argv. Every kernel start runs this with its own token, which replaces the previous file.
+    """
+    path = os.environ.get("AWS_SHARED_CREDENTIALS_FILE", "")
+    if not (GLUE and TOKEN and path.startswith(GLUE_CREDENTIALS_DIR) and ".." not in path):
+        raise ValueError("glue credentials file not configured")
+    access_key = str(GLUE.get("access_key"))
+    if not (GLUE_SECRET_RE.fullmatch(access_key) and GLUE_SECRET_RE.fullmatch(TOKEN)):
+        raise ValueError("glue credential has an unexpected format")
+    tmp = "%s.%d.tmp" % (path, os.getpid())
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("[default]\naws_access_key_id = %s\naws_secret_access_key = %s\n" % (access_key, TOKEN))
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def glue_client():
+    """boto3 Glue client for the backend endpoint (`AWS_ENDPOINT_URL_GLUE`, credential from the file); short timeouts, no proxy."""
+    client = STATE.get("glue_client")
+    if client is None:
+        import boto3
+        from botocore.config import Config
+        endpoint = os.environ.get("AWS_ENDPOINT_URL_GLUE")
+        if not endpoint:
+            raise RuntimeError("glue endpoint not configured")
+        config = Config(connect_timeout=3, read_timeout=10, retries={"max_attempts": 1}, proxies={"http": None, "https": None})
+        client = STATE["glue_client"] = boto3.client("glue", endpoint_url=endpoint, region_name=os.environ.get("AWS_REGION") or "us-east-1", config=config)
+    return client
+
+
+def glue_fetch():
+    """Every table of the glue catalog as the endpoint returns it: `{(database, table): Table}`."""
+    client = glue_client()
+    tables = {}
+    for page in client.get_paginator("get_databases").paginate():
+        for database in page["DatabaseList"]:
+            for listed in client.get_paginator("get_tables").paginate(DatabaseName=database["Name"]):
+                for table in listed["TableList"]:
+                    tables[(database["Name"].lower(), table["Name"].lower())] = table
+    return tables
+
+
+def glue_tables(max_age=None):
+    """The glue tables, from the last listing when it is younger than `max_age` seconds, else fetched (and kept in STATE)."""
+    cached = STATE.get("glue_view")
+    if max_age is not None and cached and time.monotonic() - cached[0] < max_age:
+        return cached[1]
+    tables = glue_fetch()
+    STATE["glue_view"] = (time.monotonic(), tables)
+    return tables
+
+
+def glue_location(raw):
+    """Spark location of a glue `Location` that points into the notislake, else None.
+
+    The catalog keeps what the job wrote (`s3://`); Spark reads it through S3A. The write-side rules do not use this
+    (they go through `glue_destination`).
+    """
+    if not isinstance(raw, str):
+        return None
+    location = LOCATIONS.canonical(raw)
+    return location if is_s3a(location) and LOCATIONS.targets_notislake(location) else None
+
+
+def glue_destination(location):
+    """Destination form fed to the layer/overlap rules: `s3://` becomes the internal `s3a://`; other buckets stay and are refused."""
+    return LOCATIONS.canonical(location)
+
+
+def glue_format(table, descriptor):
+    params = {str(k).lower(): str(v).lower() for k, v in (table.get("Parameters") or {}).items()}
+    for key in ("classification", "spark.sql.sources.provider"):
+        if params.get(key) in GLUE_FORMATS:
+            return params[key]
+    serde = str((descriptor.get("SerdeInfo") or {}).get("SerializationLibrary") or "").lower()
+    text = serde + " " + str(descriptor.get("InputFormat") or "").lower()
+    for fmt, words in (("parquet", ("parquet",)), ("json", ("json",)), ("csv", ("csv", "lazysimpleserde"))):
+        if any(word in text for word in words):
+            return fmt
+    return None
+
+
+def sql_str(value):
+    return "'" + value.replace("\\", "\\\\").replace("'", "\\'") + "'"
+
+
+def glue_csv_options(table, descriptor):
+    serde_params = (descriptor.get("SerdeInfo") or {}).get("Parameters") or {}
+    delim = serde_params.get("field.delim") or serde_params.get("separatorChar")
+    options = []
+    if delim == "\t":
+        options.append("sep '\\t'")
+    elif isinstance(delim, str) and len(delim) == 1 and delim.isprintable() and delim not in "'\\":
+        options.append("sep " + sql_str(delim))
+    header = (table.get("Parameters") or {}).get("skip.header.line.count") or (descriptor.get("Parameters") or {}).get("skip.header.line.count")
+    options.append("header " + sql_str("true" if str(header) == "1" else "false"))
+    return " OPTIONS (%s)" % ", ".join(options)
+
+
+def glue_type_ok(text):
+    """A column `Type` that is safe to put in the mirror's `CREATE TABLE`: Hive grammar, balanced `<>`, no top-level comma."""
+    if not GLUE_TYPE_RE.fullmatch(text):
+        return False
+    flat = GLUE_PARAMS_RE.sub("", text)
+    depth = 0
+    for char in flat:
+        if char in "()":
+            return False
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth -= 1
+        elif char == "," and depth == 0:
+            return False
+        if depth < 0:
+            return False
+    return depth == 0
+
+
+def glue_spec(key, table):
+    """`(CREATE TABLE statement, has partition keys, spark location)` that mirrors a glue table, or None when it cannot be read.
+
+    Needs a notislake Location, a Parquet/CSV/JSON format and well-formed column names and types.
+    """
+    descriptor = table.get("StorageDescriptor") or {}
+    location = glue_location(descriptor.get("Location"))
+    fmt = glue_format(table, descriptor)
+    if location is None or fmt is None:
+        return None
+    keys = table.get("PartitionKeys") or []
+    columns = [*(descriptor.get("Columns") or []), *keys]
+    if not columns or not all(isinstance(c.get("Name"), str) and c["Name"] for c in columns):
+        return None
+    if not all(glue_type_ok(str(c.get("Type") or "")) for c in columns):
+        warn(("glue-type", key), "a tabela glue %s.%s não foi espelhada nesta sessão: há tipo de coluna fora do formato aceito." % key)
+        return None
+    schema = ", ".join("%s %s" % (quote_ident(c["Name"]), c["Type"]) for c in columns)
+    ddl = "CREATE TABLE %s (%s) USING %s%s" % (ident(*key), schema, fmt, glue_csv_options(table, descriptor) if fmt == "csv" else "")
+    if keys:
+        ddl += " PARTITIONED BY (%s)" % ", ".join(quote_ident(k["Name"]) for k in keys)
+    return ddl + " LOCATION " + sql_str(location), bool(keys), location
+
+
+def recover_glue_partitions(session, key, location):
+    """Reread the partition folders of a mirrored table; False (retried by the next sync) while s3a is unavailable."""
+    try:
+        present = s3a_exists(session, location)
+    except S3AUnavailable:
+        retry_when_reachable(session)
+        return False
+    if present:
+        session.sql("ALTER TABLE %s RECOVER PARTITIONS" % ident(*key))
+    return True
+
+
+def mirror_glue_table(session, skey, key, spec, dbs):
+    """Create, replace or refresh the session's copy of one glue table (external: dropping it never deletes files)."""
+    ddl, partitioned, location = spec
+    mirrored = STATE["glue"][skey]
+    pending = STATE["glue_recover"][skey]
+    if key[0] not in dbs:
+        if key[0] in LOCATIONS.LAYERS:
+            return  # only `ensure_layers` creates a layer, with its LOCATION; the next sync retries
+        session.sql("CREATE DATABASE IF NOT EXISTS " + ns_ident(key[0]))
+        dbs.append(key[0])
+        STATE["glue_dbs"][skey].add(key[0])
+    if mirrored.get(key) != ddl:
+        if key in mirrored:
+            session.sql("DROP TABLE IF EXISTS " + ident(*key))
+        session.sql(ddl)
+        mirrored[key] = ddl
+        pending.add(key)
+    elif key in pending:
+        session.catalog.refreshTable(ident(*key))
+    if key in pending and (not partitioned or recover_glue_partitions(session, key, location)):
+        pending.discard(key)
+
+
+def glue_missing(session, mirrored, dbs):
+    """Mirrored tables that are no longer in the session's catalog; a database that cannot be listed is left alone."""
+    missing = []
+    for db in sorted({key[0] for key in mirrored}):
+        if db not in dbs:
+            missing += [key for key in mirrored if key[0] == db]
+            continue
+        try:
+            names = {str(row[1]).lower() for row in session.sql("SHOW TABLES IN " + ns_ident(db)).collect()}
+        except Exception:
+            continue
+        missing += [key for key in mirrored if key[0] == db and key[1] not in names]
+    return missing
+
+
+def sync_glue(session, skey, dirty=()):
+    """Mirror the glue catalog into this session's `spark_catalog` so `spark.sql` and SQL cells see its tables.
+
+    Tables are external (`USING <fmt> LOCATION`, columns and partition keys of the StorageDescriptor, partitions
+    recovered). They are tracked in `STATE["glue"]`, apart from `known`: never registered as `nb_*`, never rewritten
+    in `catalog.db`; only what this function created is dropped, and only the catalog entry. `dirty` are the tables a
+    cell just wrote (refreshed); a mirror the user dropped is created again. Throttled per session; an endpoint
+    failure pauses it for `GLUE_PAUSE`.
+    """
+    if not GLUE or not session_alive(session):
+        return
+    now = time.monotonic()
+    next_run = STATE.setdefault("glue_next", {})
+    if not dirty and now < next_run.get(skey, 0.0):
+        return
+    next_run[skey] = now + GLUE_SYNC_INTERVAL
+    if now < STATE.get("glue_pause", 0.0):
+        return
+    try:
+        tables = glue_tables()
+    except Exception as exc:
+        STATE["glue_pause"] = now + GLUE_PAUSE
+        STATE.setdefault("errors", []).append("glue: %s" % type(exc).__name__)
+        del STATE["errors"][:-MAX_ERRORS]
+        warn(("glue-down", skey), "o catálogo glue não respondeu; as tabelas dele não foram atualizadas nesta sessão.")
+        return
+    mirrored = STATE.setdefault("glue", {}).setdefault(skey, {})
+    STATE.setdefault("glue_dbs", {}).setdefault(skey, set())
+    STATE.setdefault("glue_recover", {}).setdefault(skey, set()).update(dirty)
+    nb_known = STATE.get("known", {}).get(skey, {})
+    wanted = {key: spec for key, table in tables.items() if (spec := glue_spec(key, table)) is not None}
+    for key in [k for k in mirrored if k not in wanted]:
+        session.sql("DROP TABLE IF EXISTS " + ident(*key))
+        del mirrored[key]
+    dbs = [row[0] for row in session.sql("SHOW NAMESPACES IN " + CATALOG).collect()]
+    for key in glue_missing(session, mirrored, dbs):
+        del mirrored[key]  # the user dropped or renamed the mirror: the next lines create it again
+    pending = STATE["glue_recover"][skey]
+    todo = [key for key, spec in sorted(wanted.items()) if (mirrored.get(key) != spec[0] or key in pending) and key not in nb_known]
+    if not todo:
+        return
+    for key in todo:  # a table the registry owns (`nb_known`) is never overwritten by the mirror
+        try:
+            mirror_glue_table(session, skey, key, wanted[key], dbs)
+        except Exception as exc:
+            warn(("glue-table", skey, key), "a tabela glue %s.%s não pôde ser carregada nesta sessão: %s" % (*key, short(exc)))
+
+
 def attach(session):
     if getattr(session, "_jsparkSession", None) is None:
         return
@@ -916,6 +1192,7 @@ def attach(session):
     STATE["gen"] = None if STATE.pop("resync", False) else gen
     STATE["attached"].add(skey)
     guarded("refresh", refresh_hydrated, session, skey, refresh)
+    guarded("glue", sync_glue, session, skey)
 
 
 def db_folder_is_empty(session, ns):
@@ -1207,6 +1484,8 @@ def reconcile(session, raw_cell):
     ignored = STATE.setdefault("ignored", {}).setdefault(skey, set())
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     dbs, current, failed = list_catalog(session)
+    glue_keys = STATE.get("glue", {}).get(skey, {})
+    current = {key: table for key, table in current.items() if key not in glue_keys}  # mirrors of the glue catalog: not ours to register
     ignored &= set(current)
     deep = deep_keys(raw_cell, known)
     created, updated, leaving = {}, [], []
@@ -1234,7 +1513,8 @@ def reconcile(session, raw_cell):
     renamed = match_renames(vanished, created, known, raw_cell)
     tombstones = STATE.setdefault("tombstones", {}).setdefault(skey, set())
     tombstones &= set(dbs)
-    new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in LOCATIONS.LAYERS and d not in known_dbs and d not in tombstones}
+    glue_dbs = STATE.get("glue_dbs", {}).get(skey, ())
+    new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in LOCATIONS.LAYERS and d not in known_dbs and d not in tombstones and d not in glue_dbs}
     gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed and d not in LOCATIONS.LAYERS}
     plan = (list(created.items()), updated, renamed, vanished + leaving, new_dbs, gone_dbs)
     if any(plan):
@@ -1248,6 +1528,21 @@ class Refused(ValueError):
 def refuse_text(what, code, path=False):
     reason = (REJECTED_PATH.get(code) if path else None) or REJECTED.get(code, code)
     return "Notisbook recusou %s antes de qualquer escrita (nada foi alterado): %s." % (what[:120], reason)
+
+
+def check_bucket(location):
+    """Raise Refused when an s3/s3a/s3n `location` names a bucket outside `LOCATIONS.KNOWN_BUCKETS`; nothing was read or written yet."""
+    bucket = LOCATIONS.unknown_bucket(location)
+    if bucket is not None:
+        raise Refused("Notisbook recusou o acesso ao bucket '%s' antes de qualquer leitura ou gravação (nada foi alterado): "
+                      "só os buckets %s estão disponíveis neste runtime." % (bucket[:63], ", ".join(LOCATIONS.known_buckets())))
+
+
+def check_buckets(*values):
+    """`check_bucket` over each string among `values` and inside the lists/tuples among them (a path argument is either)."""
+    for value in values:
+        for item in value if isinstance(value, (list, tuple)) else (value,):
+            check_bucket(item)
 
 
 def split_name(text):
@@ -1343,20 +1638,30 @@ def iceberg_rows(conn):
     return out
 
 
+def glue_rows(conn):
+    """[((database, table), canonical s3a location or None)] of the `glue` catalog; empty before the backend created its tables."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone() is None:
+        return []
+    return [((db, name), loc or None) for db, name, loc in conn.execute("SELECT database_name, name, location FROM glue_tables")]
+
+
 def read_known():
-    """Tables of both catalogs, `{"spark": {(db, t): loc}, "iceberg": {(ns, t): loc or None}}`, keys in lower case."""
+    """Tables of the three catalogs, `{"spark": {(db, t): loc}, "iceberg": {(ns, t): loc or None}, "glue": {(db, t): loc or None}}`, keys in lower case."""
     if TRANSPORT == "http":
         data = http_call("GET", "/registry")
         spark = [((t["db"], t["name"]), t.get("loc")) for t in data["tables"]]
         lake = [((t["db"], t["name"]), t.get("loc")) for t in data.get("iceberg") or ()]
+        glue = [((t["db"], t["name"]), t.get("loc")) for t in data.get("glue") or ()]
     else:
         conn = connect()
         try:
             spark = [(key, row["loc"]) for key, row in read_snapshot(conn)[1].items()]
             lake = iceberg_rows(conn)
+            glue = glue_rows(conn)
         finally:
             conn.close()
-    return {name: {(k[0].lower(), k[1].lower()): loc for k, loc in items} for name, items in (("spark", spark), ("iceberg", lake))}
+    return {name: {(k[0].lower(), k[1].lower()): loc for k, loc in items}
+            for name, items in (("spark", spark), ("iceberg", lake), ("glue", glue))}
 
 
 def known_view(session):
@@ -1374,11 +1679,14 @@ def known_view(session):
     return view
 
 
-def lake_locations(view, skip=None):
-    """Folders of every known table of both catalogs, except the one named `skip` = (catalog, key)."""
+def lake_locations(view, skip=None, glue=True):
+    """Folders of every known table of the catalogs, except the one named `skip` = (catalog, key).
+
+    `glue=False` leaves the glue tables out: the glue write rules take their folders live from the endpoint (`glue_folders`).
+    """
     if view is None:
         return []
-    return [loc for name, rows in view.items() for key, loc in rows.items()
+    return [loc for name, rows in view.items() if glue or name != "glue" for key, loc in rows.items()
             if loc and skip != (CATALOG if name == "spark" else ICEBERG_CATALOG, key)]
 
 
@@ -1398,10 +1706,14 @@ def check_table(session, catalog, schema, table, location):
     Without a location, a table already registered keeps its own folder and is not checked as a new destination.
     """
     key, label = (schema.lower(), table.lower()), "criar a tabela %s.%s" % (schema, table)
+    check_bucket(location)
+    location = LOCATIONS.canonical(location)
     view = known_view(session)
     mine, other = ("spark", "iceberg") if catalog == CATALOG else ("iceberg", "spark")
     if view is not None and key not in view[mine] and key in view[other]:
         raise Refused(refuse_text(label, "name_in_other_catalog" if catalog == CATALOG else "name_in_spark_catalog"))
+    if view is not None and key in view["glue"]:
+        raise Refused(refuse_text(label, "name_in_glue_catalog"))
     on_lake = location is not None and LOCATIONS.targets_notislake(location)
     if catalog == ICEBERG_CATALOG and (location is None or on_lake) and LOCATIONS.is_layer_case_variant(schema):
         raise Refused(refuse_text(label, "schema_not_layer"))  # o JdbcCatalog gravaria em `<raiz>/Bronze/`, fora das camadas
@@ -1426,6 +1738,10 @@ def note_drop(session, parts):
 def commit_pending(pending):
     """Make the effects of a statement that returned without error visible to the next checks of the cell."""
     for skey, kind, catalog, key, loc in pending:
+        if kind == "glue":
+            STATE.setdefault("glue_dirty", {}).setdefault(skey, set()).add(key)  # the next sync refreshes this table
+            STATE.pop("glue_view", None)  # the cached folders predate this write; the next check re-lists
+            continue
         intent = STATE.setdefault("intent", {}).setdefault(skey, {})
         if kind == "drop":
             STATE.setdefault("dropped", {}).setdefault(skey, set()).add((catalog, key))
@@ -1434,19 +1750,152 @@ def commit_pending(pending):
             intent[(catalog, key)] = loc
 
 
-def check_path(session, path):
-    """Raise Refused for a path write into the notislake that the path rules forbid (a table's own folder is allowed)."""
-    if not isinstance(path, str) or not LOCATIONS.targets_notislake(path):
+def check_path(session, path, extra=()):
+    """Raise Refused for a path write into the notislake that the path rules forbid (a table's own folder is allowed).
+
+    `extra` are folders of tables the registry view does not carry (the glue catalog): known and own like the rest.
+    """
+    if not isinstance(path, str):
+        return
+    check_bucket(path)
+    path = LOCATIONS.canonical(path)
+    if not LOCATIONS.targets_notislake(path):
         return
     view = known_view(session)
     own = None
     if view is not None:
         wanted = notislake_uri(path)
-        own = next((loc for loc in view["spark"].values() if wanted and notislake_uri(loc or "") == wanted), None)
+        own = next((loc for loc in [*view["spark"].values(), *extra] if wanted and notislake_uri(loc or "") == wanted), None)
     try:
-        LOCATIONS.check_path_write(path, lake_locations(view), own)
+        LOCATIONS.check_path_write(path, [*lake_locations(view), *extra], own)
     except LOCATIONS.InvalidLocation as exc:
         raise Refused(refuse_text("gravar em %s" % path, exc.code, path=True)) from None
+
+
+def glue_session():
+    """The attached session when the glue write checks apply (Docker Glue runtime, not the hook's own calls), else None."""
+    session = current_session() if GLUE else None
+    return session if checks_on(session) else None
+
+
+def glue_get_table(database, table):
+    """The glue table as the endpoint answers GetTable, or None when it does not exist (Glue reports that on the write)."""
+    client = glue_client()
+    try:
+        return client.get_table(DatabaseName=database, Name=table)["Table"]
+    except client.exceptions.EntityNotFoundException:
+        return None
+
+
+def glue_folders(skip=None, fresh=False):
+    """Spark locations of the glue tables except `skip` (a `(database, table)` key), for the overlap rules.
+
+    Reuses the listing of the last sync or check while it is younger than `GLUE_FOLDERS_TTL`. When a listing is due and the
+    endpoint is paused or fails, the last one (or none) is used, so the glue-independent rules still run; `fresh` instead
+    raises in that case, for the caller to keep its decision.
+    """
+    now = time.monotonic()
+    cached = STATE.get("glue_view")
+    due = fresh or not cached or now - cached[0] >= GLUE_FOLDERS_TTL
+    tables = cached[1] if cached else {}
+    if due and now < STATE.get("glue_pause", 0.0):
+        # A pause already running is only read here: re-arming it on every check would postpone its end indefinitely.
+        if fresh:
+            raise RuntimeError("glue paused")
+    elif due:
+        try:
+            tables = glue_tables(0)
+        except Exception:
+            STATE["glue_pause"] = now + GLUE_PAUSE
+            if fresh:
+                raise
+    return [loc for key, table in tables.items()
+            if key != skip and (loc := glue_location((table.get("StorageDescriptor") or {}).get("Location")))]
+
+
+def check_with_glue_folders(check, skip=None):
+    """Run `check(folders)`; a refusal is decided again on a fresh listing, so a stale cache never blocks a write.
+
+    If the fresh listing is unavailable, the original refusal stands.
+    """
+    try:
+        return check(glue_folders(skip))
+    except Refused as refusal:
+        try:
+            folders = glue_folders(skip, fresh=True)
+        except Exception:
+            raise refusal from None
+        return check(folders)
+
+
+def check_glue_write(session, database, table, location):
+    """Raise Refused before a Glue write to `database.table` when the destination breaks the rules; nothing was written yet.
+
+    Name unique across catalogs (spark_catalog, Iceberg), the notislake rules for layer by schema and no overlap with
+    another table's folder (every catalog). `location` None means the table's own Location, read from the endpoint
+    (a missing table is left to Glue, which fails the write itself). `glue_destination` reads `s3://` as `s3a://`; other buckets never get here (`check_bucket`).
+    """
+    key, label = (database.lower(), table.lower()), "gravar na tabela %s.%s do catálogo glue" % (database, table)
+    view = known_view(session)
+    if view is not None and (key in view["spark"] or key in view["iceberg"]):
+        raise Refused(refuse_text(label, "name_in_non_glue_catalog"))
+    if location is None:
+        found = glue_get_table(*key)
+        if found is None:
+            return
+        location = glue_location((found.get("StorageDescriptor") or {}).get("Location"))  # already accepted by the catalog: canonical form
+    destination = glue_destination(location) if isinstance(location, str) else None
+    if destination is not None and LOCATIONS.targets_notislake(destination):
+        def run(folders):
+            try:
+                LOCATIONS.table_destination(database, table, destination, [*lake_locations(view, glue=False), *folders])
+            except LOCATIONS.InvalidLocation as exc:
+                raise Refused(refuse_text(label, exc.code)) from None
+
+        check_with_glue_folders(run, key)
+    add_pending((session_key(session), "glue", None, key, None))
+
+
+def before_glue_catalog_write(context, args, kwargs):
+    """`write_dynamic_frame_from_catalog` / `write_data_frame_from_catalog`: the table is named by the call."""
+    session = glue_session()
+    if session is None:
+        return
+    database = arg_of(args, kwargs, 1, "database")
+    database = kwargs.get("name_space") if database is None else database
+    table = arg_of(args, kwargs, 2, "table_name")
+    if isinstance(database, str) and isinstance(table, str):
+        check_glue_write(session, database, table, None)
+
+
+def before_glue_sink_write(sink, args, kwargs):
+    """`DataSink.writeFrame` / `writeDataFrame` of a sink made by `getSink`: its `path`, and its table when `setCatalogInfo` named one.
+
+    Sinks of the catalog methods carry no record: their context method was already checked.
+    """
+    session = glue_session()
+    record = sink.__dict__.get("_notisbook")
+    if session is None or not record or not record.get("glue_sink"):
+        return
+    path = record["opts"].get("path")
+    path = path if isinstance(path, str) else None
+    check_bucket(path)
+    if record.get("catalog"):
+        check_glue_write(session, *record["catalog"], path)
+    elif path is not None:
+        check_with_glue_folders(lambda folders: check_path(session, glue_destination(path), folders))
+
+
+def record_sink(sink, args, kwargs):
+    record = record_of(sink)
+    record["glue_sink"] = True
+    record["opts"].update({str(k).lower(): v for k, v in kwargs.items()})
+
+
+def record_catalog_info(sink, args, kwargs):
+    database, table = arg_of(args, kwargs, 0, "catalogDatabase"), arg_of(args, kwargs, 1, "catalogTableName")
+    if isinstance(database, str) and isinstance(table, str):
+        record_of(sink)["catalog"] = (database, table)
 
 
 def layer_exists(session, layer):
@@ -1461,6 +1910,7 @@ def check_namespace(kind, session, parts, location=None, if_not_exists=False):
 
     `CREATE ... IF NOT EXISTS <layer>` without LOCATION is a no-op on an existing layer and is not refused.
     """
+    check_bucket(location)
     target = resolve_namespace(session, parts)
     if target is None:
         return
@@ -1482,6 +1932,8 @@ def check_namespace(kind, session, parts, location=None, if_not_exists=False):
 
 def check_table_location(session, parts, location):
     """ALTER TABLE ... SET LOCATION: a destination in the notislake must pass the same rules as a new table."""
+    check_bucket(location)
+    location = LOCATIONS.canonical(location)
     target = resolve_table(session, parts)
     if target is None or not LOCATIONS.targets_notislake(location):
         return
@@ -1515,6 +1967,8 @@ def check_rename(session, parts, new_name):
         raise Refused(refuse_text(label, "schema_not_layer"))
     if (new_schema.lower(), new_table.lower()) in view["spark"]:
         raise Refused(refuse_text(label, "name_in_spark_catalog"))
+    if (new_schema.lower(), new_table.lower()) in view["glue"]:
+        raise Refused(refuse_text(label, "name_in_glue_catalog"))
     current = view["iceberg"][old_key]
     if current and LOCATIONS.targets_notislake(current):
         try:
@@ -1635,7 +2089,10 @@ def sql_text(args, kwargs):
 
 def before_sql(session, args, kwargs):
     text = sql_text(args, kwargs)
-    if text is None or not STATEMENT_RE.search(text) or not checks_on(session):
+    if text is None or not checks_on(session):
+        return
+    check_buckets(*(match.group(0) for match in BUCKET_RE.finditer(text)))  # reads and writes alike: any statement
+    if not STATEMENT_RE.search(text):
         return
     try:
         plan = session._jsparkSession.sessionState().sqlParser().parsePlan(text)
@@ -1698,6 +2155,24 @@ def before_create_table(catalog, args, kwargs):
         check_table(session, *target, None if path is None else str(path))
 
 
+def before_read(reader, args, kwargs):
+    """DataFrameReader `load`/`parquet`/`json`/`csv`/`orc`/`text`: every s3 path of the call and of `option("path")` must be in a known bucket."""
+    if writer_session(reader) is not None:
+        check_buckets(*args, *kwargs.values(), *record_of(reader)["opts"].values())
+
+
+def before_context_read(context, args, kwargs):
+    """SparkContext file readers (`textFile`, `wholeTextFiles`, ...): the first argument is the path."""
+    if checks_on(current_session()):
+        check_buckets(*args, *kwargs.values())
+
+
+def before_glue_source(context, args, kwargs):
+    """`GlueContext.getSource` (what `create_dynamic_frame.from_options` calls): `path`/`paths` arrive as options."""
+    if glue_session() is not None:
+        check_buckets(*args, *kwargs.values())
+
+
 def wrap_checked(original, before):
     @functools.wraps(original)
     def method(self, *args, **kwargs):
@@ -1732,6 +2207,19 @@ def wrap_recorded(original, record):
     return method
 
 
+def wrap_returned(original, record):
+    @functools.wraps(original)
+    def method(self, *args, **kwargs):
+        result = original(self, *args, **kwargs)
+        try:
+            record(result, args, kwargs)
+        except Exception:
+            pass  # a missed record only means a missed pre-check
+        return result
+    method._notisbook_original = original
+    return method
+
+
 def record_option(writer, args, kwargs):
     record_of(writer)["opts"][str(arg_of(args, kwargs, 0, "key")).lower()] = arg_of(args, kwargs, 1, "value")
 
@@ -1756,10 +2244,19 @@ def intercepts():
     def recorded(record):
         return lambda original: wrap_recorded(original, record)
 
+    def returned(record):
+        return lambda original: wrap_returned(original, record)
+
     writer = [("option", recorded(record_option)), ("options", recorded(record_options)),
               ("save", checked(before_path_write)), ("saveAsTable", checked(before_save_as_table))]
     writer += [(name, checked(before_path_write)) for name in ("parquet", "json", "csv", "orc", "text")]
-    return {
+    reader = [("option", recorded(record_option)), ("options", recorded(record_options))]
+    reader += [(name, checked(before_read)) for name in ("load", "parquet", "json", "csv", "orc", "text")]
+    context = [(name, checked(before_context_read))
+               for name in ("textFile", "wholeTextFiles", "binaryFiles", "binaryRecords", "sequenceFile", "hadoopFile", "newAPIHadoopFile")]
+    specs = {
+        "DataFrameReader": reader,
+        "SparkContext": context,
         "DataFrameWriter": writer,
         "DataFrameWriterV2": [("__init__", recorded(record_table)),
                               ("option", recorded(record_option)), ("options", recorded(record_options)),
@@ -1768,6 +2265,13 @@ def intercepts():
         "Catalog": [("createTable", checked(before_create_table))],
         "SparkSession": [("sql", checked(before_sql))],
     }
+    if GLUE:
+        catalog_write = checked(before_glue_catalog_write)
+        specs["GlueContext"] = [("getSource", checked(before_glue_source)), ("getSink", returned(record_sink)), ("write_dynamic_frame_from_catalog", catalog_write),
+                                ("write_data_frame_from_catalog", catalog_write)]
+        specs["DataSink"] = [("setCatalogInfo", recorded(record_catalog_info)),
+                             ("writeFrame", checked(before_glue_sink_write)), ("writeDataFrame", checked(before_glue_sink_write))]
+    return specs
 
 
 def unwrap(func):
@@ -1794,7 +2298,8 @@ def wrap_stop(original):
                 reconcile(self, None)
                 STATE.get("attached", set()).discard(session_key(self))
                 STATE.get("s3a_done", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked", "intent", "dropped"):
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked", "intent", "dropped",
+                              "glue", "glue_dbs", "glue_dirty", "glue_next", "glue_recover"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
@@ -2161,6 +2666,7 @@ def _pre():
     session, skey = cell_session(True)
     if session is not None:
         sync_registry(session, skey)
+        guarded("glue", sync_glue, session, skey)
 
 
 def _post(result):
@@ -2169,7 +2675,11 @@ def _post(result):
         for table in ("intent", "dropped"):
             STATE.get(table, {}).pop(skey, None)  # the cell is over: its creations and drops are in the session catalog now
         info = getattr(result, "info", None)
-        reconcile(session, getattr(info, "raw_cell", None))
+        raw_cell = getattr(info, "raw_cell", None)
+        reconcile(session, raw_cell)
+        dirty = STATE.get("glue_dirty", {}).pop(skey, None)
+        if GLUE and (dirty or GLUE_CELL_RE.search(raw_cell or "")):
+            guarded("glue", sync_glue, session, skey, tuple(dirty or ()))
 
 
 def on_pre(info=None):
@@ -2181,6 +2691,8 @@ def on_post(result=None):
 
 
 def register():
+    if GLUE:
+        guarded("glue-credentials", write_glue_credentials)
     sys.meta_path[:] = [f for f in sys.meta_path if not getattr(f, "_notisbook_finder", False)]
     sys.meta_path.insert(0, Finder())
     for name in WATCHED:
@@ -2221,7 +2733,7 @@ mod.register()
 def _render(config: dict[str, object]) -> str:
     locations_source = inspect.getsource(notislake_locations)
     helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, iceberg_folder, apply_plan))
-    config = {**config, "s3a_closed": closed_options()}
+    config = {**config, "s3a_closed": closed_options(), "s3_scheme": scheme_options()}
     source = (
         _KERNEL_TEMPLATE.replace("__REGISTRY_HELPERS__", helpers)
         .replace("__LOCATIONS_SOURCE__", repr(locations_source))
@@ -2251,15 +2763,20 @@ def build_http_ensure_code(
     token: str,
     roots: tuple[str, ...],
     s3a: Mapping[str, str] | None = None,
+    glue_access_key: str | None = None,
 ) -> str:
     """Snippet for the Docker runtime: the hook talks to the backend API with the session token, never to SQLite.
 
     The token travels only in the JSON literal of this code (not in env vars nor in the Spark submit args).
+    `glue_access_key` (the session id) turns the glue catalog support on: the hook writes the credential file of the
+    Glue endpoint with it and the token.
     """
-    config = {
+    config: dict[str, object] = {
         "transport": "http",
         "base_url": base_url,
         "token": token,
         "roots": list(roots),
     }
+    if glue_access_key:
+        config["glue"] = {"access_key": glue_access_key}
     return _render(_with_s3a(config, s3a))
