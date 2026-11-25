@@ -282,13 +282,22 @@ def _prune_stale_containers() -> set[str]:
     )
     ids = listed.stdout.split() if listed.returncode == 0 else []
     images: set[str] = set()
-    for raw in _docker_json(["container", "inspect", *ids]) if ids else []:
-        labels = (raw.get("Config") or {}).get("Labels") or {}
-        runtime_key = labels.get(RUNTIME_LABEL)
-        if labels.get(OWNER_LABEL) != OWNER_VALUE or not runtime_key or runtime_key in keys:
+    for container_id in ids:
+        # Inspect one at a time: a container that vanished must not hide the others, and a failure only skips that item.
+        try:
+            inspected = _docker_json(["container", "inspect", container_id])
+            if not inspected:
+                continue
+            raw = inspected[0]
+            labels = (raw.get("Config") or {}).get("Labels") or {}
+            runtime_key = labels.get(RUNTIME_LABEL)
+            if labels.get(OWNER_LABEL) != OWNER_VALUE or not runtime_key or runtime_key in keys:
+                continue
+            name = str(raw.get("Name") or raw.get("Id") or "")[:80].lstrip("/")
+            result = cli.run(["container", "rm", "-f", str(raw["Id"])], timeout=STOP_TIMEOUT_S)
+        except cli.DockerError as exc:
+            log.warning("cannot prune container %s: %s", container_id[:12], exc)
             continue
-        name = str(raw.get("Name") or raw.get("Id") or "")[:80].lstrip("/")
-        result = cli.run(["container", "rm", "-f", str(raw["Id"])], timeout=STOP_TIMEOUT_S)
         if result.returncode != 0:
             log.warning("cannot remove stale container %s", name)
             continue
