@@ -299,8 +299,6 @@ do_install() {
   say ""
   say "Notisbook $("$bin" --version 2>/dev/null || echo "$version") installed"
   say "  binary   $bin"
-  # Default location only: the app may use a folder saved in its preferences, and the CLI cannot report it.
-  say "  notebooks   ${NOTISBOOK_HOME:-$HOME/.notisbook}/notebooks"
   say ""
   say "Runtimes"
   # A failed summary is cosmetic: warn and carry on.

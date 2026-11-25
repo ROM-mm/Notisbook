@@ -63,15 +63,7 @@ def bundled_samples() -> list[Path]:
 
 def _seed_samples(home: Path) -> None:
     """Copia os exemplos para `<home>/notebooks` e grava o marcador. Levanta OSError em falha (sem marcador)."""
-    samples = bundled_samples()
-    if not samples:
-        raise FileNotFoundError(f"no bundled samples in {SAMPLES_DIR}")
-    folder = default_root(home)
-    folder.mkdir(parents=True, exist_ok=True)
-    for rel in samples:
-        target = folder / rel
-        target.parent.mkdir(parents=True, exist_ok=True)
-        _publish_sample(SAMPLES_DIR / rel, target)
+    seed_samples_into(default_root(home))
     mark_samples_seeded(home)
 
 

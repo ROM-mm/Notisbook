@@ -72,8 +72,12 @@ for ((i = 0; i < ${#args[@]}; i++)); do
   esac
 done
 if [[ "$has_root" -eq 0 ]]; then
-  uv run --project "$ROOT_DIR/backend" notisbook --seed-samples --if-missing </dev/null \
-    || echo "Aviso: não foi possível copiar os notebooks de exemplo; seguindo sem eles." >&2
+  uv run --project "$ROOT_DIR/backend" notisbook --seed-samples --if-missing </dev/null || {
+    rc=$?
+    # 130 = Ctrl+C durante a cópia: o operador desistiu, então não abre o app.
+    [[ "$rc" -eq 130 ]] && exit 130
+    echo "Aviso: não foi possível copiar os notebooks de exemplo; seguindo sem eles." >&2
+  }
 fi
 
 exec uv run --project "$ROOT_DIR/backend" notisbook ${args[@]+"${args[@]}"}
