@@ -1,4 +1,4 @@
-"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]`, `notisbook uninstall [--yes]`, `notisbook --install-default-runtimes` and `notisbook --runtimes-summary`."""
+"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]`, `notisbook uninstall [--yes]`, `notisbook --install-default-runtimes`, `notisbook --runtimes-summary` and `notisbook --seed-samples [--if-missing]`."""
 
 import argparse
 import dataclasses
@@ -26,14 +26,18 @@ from .config import (
     HOST,
     Settings,
     default_home,
-    default_root,
     ensure_home,
 )
-from .maintenance import runtimes_bootstrap, runtimes_summary, uninstall, update
+from .maintenance import (
+    runtimes_bootstrap,
+    runtimes_summary,
+    samples_seed,
+    uninstall,
+    update,
+)
 from .notislake import binary
 from .notislake.supervisor import NotislakeSupervisor, StartError
-from .onboarding import run_onboarding
-from .preferences import RootRejected, read_notebooks_root, validate_notebooks_root
+from .onboarding import run_onboarding, saved_or_default_root
 from .runtimes.docker import catalog as docker_catalog
 from .runtimes.docker import cli as docker_cli
 from .runtimes.docker.service import inspect_container
@@ -74,6 +78,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="list the managed Spark and DuckDB runtimes and exit (starts no server)",
     )
+    parser.add_argument(
+        "--seed-samples",
+        action="store_true",
+        help="copy the bundled sample notebooks missing from the active notebooks folder and exit (starts no server)",
+    )
+    parser.add_argument(
+        "--if-missing",
+        action="store_true",
+        help="with --seed-samples: do nothing if the notebooks folder already exists",
+    )
     commands = parser.add_subparsers(dest="command")
     update_cmd = commands.add_parser("update", help="update Notisbook to the latest release (or --version)")
     update_cmd.add_argument("--version", dest="target_version", metavar="X.Y.Z", help="release to install (default: latest)")
@@ -86,6 +100,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         parser.error("--install-default-runtimes cannot be combined with server options")
     if args.runtimes_summary and _serve_options_set(args):
         parser.error("--runtimes-summary cannot be combined with server options")
+    if args.seed_samples and _serve_options_set(args):
+        parser.error("--seed-samples cannot be combined with server options")
+    if args.if_missing and not args.seed_samples:
+        parser.error("--if-missing requires --seed-samples")
     if args.port is None:
         args.port = DEFAULT_PORT
     return args
@@ -104,6 +122,8 @@ def _server_flags_set(args: argparse.Namespace) -> bool:
         or args.stop_running
         or args.install_default_runtimes
         or args.runtimes_summary
+        or args.seed_samples
+        or args.if_missing
     )
 
 
@@ -166,13 +186,8 @@ def _resolve_root(cli_root: Path | None, home: Path) -> tuple[Path, str, bool]:
     """
     if cli_root is not None:
         return cli_root.expanduser().resolve(), "cli", True
-    saved = read_notebooks_root(home)
-    if saved is not None:
-        try:
-            return validate_notebooks_root(saved, home), "saved", False
-        except RootRejected as exc:
-            print(f"Notisbook: saved notebooks folder {saved} is not usable ({exc.message}); using the default.", file=sys.stderr)
-    return default_root(home).resolve(), "default", False
+    root, source = saved_or_default_root(home)
+    return root, source, False
 
 
 def _stop_owned_containers() -> None:
@@ -308,6 +323,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(runtimes_bootstrap.run())
     if args.runtimes_summary:
         sys.exit(runtimes_summary.run())
+    if args.seed_samples:
+        sys.exit(samples_seed.run(if_missing=args.if_missing))
     signals = _ShutdownSignals()
     signals.install()
     try:
