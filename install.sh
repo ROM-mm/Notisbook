@@ -267,20 +267,36 @@ do_install() {
   [ -n "$bin" ] || err "the notisbook executable was not found after installing"
   env -u NOTISBOOK_MINIO_DIST "$bin" --check-notislake || err "the MinIO package check failed"
 
+  runtimes_failed=0
+  runtimes_note=""
   if [ "$fresh" = 1 ]; then
     say "Installing default runtimes (may take several minutes)..."
     # A runtime failure must not fail the install (set -e): the user can add them in the app.
     if ! "$bin" --install-default-runtimes </dev/null; then
+      runtimes_failed=1
       warn "could not install all default runtimes; install them in Settings › Runtimes"
     fi
   elif [ -z "${NOTISBOOK_UPDATING:-}" ]; then
-    say "Default runtimes are installed only on the first install; add them in Settings › Runtimes."
+    # Kept for the final block: the screen clear below would erase it.
+    runtimes_note="Default runtimes are installed only on the first install; add them in Settings › Runtimes."
+  fi
+
+  # Clear only on a terminal and only when nothing failed: the runtime warning must stay on screen.
+  if [ -t 1 ] && [ "$runtimes_failed" = 0 ]; then
+    clear 2>/dev/null || printf '\033[2J\033[H'
   fi
 
   say ""
-  say "Installed Notisbook $("$bin" --version 2>/dev/null || echo "$version")."
+  say "Notisbook $("$bin" --version 2>/dev/null || echo "$version") installed"
+  say "  binary   $bin"
+  say ""
+  say "Runtimes"
+  # A failed summary is cosmetic: warn and carry on.
+  "$bin" --runtimes-summary </dev/null || warn "could not list the installed runtimes"
+  [ -z "$runtimes_note" ] || say "  $runtimes_note"
   warn_path
-  say "Run \`notisbook\` to start."
+  say ""
+  say "To start: notisbook"
 }
 
 main() {
