@@ -130,7 +130,6 @@
   --sx-dec: #8c6a00;
   --sx-op: #555555;
   --sx-qual: #4d154d;
-  --sx-str-style: normal;
 
   /* Python, claro (C2) */
   --sx-py-text: #1a1a1a;
@@ -165,7 +164,6 @@
   --sx-dark-dec: #e0a6ff;
   --sx-dark-op: #a8b0b8;
   --sx-dark-qual: #c39bd3;
-  --sx-dark-str-style: italic;
   /* Python, escuro (Subliminal; strings no verde de marca) */
   --sx-dark-py-text: #d4d4d4;
   --sx-dark-py-kw: #7f7f7f;
@@ -251,7 +249,6 @@
     --sx-dec: var(--sx-dark-dec);
     --sx-op: var(--sx-dark-op);
     --sx-qual: var(--sx-dark-qual);
-    --sx-str-style: var(--sx-dark-str-style);
     --sx-py-text: var(--sx-dark-py-text);
     --sx-py-kw: var(--sx-dark-py-kw);
     --sx-py-ctl: var(--sx-dark-py-ctl);
@@ -335,7 +332,6 @@
   --sx-dec: var(--sx-dark-dec);
   --sx-op: var(--sx-dark-op);
   --sx-qual: var(--sx-dark-qual);
-  --sx-str-style: var(--sx-dark-str-style);
   --sx-py-text: var(--sx-dark-py-text);
   --sx-py-kw: var(--sx-dark-py-kw);
   --sx-py-ctl: var(--sx-dark-py-ctl);
