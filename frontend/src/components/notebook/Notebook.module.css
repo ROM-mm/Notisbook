@@ -6,8 +6,8 @@
 
 /* Cores de sintaxe do CodeMirror. Os --sx-* variam por tema em tokens.css;
  * este mapeamento vale para claro e escuro.
- * Paleta duplicada em _CSS de backend/src/notisbook/export/html_report.py
- * (export HTML); os dois precisam andar juntos. */
+ * O export HTML recolore só as classes t-* com a mesma escala de cinzas
+ * (_CSS de backend/src/notisbook/export/html_report.py); os dois andam juntos. */
 .notebook {
   --syntax-text: var(--sx-text, var(--color-text));
   --syntax-keyword: var(--sx-kw);

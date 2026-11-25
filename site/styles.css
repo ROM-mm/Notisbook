@@ -92,7 +92,42 @@
   --sx-dec: #8c6a00;
   --sx-op: #555555;
   --sx-qual: #4d154d;
-  --sx-str-style: normal;
+
+  /* Código (Python, Spark SQL e DuckDB), claro: escala de cinza, a mesma paleta
+   * nas duas linguagens; diferenciação só por cor. */
+  --sx-code-kw: #767676; /* keyword, controle e decorator */
+  --sx-code-text: #2b2b2b; /* texto base, pontuação e operador */
+  --sx-code-mod: #2b2b2b; /* caminho de módulo em import/from */
+  --sx-code-class: #3c3c3c; /* classe importada ou referenciada */
+  --sx-code-class-call: #4d4d4d; /* classe chamada: `Classe(` */
+  --sx-code-var: #111111; /* variável */
+  --sx-code-attr: #111111; /* atributo: `.nome` fora de chamada */
+  --sx-code-fn: #4d4d4d; /* chamada de método/função, nome em def/class */
+  --sx-code-str: #6a6a6a; /* string */
+  --sx-code-num: #5e5e5e; /* número, True/False/None */
+  --sx-code-com: #949494; /* comentário */
+  --sx-code-type: #3c3c3c; /* tipo SQL */
+  --sx-code-qual: #111111; /* qualificador SQL, com o ponto: `bronze.` */
+  --sx-code-table: #2b2b2b; /* nome de tabela SQL */
+  --sx-code-col: #111111; /* coluna SQL e alias de coluna */
+  --sx-code-alias: #2b2b2b; /* alias de tabela SQL */
+  /* Código (Python, Spark SQL e DuckDB), escuro: mesmos papéis de --sx-code-* */
+  --sx-dark-code-kw: #808080;
+  --sx-dark-code-text: #ffffff;
+  --sx-dark-code-mod: #ffffff;
+  --sx-dark-code-class: #ffffff;
+  --sx-dark-code-class-call: #ffffff;
+  --sx-dark-code-var: #838383;
+  --sx-dark-code-attr: #838383;
+  --sx-dark-code-fn: #868686;
+  --sx-dark-code-str: #8e8e8e;
+  --sx-dark-code-num: #999999;
+  --sx-dark-code-com: #616161;
+  --sx-dark-code-type: #a0a0a0;
+  --sx-dark-code-qual: #838383;
+  --sx-dark-code-table: #ffffff;
+  --sx-dark-code-col: #ffffff;
+  --sx-dark-code-alias: #ffffff;
 
   --max: 1120px;
 }
@@ -145,7 +180,22 @@
     --sx-dec: #e0a6ff;
     --sx-op: #a8b0b8;
     --sx-qual: #c39bd3;
-    --sx-str-style: italic;
+    --sx-code-kw: var(--sx-dark-code-kw);
+    --sx-code-text: var(--sx-dark-code-text);
+    --sx-code-mod: var(--sx-dark-code-mod);
+    --sx-code-class: var(--sx-dark-code-class);
+    --sx-code-class-call: var(--sx-dark-code-class-call);
+    --sx-code-var: var(--sx-dark-code-var);
+    --sx-code-attr: var(--sx-dark-code-attr);
+    --sx-code-fn: var(--sx-dark-code-fn);
+    --sx-code-str: var(--sx-dark-code-str);
+    --sx-code-num: var(--sx-dark-code-num);
+    --sx-code-com: var(--sx-dark-code-com);
+    --sx-code-type: var(--sx-dark-code-type);
+    --sx-code-qual: var(--sx-dark-code-qual);
+    --sx-code-table: var(--sx-dark-code-table);
+    --sx-code-col: var(--sx-dark-code-col);
+    --sx-code-alias: var(--sx-dark-code-alias);
   }
 }
 
@@ -196,7 +246,22 @@
   --sx-dec: #e0a6ff;
   --sx-op: #a8b0b8;
   --sx-qual: #c39bd3;
-  --sx-str-style: italic;
+  --sx-code-kw: var(--sx-dark-code-kw);
+  --sx-code-text: var(--sx-dark-code-text);
+  --sx-code-mod: var(--sx-dark-code-mod);
+  --sx-code-class: var(--sx-dark-code-class);
+  --sx-code-class-call: var(--sx-dark-code-class-call);
+  --sx-code-var: var(--sx-dark-code-var);
+  --sx-code-attr: var(--sx-dark-code-attr);
+  --sx-code-fn: var(--sx-dark-code-fn);
+  --sx-code-str: var(--sx-dark-code-str);
+  --sx-code-num: var(--sx-dark-code-num);
+  --sx-code-com: var(--sx-dark-code-com);
+  --sx-code-type: var(--sx-dark-code-type);
+  --sx-code-qual: var(--sx-dark-code-qual);
+  --sx-code-table: var(--sx-dark-code-table);
+  --sx-code-col: var(--sx-dark-code-col);
+  --sx-code-alias: var(--sx-dark-code-alias);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -405,7 +470,7 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 .cell-head > :first-child { grid-column: 1; }
 .cell-head .cell-title { grid-column: 2; color: var(--color-text); font-family: var(--font-sans); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cell-head .ok { grid-column: 3; justify-self: end; }
-.cell pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 12px; line-height: 1.55; }
+.cell pre { margin: 0; padding: 10px 12px; overflow-x: auto; font-size: 12px; line-height: 1.55; color: var(--sx-code-text); }
 .cell-out { border-top: 1px dashed var(--color-border); padding: 8px 12px; color: var(--color-text-muted); font-size: 11.5px; }
 .run-dur { display: block; color: var(--color-success-text); font-size: 11px; }
 .run-dur + .out-table-wrap { margin-top: 6px; }
@@ -420,12 +485,23 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 }
 .ok { color: var(--color-success-text); }
 
-.k { color: var(--sx-kw); font-weight: 600; }
-.s { color: var(--sx-str); font-style: var(--sx-str-style); }
-.n { color: var(--sx-num); }
-.c { color: var(--sx-com); font-style: italic; }
-.f { color: var(--sx-fn); }
-.o { color: var(--sx-op); }
+.k { color: var(--sx-code-kw); }
+.s { color: var(--sx-code-str); }
+.n { color: var(--sx-code-num); }
+.c { color: var(--sx-code-com); }
+.f { color: var(--sx-code-fn); }
+.o { color: var(--sx-code-text); }
+/* Papéis de identificador do app (editorTheme.ts), mesma paleta em Python e SQL/DuckDB. */
+.v { color: var(--sx-code-var); }
+.md { color: var(--sx-code-mod); }
+.cl { color: var(--sx-code-class); }
+.cc { color: var(--sx-code-class-call); }
+.at { color: var(--sx-code-attr); }
+.ty { color: var(--sx-code-type); }
+.q { color: var(--sx-code-qual); }
+.tb { color: var(--sx-code-table); }
+.cn { color: var(--sx-code-col); }
+.al { color: var(--sx-code-alias); }
 
 .steps { display: grid; gap: 0; border: 1px solid var(--color-border); counter-reset: step; }
 @media (min-width: 900px) { .steps { grid-template-columns: repeat(3, 1fr); } }

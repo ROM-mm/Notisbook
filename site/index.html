@@ -184,7 +184,7 @@
             <div class="cell">
               <div class="cell-head"><span>python</span><span class="ok">✓</span></div>
 <pre>(
-    df.write
+    <span class="v">df</span>.<span class="at">write</span>
     .<span class="f">format</span>(<span class="s">"delta"</span>)
     .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/delta_employees_files"</span>)
     .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
@@ -195,7 +195,7 @@
             <div class="add-bar" aria-hidden="true"><span class="add-line"></span><span class="add-btn"><span class="sq"></span>Code</span><span class="add-btn"><span class="sq"></span>Markdown</span><span class="add-line"></span></div>
             <div class="cell active">
               <div class="cell-head"><span>spark sql</span><span class="ok">✓</span></div>
-<pre><span class="k">select</span> * <span class="k">from</span> bronze.delta_employees</pre>
+<pre><span class="k">select</span> * <span class="k">from</span> <span class="q">bronze.</span><span class="tb">delta_employees</span></pre>
               <div class="cell-out">
                 <span class="run-dur">0.84 s</span>
                 <div class="out-table-wrap">
@@ -215,8 +215,8 @@
             <div class="nb-bar"><span class="kernel"><svg class="ico" role="img" aria-label="DuckDB"><use href="#s-duckdb"/></svg>2.0.1<span class="caret" aria-hidden="true">▾</span></span></div>
             <div class="cell">
               <div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
-<pre><span class="k">COPY</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees)
-<span class="k">TO</span> <span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span> (<span class="k">FORMAT</span> parquet)</pre>
+<pre><span class="f">COPY</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> <span class="q">notislake.bronze.</span><span class="tb">duckdb_employees</span>)
+<span class="k">TO</span> <span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span> (<span class="cn">FORMAT parquet</span>)</pre>
               <div class="cell-out"><span class="run-dur">0.37 s</span></div>
             </div>
             <div class="add-bar" aria-hidden="true"><span class="add-line"></span><span class="add-btn"><span class="sq"></span>Code</span><span class="add-btn"><span class="sq"></span>Markdown</span><span class="add-line"></span></div>
@@ -272,9 +272,9 @@
         <span class="step-num"><b>03</b><span data-i18n="how.s3k">run job</span></span>
         <h3 data-i18n="how.s3t">Submit cells, get cataloged tables</h3>
         <p data-i18n="how.s3p">After each cell the catalog is reconciled, like a batch job closing its log: tables written by Spark or DuckDB appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
-        <div class="term"><pre>.<span class="f">saveAsTable</span>(<span class="s">"bronze.orders"</span>)
+        <div class="term"><pre><span class="o">.</span><span class="f">saveAsTable</span><span class="o">(</span><span class="s">"bronze.orders"</span><span class="o">)</span>
 <span class="c">→ Catalog › spark › bronze</span>
-<span class="k">CREATE TABLE</span> notislake.bronze.orders <span class="k">AS</span> …
+<span class="k">CREATE TABLE</span> <span class="q">notislake.bronze.</span><span class="tb">orders</span> <span class="k">AS</span> <span class="o">…</span>
 <span class="c">→ Catalog › iceberg › bronze</span></pre></div>
       </li>
     </ol>
@@ -304,27 +304,27 @@
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">SparkSession</span><span class="ok">✓</span></div>
-<pre><span class="k">from</span> delta <span class="k">import</span> configure_spark_with_delta_pip
-<span class="k">from</span> pyspark.sql <span class="k">import</span> SparkSession
+<pre><span class="k">from</span> <span class="md">delta</span> <span class="k">import</span> <span class="v">configure_spark_with_delta_pip</span>
+<span class="k">from</span> <span class="md">pyspark.sql</span> <span class="k">import</span> <span class="cl">SparkSession</span>
 
-builder = (
-    SparkSession.builder
+<span class="v">builder</span> = (
+    <span class="cl">SparkSession</span>.<span class="at">builder</span>
     .<span class="f">appName</span>(<span class="s">"SparkDelta"</span>)
     .<span class="f">master</span>(<span class="s">"local[4]"</span>)
     .<span class="f">config</span>(<span class="s">"spark.sql.extensions"</span>, <span class="s">"io.delta.sql.DeltaSparkSessionExtension"</span>)
     .<span class="f">config</span>(<span class="s">"spark.sql.catalog.spark_catalog"</span>, <span class="s">"org.apache.spark.sql.delta.catalog.DeltaCatalog"</span>)
 )
-spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span class="f">getOrCreate</span>()</pre></div>
+<span class="v">spark</span> = <span class="f">configure_spark_with_delta_pip</span>(<span class="v">builder</span>).<span class="f">getOrCreate</span>()</pre></div>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">Write bronze</span><span class="ok">✓</span></div>
 <pre>(
-    df.write
+    <span class="v">df</span>.<span class="at">write</span>
     .<span class="f">format</span>(<span class="s">"delta"</span>)
     .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/delta_employees_files"</span>)
     .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
     .<span class="f">saveAsTable</span>(<span class="s">"bronze.delta_employees"</span>)
 )</pre></div>
           <div class="cell"><div class="cell-head"><span>spark sql</span><span class="cell-title">Query</span><span class="ok">✓</span></div>
-<pre><span class="k">select</span> * <span class="k">from</span> bronze.delta_employees</pre></div>
+<pre><span class="k">select</span> * <span class="k">from</span> <span class="q">bronze.</span><span class="tb">delta_employees</span></pre></div>
         </div>
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
@@ -351,8 +351,8 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">SparkSession</span><span class="ok">✓</span></div>
-<pre>spark = (
-    SparkSession.builder
+<pre><span class="v">spark</span> = (
+    <span class="cl">SparkSession</span>.<span class="at">builder</span>
     .<span class="f">appName</span>(<span class="s">"SparkIceberg"</span>)
     .<span class="f">config</span>(<span class="s">"spark.sql.extensions"</span>,
             <span class="s">"org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions"</span>)
@@ -360,15 +360,15 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
     .<span class="f">getOrCreate</span>()
 )</pre></div>
           <div class="cell"><div class="cell-head"><span>spark sql</span><span class="cell-title">Namespace</span><span class="ok">✓</span></div>
-<pre><span class="k">CREATE NAMESPACE IF NOT EXISTS</span> iceberg.bronze</pre></div>
+<pre><span class="k">CREATE</span> <span class="cn">NAMESPACE</span> <span class="k">IF NOT EXISTS</span> <span class="q">iceberg.</span><span class="tb">bronze</span></pre></div>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">Write bronze</span><span class="ok">✓</span></div>
 <pre>(
-    df.<span class="f">writeTo</span>(<span class="s">"iceberg.bronze.iceberg_employees"</span>)
+    <span class="v">df</span>.<span class="f">writeTo</span>(<span class="s">"iceberg.bronze.iceberg_employees"</span>)
     .<span class="f">tableProperty</span>(<span class="s">"location"</span>, <span class="s">"s3a://notislake/bronze/iceberg_employees_files"</span>)
     .<span class="f">createOrReplace</span>()
 )</pre></div>
           <div class="cell"><div class="cell-head"><span>spark sql</span><span class="cell-title">Query</span><span class="ok">✓</span></div>
-<pre><span class="k">SELECT</span> * <span class="k">FROM</span> iceberg.bronze.iceberg_employees</pre></div>
+<pre><span class="k">SELECT</span> * <span class="k">FROM</span> <span class="q">iceberg.bronze.</span><span class="tb">iceberg_employees</span></pre></div>
         </div>
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
@@ -393,22 +393,22 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">SparkSession</span><span class="ok">✓</span></div>
-<pre>spark = (
-    SparkSession.builder
+<pre><span class="v">spark</span> = (
+    <span class="cl">SparkSession</span>.<span class="at">builder</span>
     .<span class="f">config</span>(<span class="s">"spark.sql.shuffle.partitions"</span>, <span class="s">"4"</span>)
     .<span class="f">config</span>(<span class="s">"spark.sql.session.timeZone"</span>, <span class="s">"UTC"</span>)
     .<span class="f">getOrCreate</span>()
 )</pre></div>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">Write bronze</span><span class="ok">✓</span></div>
 <pre>(
-    df.write.<span class="f">format</span>(<span class="s">"hudi"</span>)
+    <span class="v">df</span>.<span class="at">write</span>.<span class="f">format</span>(<span class="s">"hudi"</span>)
     .<span class="f">option</span>(<span class="s">"hoodie.datasource.write.recordkey.field"</span>, <span class="s">"id"</span>)
     .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/hudi_employees_files"</span>)
     .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
     .<span class="f">saveAsTable</span>(<span class="s">"bronze.hudi_employees"</span>)
 )</pre></div>
           <div class="cell"><div class="cell-head"><span>spark sql</span><span class="cell-title">Query</span><span class="ok">✓</span></div>
-<pre><span class="k">select</span> * <span class="k">from</span> bronze.hudi_employees</pre></div>
+<pre><span class="k">select</span> * <span class="k">from</span> <span class="q">bronze.</span><span class="tb">hudi_employees</span></pre></div>
         </div>
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
@@ -429,22 +429,22 @@ spark = <span class="f">configure_spark_with_delta_pip</span>(builder).<span cla
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">GlueContext</span><span class="ok">✓</span></div>
-<pre><span class="k">from</span> awsglue.context <span class="k">import</span> GlueContext
-<span class="k">from</span> pyspark.context <span class="k">import</span> SparkContext
+<pre><span class="k">from</span> <span class="md">awsglue.context</span> <span class="k">import</span> <span class="cl">GlueContext</span>
+<span class="k">from</span> <span class="md">pyspark.context</span> <span class="k">import</span> <span class="cl">SparkContext</span>
 
-glueContext = <span class="f">GlueContext</span>(SparkContext.<span class="f">getOrCreate</span>())
-spark = glueContext.spark_session</pre></div>
+<span class="v">glueContext</span> = <span class="cc">GlueContext</span>(<span class="cl">SparkContext</span>.<span class="f">getOrCreate</span>())
+<span class="v">spark</span> = <span class="v">glueContext</span>.<span class="at">spark_session</span></pre></div>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">DataFrame</span><span class="ok">✓</span></div>
-<pre>data = [
+<pre><span class="v">data</span> = [
     (<span class="n">1</span>, <span class="s">"Ana"</span>, <span class="s">"Dados"</span>),
     (<span class="n">2</span>, <span class="s">"Bruno"</span>, <span class="s">"Plataforma"</span>),
     (<span class="n">3</span>, <span class="s">"Carla"</span>, <span class="s">"Segurança"</span>),
 ]
-df = spark.<span class="f">createDataFrame</span>(data, [<span class="s">"id"</span>, <span class="s">"nome"</span>, <span class="s">"area"</span>])
-df.<span class="f">show</span>()</pre></div>
+<span class="v">df</span> = <span class="v">spark</span>.<span class="f">createDataFrame</span>(<span class="v">data</span>, [<span class="s">"id"</span>, <span class="s">"nome"</span>, <span class="s">"area"</span>])
+<span class="v">df</span>.<span class="f">show</span>()</pre></div>
           <div class="cell"><div class="cell-head"><span>python</span><span class="cell-title">Write bronze</span><span class="ok">✓</span></div>
 <pre>(
-    df.write
+    <span class="v">df</span>.<span class="at">write</span>
     .<span class="f">format</span>(<span class="s">"delta"</span>)
     .<span class="f">option</span>(<span class="s">"path"</span>, <span class="s">"s3a://notislake/bronze/glue_employees_files"</span>)
     .<span class="f">mode</span>(<span class="s">"overwrite"</span>)
@@ -474,12 +474,12 @@ df.<span class="f">show</span>()</pre></div>
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.code">Notebook</p>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
-<pre><span class="k">CREATE SCHEMA IF NOT EXISTS</span> notislake.bronze</pre></div>
+<pre><span class="k">CREATE SCHEMA IF NOT EXISTS</span> <span class="q">notislake.</span><span class="tb">bronze</span></pre></div>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
-<pre><span class="k">DROP TABLE IF EXISTS</span> notislake.bronze.duckdb_employees;
+<pre><span class="k">DROP TABLE IF EXISTS</span> <span class="q">notislake.bronze.</span><span class="tb">duckdb_employees</span>;
 
-<span class="k">CREATE TABLE</span> notislake.bronze.duckdb_employees <span class="k">AS</span>
-<span class="k">SELECT</span> id::<span class="k">BIGINT</span> <span class="k">AS</span> id, nome, area
+<span class="k">CREATE TABLE</span> <span class="q">notislake.bronze.</span><span class="tb">duckdb_employees</span> <span class="k">AS</span>
+<span class="k">SELECT</span> <span class="cn">id</span>::<span class="ty">BIGINT</span> <span class="k">AS</span> <span class="cn">id</span>, <span class="cn">nome</span>, <span class="cn">area</span>
 <span class="k">FROM</span> (<span class="k">VALUES</span>
     (<span class="n">1</span>, <span class="s">'Romerito'</span>, <span class="s">'Platform Engineering'</span>),
     (<span class="n">2</span>, <span class="s">'Theodoro'</span>, <span class="s">'Data Engineering'</span>),
@@ -489,13 +489,13 @@ df.<span class="f">show</span>()</pre></div>
     (<span class="n">6</span>, <span class="s">'Leonor'</span>, <span class="s">'Governance'</span>),
     (<span class="n">7</span>, <span class="s">'Ana'</span>, <span class="s">'Data Engineering'</span>),
     (<span class="n">8</span>, <span class="s">'Bruno'</span>, <span class="s">'Platform Engineering'</span>)
-) <span class="k">AS</span> t(id, nome, area)</pre></div>
+) <span class="k">AS</span> <span class="al">t</span>(<span class="cn">id</span>, <span class="cn">nome</span>, <span class="cn">area</span>)</pre></div>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
-<pre><span class="k">COPY</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees) <span class="k">TO</span> <span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span> (<span class="k">FORMAT</span> parquet)</pre></div>
+<pre><span class="f">COPY</span> (<span class="k">SELECT</span> * <span class="k">FROM</span> <span class="q">notislake.bronze.</span><span class="tb">duckdb_employees</span>) <span class="k">TO</span> <span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span> (<span class="cn">FORMAT parquet</span>)</pre></div>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
 <pre><span class="k">SELECT</span> * <span class="k">FROM</span> <span class="f">read_parquet</span>(<span class="s">'s3a://notislake/landing/duckdb_employees.parquet'</span>)</pre></div>
           <div class="cell"><div class="cell-head"><span>duckdb</span><span class="ok">✓</span></div>
-<pre><span class="k">SELECT</span> * <span class="k">FROM</span> notislake.bronze.duckdb_employees</pre></div>
+<pre><span class="k">SELECT</span> * <span class="k">FROM</span> <span class="q">notislake.bronze.</span><span class="tb">duckdb_employees</span></pre></div>
         </div>
         <div class="stack">
           <p class="col-label cell-label" data-i18n="ex.out">Expected output</p>
@@ -900,8 +900,8 @@ minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
         </div>
         <div class="install-block">
           <h3 data-i18n="in.b4">Uninstall</h3>
-          <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh -s -- --uninstall" data-i18n="copy">Copy</button></div>
-<pre><span class="prompt">$ </span>curl -LsSf …/install.sh | sh -s -- --uninstall</pre></div>
+          <div class="term"><div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="notisbook uninstall" data-i18n="copy">Copy</button></div>
+<pre><span class="prompt">$ </span>notisbook uninstall</pre></div>
           <p data-i18n="in.b4p">Removes Notisbook and keeps your data in <code>~/.notisbook</code>.</p>
         </div>
       </div>
