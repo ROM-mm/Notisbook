@@ -244,6 +244,12 @@ do_install() {
   uvx --from "$tmp/$wheel" -c "$tmp/$constraints" --python "$PYTHON_VERSION" --managed-python --no-build \
     notisbook --stop-running </dev/null || err "could not stop the running Notisbook; nothing was changed"
 
+  # First install = no tool before this point and not launched by `notisbook update`; set before the tool exists.
+  fresh=0
+  if [ -z "$(notisbook_bin)" ] && [ -z "${NOTISBOOK_UPDATING:-}" ]; then
+    fresh=1
+  fi
+
   say "Installing Notisbook $version..."
   uv tool install --force --python "$PYTHON_VERSION" --managed-python --no-build \
     -c "$tmp/$constraints" "$tmp/$wheel" </dev/null || err "uv could not install the Notisbook wheel"
@@ -260,6 +266,14 @@ do_install() {
   bin="$(notisbook_bin)"
   [ -n "$bin" ] || err "the notisbook executable was not found after installing"
   env -u NOTISBOOK_MINIO_DIST "$bin" --check-notislake || err "the MinIO package check failed"
+
+  if [ "$fresh" = 1 ]; then
+    say "Installing default runtimes (may take several minutes)..."
+    # A runtime failure must not fail the install (set -e): the user can add them in the app.
+    if ! "$bin" --install-default-runtimes </dev/null; then
+      warn "could not install all default runtimes; install them in Settings › Runtimes"
+    fi
+  fi
 
   say ""
   say "Installed Notisbook $("$bin" --version 2>/dev/null || echo "$version")."
