@@ -63,15 +63,24 @@ if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/notislake" ]]
   export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/notislake"
 fi
 
+# O argparse aceita prefixos não ambíguos de opções longas (`--ro X`, `--roo=X`); `$1` é o argumento sem `=valor`,
+# `$2` a opção completa e `$3` o mínimo de caracteres que a torna não ambígua.
+is_long_option() {
+  [[ "${#1}" -ge "$3" && "$2" == "$1"* ]]
+}
+
 # Primeira vez (pasta de notebooks ativa inexistente): copia os exemplos. Com --root do operador
-# não semeia (a pasta é dele). Falha só avisa; o app sobe mesmo assim.
-has_root=0
-for ((i = 0; i < ${#args[@]}; i++)); do
-  case "${args[i]}" in
-    --root|--root=*) has_root=1 ;;
-  esac
+# não semeia (a pasta é dele) e, se o app não vai subir (--help, --version, --stop-running), também não.
+# Falha só avisa; o app sobe mesmo assim.
+skip_seed=0
+for a in ${args[@]+"${args[@]}"}; do
+  [[ "$a" == --* ]] && name="${a%%=*}" || name="$a"
+  if [[ "$name" == "-h" ]] || is_long_option "$name" --help 3 || is_long_option "$name" --version 3 \
+    || is_long_option "$name" --stop-running 4 || is_long_option "$name" --root 4; then
+    skip_seed=1
+  fi
 done
-if [[ "$has_root" -eq 0 ]]; then
+if [[ "$skip_seed" -eq 0 ]]; then
   uv run --project "$ROOT_DIR/backend" notisbook --seed-samples --if-missing </dev/null || {
     rc=$?
     # 130 = Ctrl+C durante a cópia: o operador desistiu, então não abre o app.
