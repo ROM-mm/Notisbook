@@ -380,7 +380,8 @@ export function createNotebookStore(path: string): NotebookStore {
           else index = where === "above" ? ref : ref + 1;
           const cells = s.cells.slice();
           cells.splice(index, 0, cell);
-          const editingMarkdown = type === "markdown" ? { ...s.editingMarkdown, [cell.id]: true } : s.editingMarkdown;
+          const kept = stopEditingPrevious(s.editingMarkdown, s.activeId, cell.id);
+          const editingMarkdown = type === "markdown" ? { ...kept, [cell.id]: true } : kept;
           return { cells, activeId: cell.id, editingMarkdown };
         });
         return cell.id;
