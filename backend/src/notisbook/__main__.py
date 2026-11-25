@@ -1,4 +1,4 @@
-"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]`, `notisbook uninstall [--yes]` and `notisbook --install-default-runtimes`."""
+"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]`, `notisbook uninstall [--yes]`, `notisbook --install-default-runtimes` and `notisbook --runtimes-summary`."""
 
 import argparse
 import dataclasses
@@ -29,7 +29,7 @@ from .config import (
     default_root,
     ensure_home,
 )
-from .maintenance import runtimes_bootstrap, uninstall, update
+from .maintenance import runtimes_bootstrap, runtimes_summary, uninstall, update
 from .notislake import binary
 from .notislake.supervisor import NotislakeSupervisor, StartError
 from .onboarding import run_onboarding
@@ -69,6 +69,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="install the default Spark and DuckDB runtimes and exit (starts no server)",
     )
+    parser.add_argument(
+        "--runtimes-summary",
+        action="store_true",
+        help="list the managed Spark and DuckDB runtimes and exit (starts no server)",
+    )
     commands = parser.add_subparsers(dest="command")
     update_cmd = commands.add_parser("update", help="update Notisbook to the latest release (or --version)")
     update_cmd.add_argument("--version", dest="target_version", metavar="X.Y.Z", help="release to install (default: latest)")
@@ -79,6 +84,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         parser.error(f"server options cannot be combined with the '{args.command}' command")
     if args.install_default_runtimes and _serve_options_set(args):
         parser.error("--install-default-runtimes cannot be combined with server options")
+    if args.runtimes_summary and _serve_options_set(args):
+        parser.error("--runtimes-summary cannot be combined with server options")
     if args.port is None:
         args.port = DEFAULT_PORT
     return args
@@ -96,6 +103,7 @@ def _server_flags_set(args: argparse.Namespace) -> bool:
         or args.check_notislake
         or args.stop_running
         or args.install_default_runtimes
+        or args.runtimes_summary
     )
 
 
@@ -298,6 +306,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(_stop_running())
     if args.install_default_runtimes:
         sys.exit(runtimes_bootstrap.run())
+    if args.runtimes_summary:
+        sys.exit(runtimes_summary.run())
     signals = _ShutdownSignals()
     signals.install()
     try:
