@@ -7,6 +7,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-11-24
+
+A security release: local Spark kernels stop listening on the local network.
+
+### Fixed
+
+- **Local Spark kernels bound to loopback.** The Spark driver and its Web UI used to listen on all network
+  interfaces, so anyone on the same network could reach the SQL tab, the query plans and the job controls of a
+  running notebook. Every local Spark runtime now sets `spark.driver.bindAddress` and `spark.driver.host` to
+  `127.0.0.1` and starts the kernel with `SPARK_LOCAL_IP=127.0.0.1`, which is what the Web UI actually follows. The
+  Web UI still opens on the Mac itself, without the buttons that kill jobs and stages. Existing runtimes keep the old
+  settings: reinstall each local Spark runtime in Settings › Runtimes to apply the fix. The AWS Glue runtime is not
+  covered by this change.
+
+### Changed
+
+- **Architecture guide.** `docs/ARCHITECTURE.md` and the five diagrams in `docs/arch/` were regenerated from the
+  current code and now describe the loopback binding of local Spark kernels. The guide is now written in Portuguese.
+
 ## [0.13.1] - 2026-11-24
 
 A documentation release: the project documentation is rewritten from the current code, with no change to the app.
