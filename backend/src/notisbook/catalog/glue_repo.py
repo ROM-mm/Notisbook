@@ -4,9 +4,12 @@ Guarda o payload do AWS Glue sem reinterpretá-lo (StorageDescriptor, Parameters
 o que o notebook gravou. As funções recebem uma conexão e NÃO abrem transação: escrita roda dentro de `writer(home)`
 (`BEGIN IMMEDIATE`, único escritor) e leitura em `reader(home)`. Os dicts de saída usam as chaves PascalCase do Glue;
 datas saem em segundos desde a época. Nomes de database/tabela são gravados em minúsculas, como o Glue faz.
-Regras: as camadas de `locations.LAYERS` existem sempre e não se excluem; `<schema>.<tabela>` é único entre `nb_*`,
-`iceberg_*` e `glue_*`, e a location (`s3://notislake/...`, gravada como veio e checada em forma `s3a` sem `/` final)
-não se sobrepõe à de outra tabela de nenhum dos três. Erros: `GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
+Regras: as camadas de `locations.LAYERS` e o `default` existem sempre e não se excluem; `<schema>.<tabela>` é único entre
+`nb_*`, `iceberg_*` e `glue_*`, e a location (`s3://notislake/...`, gravada como veio e checada em forma `s3a` sem `/`
+final) não se sobrepõe à de outra tabela de nenhum dos três. `MANAGED_TABLE` só em `s3://notislake/<camada>/<tabela>`
+(o DROP do cliente Hive apaga a pasta da tabela). O `LocationUri` de um database fica dentro de `s3://notislake/` e o
+DeleteDatabase é recusado se a pasta contém tabela ou outro database (a JVM apaga o `LocationUri` inteiro). Erros:
+`GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
 """
 
 import json
@@ -19,17 +22,19 @@ from typing import Any
 
 from ..notislake import locations
 from . import iceberg_jdbc
-from .registry import ERR_NAME_IN_OTHER_CATALOG, table_name_exists
+from .registry import DEFAULT_DATABASE, ERR_NAME_IN_OTHER_CATALOG, table_name_exists
 from .schemas import NAME_RE
 from .store import catalog_db_path, connect, ensure_catalog_db, immediate
 
 GLUE_CATALOG = "glue"
 TABLE_TYPE_EXTERNAL = "EXTERNAL_TABLE"
+TABLE_TYPE_MANAGED = "MANAGED_TABLE"
+_TABLE_TYPES = frozenset({TABLE_TYPE_EXTERNAL, TABLE_TYPE_MANAGED})
 # Teto por blob JSON gravado: evita que uma requisição única encha o `catalog.db`.
 MAX_JSON_BYTES = 1024 * 1024
-# Delta/Iceberg/Hudi no `glue` estão fora de escopo: a tabela seria registrada, mas o Spark não a leria como esperado.
-_UNSUPPORTED_FORMATS = frozenset({"delta", "iceberg", "hudi"})
-_FORMAT_PARAMS = ("table_type", "spark.sql.sources.provider")
+# O GlueCatalog do Iceberg grava estes dois Parameters; a tabela Iceberg é sempre EXTERNAL_TABLE.
+_ICEBERG_TYPE_PARAM = "table_type"
+_ICEBERG_METADATA_PARAM = "metadata_location"
 # Campos do TableInput com coluna própria; o resto (Owner, Retention...) vai em `extra`.
 _TABLE_FIELDS = frozenset({"Name", "Description", "StorageDescriptor", "PartitionKeys", "TableType", "Parameters"})
 # Preenchidos pelo servidor: não são aceitos de volta do cliente.
@@ -171,20 +176,80 @@ def list_databases(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [_database_dict(r) for r in rows]
 
 
+def _location_segments(uri: str) -> tuple[str, ...] | None:
+    """Segmentos de `uri` após o bucket `notislake` (`s3` ou `s3a`, qualquer profundidade >= 1); `None` se inválida."""
+    prefix = f"{locations.ROOT_URI}/"
+    canonical = _to_s3a(uri)
+    if not canonical.startswith(prefix):
+        return None
+    rest = canonical[len(prefix) :].removesuffix("/")
+    segments = tuple(rest.split("/"))
+    return None if any(part in ("", ".", "..") for part in segments) else segments
+
+
+def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_database: str | None = None) -> bool:
+    """A pasta `segments` é igual à de outro database ou de uma tabela de qualquer catálogo, ou as contém.
+
+    Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto o que está abaixo.
+    """
+    rows = conn.execute("SELECT name, location_uri FROM glue_databases").fetchall()
+    others = [loc for name, loc in rows if loc is not None and name != skip_database]
+    others += [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
+    for other in others:
+        inner = _location_segments(other)
+        if inner is not None and inner[: len(segments)] == segments:
+            return True
+    return False
+
+
+def _checked_location_uri(conn: sqlite3.Connection, location_uri: str | None) -> str | None:
+    """`LocationUri` do CreateDatabase: vazio vira `None`; senão precisa estar dentro de `s3://notislake/` e não conter nada."""
+    if not location_uri:
+        return None
+    segments = _location_segments(location_uri)
+    if segments is None:
+        raise GlueInvalidInput("location_outside_notislake", "LocationUri must be a folder inside s3://notislake/.")
+    if _folder_in_use(conn, segments):
+        raise GlueInvalidInput("location_in_use", "LocationUri contains the location of another database or table.")
+    return location_uri
+
+
 def create_database(conn: sqlite3.Connection, database_input: Any) -> dict[str, Any]:
-    """Cria o database a partir do DatabaseInput. Levanta `GlueAlreadyExists` (inclui as camadas), `GlueInvalidInput`."""
+    """Cria o database a partir do DatabaseInput. Levanta `GlueAlreadyExists` (inclui as camadas), `GlueInvalidInput`.
+
+    `LocationUri` fora de `s3://notislake/` ou que contenha outro database/tabela é recusado.
+    """
     payload = _require_object(database_input)
     key = _name(payload.get("Name"))
     description = _optional_text(payload, "Description")
-    location_uri = _optional_text(payload, "LocationUri")
+    raw_location = _optional_text(payload, "LocationUri")
     parameters = _dump(_string_map(payload, "Parameters"))
     if _database_row(conn, key) is not None:
         raise GlueAlreadyExists("database_exists", f"Database {key} already exists.")
+    location_uri = _checked_location_uri(conn, raw_location)
     conn.execute(
         "INSERT INTO glue_databases (name, description, location_uri, parameters, create_time) VALUES (?, ?, ?, ?, ?)",
         (key, description, location_uri, parameters, time.time()),
     )
     return get_database(conn, key)
+
+
+def delete_database(conn: sqlite3.Connection, name: Any) -> None:
+    """Remove o database vazio (só a linha; o backend não apaga no bucket).
+
+    Recusa (`GlueInvalidInput`) as camadas, o `default`, o database com tabelas e o que tem pasta que contém tabela ou
+    outro database: o DROP do cliente Hive/Spark apaga o `LocationUri` inteiro depois que o DeleteDatabase é aceito.
+    """
+    key = _require_database(conn, name)
+    if key in locations.LAYERS or key == DEFAULT_DATABASE:
+        raise GlueInvalidInput("protected_database", f"Database {key} cannot be deleted.")
+    if conn.execute("SELECT 1 FROM glue_tables WHERE database_name = ? LIMIT 1", (key,)).fetchone() is not None:
+        raise GlueInvalidInput("database_not_empty", f"Database {key} still has tables.")
+    location_uri = conn.execute("SELECT location_uri FROM glue_databases WHERE name = ?", (key,)).fetchone()[0]
+    segments = _location_segments(location_uri) if location_uri else None
+    if segments is not None and _folder_in_use(conn, segments, skip_database=key):
+        raise GlueInvalidInput("location_in_use", f"The folder of database {key} contains other tables or databases.")
+    conn.execute("DELETE FROM glue_databases WHERE name = ?", (key,))
 
 
 def _table_dict(row: tuple[Any, ...]) -> dict[str, Any]:
@@ -279,27 +344,37 @@ def table_name_exists_in_glue(conn: sqlite3.Connection, database: str, table: st
     return row is not None
 
 
-def _reject_unsupported_format(parameters: dict[str, str]) -> None:
-    for key in _FORMAT_PARAMS:
-        if parameters.get(key, "").lower() in _UNSUPPORTED_FORMATS:
-            raise GlueInvalidInput("unsupported_format", "Only Parquet, CSV and JSON external tables are supported.")
+def _check_iceberg(table_type: str, parameters: dict[str, str]) -> None:
+    """Tabela Iceberg (`table_type=ICEBERG`): EXTERNAL_TABLE com `metadata_location` dentro do notislake."""
+    if parameters.get(_ICEBERG_TYPE_PARAM, "").upper() != "ICEBERG":
+        return
+    if table_type != TABLE_TYPE_EXTERNAL:
+        raise GlueInvalidInput("iceberg_not_external", f"An Iceberg table must be {TABLE_TYPE_EXTERNAL}.")
+    metadata = parameters.get(_ICEBERG_METADATA_PARAM)
+    if not metadata:
+        raise GlueInvalidInput("missing_metadata_location", "An Iceberg table needs metadata_location.")
+    try:
+        locations.parse_notislake(_to_s3a(metadata))
+    except locations.InvalidLocation as exc:
+        raise GlueInvalidInput(exc.code, f"metadata_location refused ({exc.code}).") from None
 
 
 def _parse_table_input(table_input: Any) -> dict[str, Any]:
     payload = _require_object(table_input)
     table_type = payload.get("TableType") or TABLE_TYPE_EXTERNAL
-    if table_type != TABLE_TYPE_EXTERNAL:
-        raise GlueInvalidInput("unsupported_table_type", f"Only {TABLE_TYPE_EXTERNAL} tables are supported.")
+    if not isinstance(table_type, str) or table_type not in _TABLE_TYPES:
+        raise GlueInvalidInput("unsupported_table_type", f"Only {TABLE_TYPE_EXTERNAL} and {TABLE_TYPE_MANAGED} are supported.")
     keys = payload.get("PartitionKeys")
     if keys is None:
         keys = []
     if not isinstance(keys, list) or not all(isinstance(k, dict) for k in keys):
         raise GlueInvalidInput("invalid_payload", "PartitionKeys must be a list of columns")
     parameters = _string_map(payload, "Parameters")
-    _reject_unsupported_format(parameters)
+    _check_iceberg(table_type, parameters)
     extra = {k: v for k, v in payload.items() if k not in _TABLE_FIELDS and k not in _SERVER_FIELDS}
     return {
         "name": _name(payload.get("Name")),
+        "table_type": table_type,
         "description": _optional_text(payload, "Description"),
         "descriptor": _dict_field(payload, "StorageDescriptor"),
         "keys": keys,
@@ -323,19 +398,29 @@ def _descriptor_location(descriptor: dict[str, Any]) -> str | None:
     return _to_s3a(raw)
 
 
-def _canonical_location(conn: sqlite3.Connection, database: str, table: str, descriptor: dict[str, Any]) -> str | None:
+def _canonical_location(
+    conn: sqlite3.Connection, database: str, table: str, descriptor: dict[str, Any], table_type: str
+) -> str | None:
     """Location canônica validada pela regra do notislake (camada do schema, sem sobreposição); `None` sem Location.
 
-    Ignora a própria tabela na sobreposição, o que serve ao UpdateTable.
+    Ignora a própria tabela na sobreposição, o que serve ao UpdateTable. `MANAGED_TABLE` exige Location e que ela
+    seja exatamente `s3://notislake/<camada>/<tabela>`: o DROP do cliente Hive apaga a pasta, então outro local
+    poderia apagar uma camada inteira ou os dados de outra tabela.
     """
     location = _descriptor_location(descriptor)
+    managed = table_type == TABLE_TYPE_MANAGED
     if location is None:
+        if managed:
+            raise GlueInvalidInput("managed_location_required", "A managed table needs its Location.")
         return None
     known = [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn, skip=(database, table))]
     try:
-        return locations.table_destination(database, table, location, known)
+        canonical = locations.table_destination(database, table, location, known)
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"Table location refused ({exc.code}).") from None
+    if managed and canonical != locations.managed_location(database, table):
+        raise GlueInvalidInput("managed_location_mismatch", "A managed table must be at s3://notislake/<layer>/<table>.")
+    return canonical
 
 
 def _iceberg_name_exists(conn: sqlite3.Connection, database: str, table: str) -> bool:
@@ -354,10 +439,11 @@ def _require_free_name(conn: sqlite3.Connection, database: str, table: str) -> N
 
 
 def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> dict[str, Any]:
-    """Cria a tabela externa a partir do TableInput (`version_id` = 1) e a devolve.
+    """Cria a tabela a partir do TableInput (`version_id` = 1) e a devolve.
 
     Levanta `GlueEntityNotFound` (database), `GlueAlreadyExists` (nome no `glue`) e `GlueInvalidInput`
-    (nome em outro catálogo, location recusada, formato ou TableType fora do escopo, payload inválido).
+    (nome em outro catálogo, location recusada, MANAGED fora do local fixo, Iceberg sem `metadata_location`,
+    TableType fora do escopo, payload inválido).
     """
     db_key = _require_database(conn, database)
     fields = _parse_table_input(table_input)
@@ -365,7 +451,7 @@ def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
     if _table_row(conn, db_key, name) is not None:
         raise GlueAlreadyExists("table_exists", f"Table {name} already exists.")
     _require_free_name(conn, db_key, name)
-    location = _canonical_location(conn, db_key, name, fields["descriptor"])
+    location = _canonical_location(conn, db_key, name, fields["descriptor"], fields["table_type"])
     now = time.time()
     conn.execute(
         "INSERT INTO glue_tables (database_name, name, table_type, description, storage_descriptor, partition_keys, "
@@ -373,7 +459,7 @@ def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
         (
             db_key,
             name,
-            TABLE_TYPE_EXTERNAL,
+            fields["table_type"],
             fields["description"],
             _dump(fields["descriptor"]),
             _dump(fields["keys"]),
@@ -391,18 +477,19 @@ def update_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
     """Substitui a definição (como o UpdateTable) e incrementa `version_id`; `create_time` é preservado.
 
     O `Name` do TableInput identifica a tabela (renomear não existe no Glue). Levanta as mesmas exceções de `create_table`,
-    com `GlueEntityNotFound` também para a tabela.
+    com `GlueEntityNotFound` também para a tabela. Trocar para MANAGED_TABLE fora do local fixo é recusado.
     """
     db_key = _require_database(conn, database)
     fields = _parse_table_input(table_input)
     name = fields["name"]
     if _table_row(conn, db_key, name) is None:
         raise GlueEntityNotFound("table_not_found", f"Table {name} not found.")
-    location = _canonical_location(conn, db_key, name, fields["descriptor"])
+    location = _canonical_location(conn, db_key, name, fields["descriptor"], fields["table_type"])
     conn.execute(
-        "UPDATE glue_tables SET description = ?, storage_descriptor = ?, partition_keys = ?, parameters = ?, extra = ?, "
+        "UPDATE glue_tables SET table_type = ?, description = ?, storage_descriptor = ?, partition_keys = ?, parameters = ?, extra = ?, "
         "location = ?, update_time = ?, version_id = version_id + 1 WHERE database_name = ? AND name = ?",
         (
+            fields["table_type"],
             fields["description"],
             _dump(fields["descriptor"]),
             _dump(fields["keys"]),

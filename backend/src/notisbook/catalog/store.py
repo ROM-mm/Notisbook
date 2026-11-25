@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..notislake import locations
+from .registry import DEFAULT_DATABASE
 
 CATALOG_DB = "catalog.db"
 
@@ -156,15 +157,33 @@ def _seed_layers(conn: sqlite3.Connection) -> None:
         conn.execute("UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'")
 
 
+def glue_layer_location(layer: str) -> str:
+    """`LocationUri` da camada no `glue`: `s3://notislake/<camada>` (a forma `s3` que o cliente Glue envia)."""
+    return f"s3://{locations.BUCKET}/{layer}"
+
+
+# Pasta própria fora das camadas e de `landing`. A raiz do bucket seria o equivalente do warehouse do Spark, mas um
+# DROP aceito apagaria o lake inteiro; `default` nunca recebe tabela (só camadas têm MANAGED) e não pode ser excluído.
+GLUE_DEFAULT_LOCATION = f"s3://{locations.BUCKET}/{DEFAULT_DATABASE}"
+
+
 def _seed_glue_layers(conn: sqlite3.Connection) -> None:
-    """Garante as camadas como databases do `glue` (idempotente). Não mexe na `generation`: o `glue` não é lido pelo hook."""
+    """Garante camadas e `default` como databases do `glue`, com `LocationUri` (idempotente).
+
+    O Spark cria o `default` com o warehouse se ele faltar, e `CREATE TABLE <camada>.x` sem LOCATION precisa do
+    `LocationUri` da camada. Databases semeados antes sem `LocationUri` o recebem aqui; um já definido não é alterado.
+    Não mexe na `generation`: o `glue` não é lido pelo hook.
+    """
     stamp = datetime.now(timezone.utc).timestamp()
-    for layer in locations.LAYERS:
+    seeds = [(layer, glue_layer_location(layer)) for layer in locations.LAYERS]
+    seeds.append((DEFAULT_DATABASE, GLUE_DEFAULT_LOCATION))
+    for name, location in seeds:
         conn.execute(
             "INSERT OR IGNORE INTO glue_databases (name, description, location_uri, parameters, create_time) "
-            "VALUES (?, NULL, NULL, '{}', ?)",
-            (layer, stamp),
+            "VALUES (?, NULL, ?, '{}', ?)",
+            (name, location, stamp),
         )
+        conn.execute("UPDATE glue_databases SET location_uri = ? WHERE name = ? AND location_uri IS NULL", (location, name))
 
 
 def catalog_db_path(home: Path) -> Path:

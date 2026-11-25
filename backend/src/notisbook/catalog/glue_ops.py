@@ -83,6 +83,11 @@ def _create_database(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[s
     return {}
 
 
+def _delete_database(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
+    glue_repo.delete_database(conn, params.get("Name"))
+    return {}
+
+
 def _get_table(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
     return {"Table": glue_repo.get_table(conn, params.get("DatabaseName"), params.get("Name"))}
 
@@ -192,6 +197,7 @@ READ_OPERATIONS: dict[str, Operation] = {
 }
 WRITE_OPERATIONS: dict[str, Operation] = {
     "CreateDatabase": _create_database,
+    "DeleteDatabase": _delete_database,
     "CreateTable": _create_table,
     "UpdateTable": _update_table,
     "DeleteTable": _delete_table,
