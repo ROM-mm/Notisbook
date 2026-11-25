@@ -124,8 +124,9 @@
   font-size: var(--font-size-xs);
 }
 
+/* Borda em vez de fundo: em escala fracionária a caixa de 1px vira 2px físicos. */
 .separator {
-  height: 1px;
+  height: 0;
   margin: var(--space-1) 0;
-  background: var(--color-border);
+  border-top: 1px solid var(--color-border);
 }

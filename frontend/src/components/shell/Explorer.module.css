@@ -19,12 +19,13 @@
   flex: none;
 }
 
-/* Divisória de 1px entre seções; a alça (1px, transparente) fica sobre ela. */
+/* Divisória de 1px entre seções; a alça (1px, transparente) fica sobre ela.
+   Borda em vez de fundo: em escala fracionária a caixa de 1px vira 2px físicos. */
 .gap {
   display: flex;
   flex: none;
   flex-direction: column;
   justify-content: center;
-  height: 1px;
-  background: var(--color-border);
+  height: 0;
+  border-top: 1px solid var(--color-border);
 }
