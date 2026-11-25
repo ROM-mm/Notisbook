@@ -94,6 +94,19 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     uninstall_cmd = commands.add_parser("uninstall", help="remove Notisbook and keep your data folder")
     uninstall_cmd.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     args = parser.parse_args(argv)
+    actions = [
+        flag
+        for flag, active in (
+            ("--check-notislake", args.check_notislake),
+            ("--stop-running", args.stop_running),
+            ("--install-default-runtimes", args.install_default_runtimes),
+            ("--runtimes-summary", args.runtimes_summary),
+            ("--seed-samples", args.seed_samples),
+        )
+        if active
+    ]
+    if len(actions) > 1:
+        parser.error(f"{' and '.join(actions[:2])} cannot be combined: each one is a separate action")
     if args.command and _server_flags_set(args):
         parser.error(f"server options cannot be combined with the '{args.command}' command")
     if args.install_default_runtimes and _serve_options_set(args):
