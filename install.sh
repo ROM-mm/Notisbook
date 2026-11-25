@@ -162,11 +162,14 @@ warn_path() {
 }
 
 warn_brew() {
+  brew_note=""
   command -v brew >/dev/null 2>&1 || return 0
   prefix="$(brew --prefix 2>/dev/null)" || return 0
   [ -n "$prefix" ] && [ -e "$prefix/bin/notisbook" ] || return 0
   warn "a Homebrew copy of notisbook exists at $prefix/bin/notisbook and may shadow this install."
   warn "remove it with: brew uninstall notisbook && brew untap rom-mm/tap"
+  # Kept for the final block: the screen clear there would erase the warning above.
+  brew_note="a Homebrew copy of notisbook exists at $prefix/bin/notisbook and may shadow this install; remove it with: brew uninstall notisbook && brew untap rom-mm/tap"
 }
 
 do_uninstall() {
@@ -283,7 +286,8 @@ do_install() {
 
   # Clear only on a terminal and only when nothing failed: the runtime warning must stay on screen.
   if [ -t 1 ] && [ "$runtimes_failed" = 0 ]; then
-    clear 2>/dev/null || printf '\033[2J\033[H'
+    # -x keeps the scrollback; fall back to a plain ANSI clear where `clear -x` is unsupported.
+    clear -x 2>/dev/null || printf '\033[2J\033[H'
   fi
 
   say ""
@@ -294,6 +298,7 @@ do_install() {
   # A failed summary is cosmetic: warn and carry on.
   "$bin" --runtimes-summary </dev/null || warn "could not list the installed runtimes"
   [ -z "$runtimes_note" ] || say "  $runtimes_note"
+  [ -z "$brew_note" ] || warn "$brew_note"
   warn_path
   say ""
   say "To start: notisbook"
