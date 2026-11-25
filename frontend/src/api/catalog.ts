@@ -4,7 +4,7 @@ import { ApiError, errorMessage, request } from "./http";
 export interface CatalogTable {
   name: string;
   namespace: string[];
-  /** `delta`, `parquet`, `hudi` ou `iceberg`; no `glue` também `csv`, `json`, `orc` ou `avro`. */
+  /** `delta`, `parquet`, `hudi` ou `iceberg`; no `glue` também `csv`, `json`, `orc`, `avro` ou `unknown`. */
   format: string;
   /** `MANAGED` ou `EXTERNAL`. */
   table_type: string;
@@ -52,9 +52,14 @@ export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
   return request<CatalogResponse>("/api/catalog", { signal });
 }
 
-export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg" | "csv" | "json" | "orc" | "avro";
-/** `none`: o catálogo não expõe DROP (tabelas do `glue`). */
-export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge" | "none";
+export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg" | "csv" | "json" | "orc" | "avro" | "unknown";
+/** Semântica do DROP decidida pelo backend por formato e tipo (MANAGED/EXTERNAL), igual em todos os catálogos. */
+export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge";
+/**
+ * Origem de `columns` numa tabela do `glue`: `storage_descriptor` (Columns do Glue), `spark_properties`
+ * (schema gravado pelo Spark nos parâmetros) ou `delta_log` (schema no `_delta_log`; `columns` traz só as partições).
+ */
+export type SchemaSource = "storage_descriptor" | "spark_properties" | "delta_log";
 export type TableMetadataError = "unavailable" | "store_unavailable";
 
 export interface TableVersion {
@@ -84,7 +89,7 @@ export interface GlueStorage {
   output_format: string | null;
   serde_library: string | null;
   compressed: boolean | null;
-  /** `TableType` do Glue (ex.: `EXTERNAL_TABLE`). */
+  /** `TableType` do Glue (`EXTERNAL_TABLE` ou `MANAGED_TABLE`). */
   glue_table_type: string | null;
 }
 
@@ -108,6 +113,8 @@ export interface TableInfo {
   properties: Record<string, string> | null;
   stats: TableStats | null;
   metadata_error: TableMetadataError | null;
+  /** Só no catálogo `glue`. */
+  schema_source?: SchemaSource | null;
   /** Só no catálogo `glue`. */
   glue?: GlueStorage | null;
 }

@@ -10,7 +10,7 @@ export const SPARK_CATALOG = "spark_catalog";
 /** Nó só de exibição das tabelas Hudi: os schemas são do `spark_catalog`. */
 export const HUDI_CATALOG = "hudi";
 
-/** Catálogo AWS Glue local (endpoint `/glue`): só leitura na UI, sem criar/excluir schema nem DROP. */
+/** Catálogo AWS Glue local (endpoint `/glue`): só leitura na UI, sem criar/excluir schema. */
 export const GLUE_CATALOG = "glue";
 
 const CATALOG_LABELS: Record<string, string> = { [SPARK_CATALOG]: "spark" };
