@@ -217,32 +217,18 @@ def _folded(uri: str) -> tuple[str, ...] | None:
     return None if segments is None else tuple(part.casefold() for part in segments)
 
 
-def _partition_locations_without_table_location(conn: sqlite3.Connection) -> list[str]:
-    """Locations das partições de tabelas sem `Location` (as com `Location` já são cobertas pela pasta da tabela)."""
-    rows = conn.execute(
-        "SELECT p.storage_descriptor FROM glue_partitions p JOIN glue_tables t "
-        "ON t.database_name = p.database_name AND t.name = p.table_name WHERE t.location IS NULL"
-    ).fetchall()
-    found = (json.loads(row[0]).get("Location") for row in rows)
-    return [loc for loc in found if isinstance(loc, str) and loc]
-
-
 def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_database: str | None = None) -> bool:
-    """A pasta `segments` coincide com a de outro database, tabela ou partição, contém uma delas ou está dentro de uma.
+    """A pasta `segments` coincide com a de outro database ou tabela, contém uma delas ou está dentro de uma.
 
     Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto o que está abaixo; e a
     pasta dentro da de uma tabela seria apagada junto com ela. As camadas e o `default` não entram no sentido
     inverso: abrigam os databases criados com LOCATION abaixo delas e não podem ser excluídos. A comparação ignora a
-    caixa dos segmentos.
+    caixa dos segmentos. Partições ficam sempre dentro da pasta da tabela (`_check_partition_location`).
     """
     rows = conn.execute("SELECT name, location_uri FROM glue_databases").fetchall()
     kept = [(name, loc) for name, loc in rows if loc is not None and name != skip_database]
     containers = [loc for name, loc in kept if name not in locations.LAYERS and name != DEFAULT_DATABASE]
-    containers += [
-        *iceberg_jdbc.known_table_locations(conn),
-        *table_locations(conn),
-        *_partition_locations_without_table_location(conn),
-    ]
+    containers += [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
     wanted = tuple(part.casefold() for part in segments)
     for other in [loc for _, loc in kept] + containers:
         inner = _folded(other)
@@ -568,11 +554,23 @@ def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
     return get_table(conn, db_key, name)
 
 
+def _require_partitions_inside(conn: sqlite3.Connection, database: str, table: str, location: str | None) -> None:
+    """Toda partição com `Location` da tabela cabe na nova `location` (que não pode ser removida nesse caso)."""
+    rows = conn.execute(
+        "SELECT storage_descriptor FROM glue_partitions WHERE database_name = ? AND table_name = ?", (database, table)
+    ).fetchall()
+    for (descriptor,) in rows:
+        raw = json.loads(descriptor).get("Location")
+        if isinstance(raw, str) and raw and (location is None or not locations.within(_to_s3a(raw), location)):
+            raise GlueInvalidInput("table_location_excludes_partitions", "Table location must contain its partition locations.")
+
+
 def update_table(conn: sqlite3.Connection, database: str, table_input: Any) -> dict[str, Any]:
     """Substitui a definição (como o UpdateTable) e incrementa `version_id`; `create_time` é preservado.
 
     O `Name` do TableInput identifica a tabela (renomear não existe no Glue). Levanta as mesmas exceções de `create_table`,
-    com `GlueEntityNotFound` também para a tabela. Trocar para MANAGED_TABLE fora do local fixo é recusado.
+    com `GlueEntityNotFound` também para a tabela. Trocar para MANAGED_TABLE fora do local fixo é recusado, bem como
+    remover ou trocar a `Location` deixando partição fora dela.
     """
     db_key = _require_database(conn, database)
     fields = _parse_table_input(table_input)
@@ -580,6 +578,7 @@ def update_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
     if _table_row(conn, db_key, name) is None:
         raise GlueEntityNotFound("table_not_found", f"Table {name} not found.")
     location = _canonical_location(conn, db_key, name, fields["descriptor"], fields["table_type"])
+    _require_partitions_inside(conn, db_key, name, location)
     conn.execute(
         "UPDATE glue_tables SET table_type = ?, description = ?, storage_descriptor = ?, partition_keys = ?, parameters = ?, extra = ?, "
         "location = ?, update_time = ?, version_id = version_id + 1 WHERE database_name = ? AND name = ?",
@@ -667,41 +666,22 @@ def get_partition(conn: sqlite3.Connection, database: str, table: str, values: A
     return _partition_dict(row)
 
 
-def _in_database_folder(conn: sqlite3.Connection, location: str) -> bool:
-    """`location` está dentro do `LocationUri` de um database que não é camada nem `default`."""
-    folded = _folded(location)
-    if folded is None:
-        return False
-    rows = conn.execute("SELECT name, location_uri FROM glue_databases WHERE location_uri IS NOT NULL").fetchall()
-    for name, uri in rows:
-        if name in locations.LAYERS or name == DEFAULT_DATABASE:
-            continue
-        folder = _folded(uri)
-        if folder is not None and folded[: len(folder)] == folder:
-            return True
-    return False
+def _check_partition_location(descriptor: dict[str, Any], table_location: str | None) -> None:
+    """Location da partição: exige tabela com `Location` e a partição dentro dela.
 
-
-def _check_partition_location(
-    conn: sqlite3.Connection, descriptor: dict[str, Any], table_location: str | None, table: tuple[str, str]
-) -> None:
-    """Location da partição: dentro da tabela; sem `Location` na tabela, segue a regra de path sem tabela.
-
-    Nesse caso exige camada, sem sobrepor outra tabela (a própria `table` não conta) e fora da pasta de database comum.
+    Partição sem `Location` própria é aceita. Com a pasta sempre sob a da tabela, nenhuma pasta de partição escapa
+    das regras de sobreposição, que só enxergam a pasta da tabela.
     """
     location = _descriptor_location(descriptor)
     if location is None:
         return
+    if table_location is None:
+        raise GlueInvalidInput("partition_needs_table_location", "A partition location needs a table with a Location.")
     try:
         canonical = locations.parse_notislake(location).uri
-        if table_location is None:
-            known = [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn, skip=table)]
-            locations.check_path_write(canonical, known)
-            if _in_database_folder(conn, canonical):
-                raise GlueInvalidInput("partition_in_database_folder", "Partition location is inside a database folder.")
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"Partition location refused ({exc.code}).") from None
-    if table_location is not None and not locations.within(canonical, table_location):
+    if not locations.within(canonical, table_location):
         raise GlueInvalidInput("partition_outside_table", "Partition location must be inside the table location.")
 
 
@@ -712,7 +692,7 @@ def batch_create_partitions(
 
     `Values` repetidos na mesma requisição são deduplicados (vale o primeiro; o GlueContext os repete). Partição que já
     existe vira item `AlreadyExistsException`, sem abortar as demais. Payload malformado, número de `Values` diferente
-    do de chaves de partição ou location fora do notislake/da tabela levantam `GlueInvalidInput` antes de gravar.
+    do de chaves de partição ou location fora do notislake/da tabela (ou tabela sem `Location`) levantam `GlueInvalidInput` antes de gravar.
     """
     db_key, table_key, key_count, table_location = _table_partition_context(conn, database, table)
     if not isinstance(partition_inputs, list):
@@ -724,7 +704,7 @@ def batch_create_partitions(
         if len(values) != key_count:
             raise GlueInvalidInput("partition_values_mismatch", "Values must match the table partition keys.")
         descriptor = _dict_field(payload, "StorageDescriptor")
-        _check_partition_location(conn, descriptor, table_location, (db_key, table_key))
+        _check_partition_location(descriptor, table_location)
         prepared.setdefault(_values_key(values), (values, descriptor, _string_map(payload, "Parameters")))
     errors: list[dict[str, Any]] = []
     now = time.time()
@@ -777,7 +757,7 @@ def update_partition(conn: sqlite3.Connection, database: str, table: str, values
     if len(new_values) != key_count:
         raise GlueInvalidInput("partition_values_mismatch", "Values must match the table partition keys.")
     descriptor = _dict_field(payload, "StorageDescriptor")
-    _check_partition_location(conn, descriptor, table_location, (db_key, table_key))
+    _check_partition_location(descriptor, table_location)
     parameters = _dump(_string_map(payload, "Parameters"))
     new_key = _values_key(new_values)
     exists = "SELECT 1 FROM glue_partitions WHERE database_name = ? AND table_name = ? AND values_json = ?"
