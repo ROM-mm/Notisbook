@@ -131,6 +131,60 @@
   --sx-op: #555555;
   --sx-qual: #4d154d;
   --sx-str-style: normal;
+
+  /* Python, claro (C2) */
+  --sx-py-text: #1a1a1a;
+  --sx-py-kw: #595959; /* keyword e comentário */
+  --sx-py-ctl: #9e3341; /* fluxo, ==, nome em def/class, decorator */
+  --sx-py-call: #7a5200; /* chamada, =, not/in */
+  --sx-py-str: #136536;
+  --sx-py-num: #155a69; /* número/constante */
+  --sx-py-op: #1a1a1a;
+  --sx-py-type: #1a1a1a;
+
+  /* Spark SQL (e DuckDB), claro (C2) */
+  --sx-sql-text: #2e2416;
+  --sx-sql-kw: #595959; /* keyword e comentário */
+  --sx-sql-fn: #7a5200;
+  --sx-sql-str: #136536;
+  --sx-sql-num: #8c4a0e; /* número/constante */
+  --sx-sql-op: #574832;
+  --sx-sql-type: #66522f;
+  --sx-sql-qual: #5e3e1a;
+  --sx-sql-table: #1c140a;
+
+  /* Valores escuros da sintaxe, definidos uma única vez; os dois seletores
+   * escuros abaixo apenas apontam os --sx-* para cá. */
+  --sx-dark-kw: #5cb8ff;
+  --sx-dark-text: #c4cad0;
+  --sx-dark-str: #ffc35a;
+  --sx-dark-num: #8ff0a4;
+  --sx-dark-com: #939da5;
+  --sx-dark-fn: #ffe680;
+  --sx-dark-type: #6fe3d6;
+  --sx-dark-dec: #e0a6ff;
+  --sx-dark-op: #a8b0b8;
+  --sx-dark-qual: #c39bd3;
+  --sx-dark-str-style: italic;
+  /* Python, escuro (Subliminal; strings no verde de marca) */
+  --sx-dark-py-text: #d4d4d4;
+  --sx-dark-py-kw: #7f7f7f;
+  --sx-dark-py-ctl: #f1a5ab;
+  --sx-dark-py-call: #ffe2a9;
+  --sx-dark-py-str: #bbf7d0;
+  --sx-dark-py-num: #91c5d3;
+  --sx-dark-py-op: #d4d4d4;
+  --sx-dark-py-type: #d4d4d4;
+  /* Spark SQL (e DuckDB), escuro (monocromático quente) */
+  --sx-dark-sql-text: #e8dcc4;
+  --sx-dark-sql-kw: #7f7f7f;
+  --sx-dark-sql-fn: #ffe2a9;
+  --sx-dark-sql-str: #bbf7d0;
+  --sx-dark-sql-num: #ffd08a;
+  --sx-dark-sql-op: #cfc4ad;
+  --sx-dark-sql-type: #c9b48a;
+  --sx-dark-sql-qual: #d9c39a;
+  --sx-dark-sql-table: #f6ebd3;
 }
 
 /* Escuro seguindo o sistema, exceto quando o usuário forçou o claro. */
@@ -186,17 +240,35 @@
     --creamy: #121212;
     --brand-mark-shadow: transparent;
     --home-mark-shadow: #cccccc;
-    --sx-kw: #5cb8ff;
-    --sx-text: #c4cad0;
-    --sx-str: #ffc35a;
-    --sx-num: #8ff0a4;
-    --sx-com: #939da5;
-    --sx-fn: #ffe680;
-    --sx-type: #6fe3d6;
-    --sx-dec: #e0a6ff;
-    --sx-op: #a8b0b8;
-    --sx-qual: #c39bd3;
-    --sx-str-style: italic;
+    /* Sintaxe escura: valores em --sx-dark-* (:root); bloco idêntico nos dois seletores escuros. */
+    --sx-kw: var(--sx-dark-kw);
+    --sx-text: var(--sx-dark-text);
+    --sx-str: var(--sx-dark-str);
+    --sx-num: var(--sx-dark-num);
+    --sx-com: var(--sx-dark-com);
+    --sx-fn: var(--sx-dark-fn);
+    --sx-type: var(--sx-dark-type);
+    --sx-dec: var(--sx-dark-dec);
+    --sx-op: var(--sx-dark-op);
+    --sx-qual: var(--sx-dark-qual);
+    --sx-str-style: var(--sx-dark-str-style);
+    --sx-py-text: var(--sx-dark-py-text);
+    --sx-py-kw: var(--sx-dark-py-kw);
+    --sx-py-ctl: var(--sx-dark-py-ctl);
+    --sx-py-call: var(--sx-dark-py-call);
+    --sx-py-str: var(--sx-dark-py-str);
+    --sx-py-num: var(--sx-dark-py-num);
+    --sx-py-op: var(--sx-dark-py-op);
+    --sx-py-type: var(--sx-dark-py-type);
+    --sx-sql-text: var(--sx-dark-sql-text);
+    --sx-sql-kw: var(--sx-dark-sql-kw);
+    --sx-sql-fn: var(--sx-dark-sql-fn);
+    --sx-sql-str: var(--sx-dark-sql-str);
+    --sx-sql-num: var(--sx-dark-sql-num);
+    --sx-sql-op: var(--sx-dark-sql-op);
+    --sx-sql-type: var(--sx-dark-sql-type);
+    --sx-sql-qual: var(--sx-dark-sql-qual);
+    --sx-sql-table: var(--sx-dark-sql-table);
   }
 }
 
@@ -252,17 +324,35 @@
   --creamy: #121212;
   --brand-mark-shadow: transparent;
   --home-mark-shadow: #cccccc;
-  --sx-kw: #5cb8ff;
-  --sx-text: #c4cad0;
-  --sx-str: #ffc35a;
-  --sx-num: #8ff0a4;
-  --sx-com: #939da5;
-  --sx-fn: #ffe680;
-  --sx-type: #6fe3d6;
-  --sx-dec: #e0a6ff;
-  --sx-op: #a8b0b8;
-  --sx-qual: #c39bd3;
-  --sx-str-style: italic;
+  /* Sintaxe escura: valores em --sx-dark-* (:root); bloco idêntico nos dois seletores escuros. */
+  --sx-kw: var(--sx-dark-kw);
+  --sx-text: var(--sx-dark-text);
+  --sx-str: var(--sx-dark-str);
+  --sx-num: var(--sx-dark-num);
+  --sx-com: var(--sx-dark-com);
+  --sx-fn: var(--sx-dark-fn);
+  --sx-type: var(--sx-dark-type);
+  --sx-dec: var(--sx-dark-dec);
+  --sx-op: var(--sx-dark-op);
+  --sx-qual: var(--sx-dark-qual);
+  --sx-str-style: var(--sx-dark-str-style);
+  --sx-py-text: var(--sx-dark-py-text);
+  --sx-py-kw: var(--sx-dark-py-kw);
+  --sx-py-ctl: var(--sx-dark-py-ctl);
+  --sx-py-call: var(--sx-dark-py-call);
+  --sx-py-str: var(--sx-dark-py-str);
+  --sx-py-num: var(--sx-dark-py-num);
+  --sx-py-op: var(--sx-dark-py-op);
+  --sx-py-type: var(--sx-dark-py-type);
+  --sx-sql-text: var(--sx-dark-sql-text);
+  --sx-sql-kw: var(--sx-dark-sql-kw);
+  --sx-sql-fn: var(--sx-dark-sql-fn);
+  --sx-sql-str: var(--sx-dark-sql-str);
+  --sx-sql-num: var(--sx-dark-sql-num);
+  --sx-sql-op: var(--sx-dark-sql-op);
+  --sx-sql-type: var(--sx-dark-sql-type);
+  --sx-sql-qual: var(--sx-dark-sql-qual);
+  --sx-sql-table: var(--sx-dark-sql-table);
 }
 
 /* Claro forçado pelo toggle (explícito para vencer a media query). */

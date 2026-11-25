@@ -9,7 +9,13 @@
  * Paleta duplicada em _CSS de backend/src/notisbook/export/html_report.py
  * (export HTML); os dois precisam andar juntos. */
 .notebook {
+  --syntax-text: var(--sx-text, var(--color-text));
   --syntax-keyword: var(--sx-kw);
+  --syntax-control: var(--sx-kw);
+  --syntax-compare: var(--sx-op);
+  --syntax-assign: var(--sx-op);
+  --syntax-constant: var(--sx-kw);
+  --syntax-table: var(--sx-text, var(--color-text));
   --syntax-string: var(--sx-str);
   --syntax-number: var(--sx-num);
   --syntax-comment: var(--sx-com);
@@ -30,6 +36,48 @@
   /* Rola por roda/trackpad/teclado, sem barra visível. Só este contêiner:
    * saídas e editores mantêm a própria barra. */
   scrollbar-width: none;
+}
+
+/* Paleta por linguagem da célula (`data-cell-language`, Cell.tsx); markdown e
+ * células sem linguagem ficam no mapeamento padrão de `.notebook`.
+ * Keyword e comentário compartilham a cor; diferenciação só por cor (VT323). */
+.notebook [data-cell-language="python"] {
+  --syntax-text: var(--sx-py-text);
+  --syntax-keyword: var(--sx-py-kw);
+  --syntax-comment: var(--sx-py-kw);
+  --syntax-control: var(--sx-py-ctl);
+  --syntax-compare: var(--sx-py-ctl);
+  --syntax-definition: var(--sx-py-ctl);
+  --syntax-meta: var(--sx-py-ctl);
+  --syntax-function: var(--sx-py-call);
+  --syntax-assign: var(--sx-py-call);
+  --syntax-string: var(--sx-py-str);
+  --syntax-number: var(--sx-py-num);
+  --syntax-constant: var(--sx-py-num);
+  --syntax-punctuation: var(--sx-py-op);
+  --syntax-type: var(--sx-py-type);
+  --syntax-property: var(--sx-py-text);
+}
+
+.notebook [data-cell-language="sql"],
+.notebook [data-cell-language="duckdb"] {
+  --syntax-text: var(--sx-sql-text);
+  --syntax-keyword: var(--sx-sql-kw);
+  --syntax-comment: var(--sx-sql-kw);
+  --syntax-control: var(--sx-sql-kw);
+  --syntax-compare: var(--sx-sql-op);
+  --syntax-assign: var(--sx-sql-op);
+  --syntax-definition: var(--sx-sql-text);
+  --syntax-meta: var(--sx-sql-kw);
+  --syntax-function: var(--sx-sql-fn);
+  --syntax-string: var(--sx-sql-str);
+  --syntax-number: var(--sx-sql-num);
+  --syntax-constant: var(--sx-sql-num);
+  --syntax-punctuation: var(--sx-sql-op);
+  --syntax-type: var(--sx-sql-type);
+  --syntax-property: var(--sx-sql-text);
+  --syntax-qualifier: var(--sx-sql-qual);
+  --syntax-table: var(--sx-sql-table);
 }
 
 .notebook::-webkit-scrollbar {

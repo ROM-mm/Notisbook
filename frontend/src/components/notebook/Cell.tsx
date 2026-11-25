@@ -56,6 +56,21 @@ function isInsideEditor(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(".cm-editor") !== null;
 }
 
+/** O foco atual (após o blur do editor) está dentro do contêiner desta célula. */
+function focusInsideCell(id: string): boolean {
+  const focused = document.activeElement;
+  if (!(focused instanceof Element)) return false;
+  return focused.closest("[data-cell-id]")?.getAttribute("data-cell-id") === id;
+}
+
+/**
+ * Janela em que um blur do editor é atribuído a um mousedown dentro da própria célula.
+ * O blur do DOM acontece na ação padrão do mousedown (independe do mouseup) e o CM6 só
+ * avisa ~10 ms depois (`updateForFocusChange`); 100 ms cobre esse atraso com folga e
+ * expira antes de qualquer blur genuíno posterior (clique fora, Tab para fora).
+ */
+const INTERNAL_MOUSEDOWN_WINDOW_MS = 100;
+
 export const Cell = memo(function Cell({
   cell,
   index,
@@ -85,7 +100,19 @@ export const Cell = memo(function Cell({
     mounted.current = true;
   }, [active]);
 
+  // Mousedown recente dentro da própria célula (⋮, título, rótulo, padding). Safari e
+  // Firefox no macOS não focam <button> no clique: o foco cai em `body` e
+  // `focusInsideCell` não basta para reconhecer o clique interno.
+  const internalMouseDown = useRef(false);
+  const internalMouseDownTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(internalMouseDownTimer.current), []);
+
   const onMouseDown = (e: MouseEvent) => {
+    internalMouseDown.current = true;
+    window.clearTimeout(internalMouseDownTimer.current);
+    internalMouseDownTimer.current = window.setTimeout(() => {
+      internalMouseDown.current = false;
+    }, INTERNAL_MOUSEDOWN_WINDOW_MS);
     const nb = store.getState();
     if (isInsideEditor(e.target)) nb.selectCell(id);
     else nb.selectCell(id, "command");
@@ -105,6 +132,8 @@ export const Cell = memo(function Cell({
       className={className}
       data-cell-id={id}
       data-cell-type={cell.cell_type}
+      // Paleta de sintaxe por linguagem (Notebook.module.css); markdown/raw ficam no padrão.
+      data-cell-language={cell.cell_type === "code" ? cellLanguage(cell) : undefined}
       data-testid="cell"
       onMouseDown={onMouseDown}
     >
@@ -132,6 +161,18 @@ export const Cell = memo(function Cell({
               onBlur={() => {
                 const nb = store.getState();
                 if (nb.activeId === id && nb.mode === "edit") nb.setMode("command");
+                // Markdown volta a renderizar quando o foco sai da célula. Não renderiza se o
+                // blur veio de um clique dentro da própria célula (⋮, título, rótulo, padding,
+                // mesmo sem foco no botão), se o foco foi para o ⋮/título nem no blur da
+                // janela (Alt+Tab). Só lê o DOM/estado: a view pode já ter sido destruída.
+                // Não executa nada.
+                if (
+                  isMarkdown &&
+                  !internalMouseDown.current &&
+                  document.hasFocus() &&
+                  !focusInsideCell(id)
+                )
+                  nb.setMarkdownEditing(id, false);
               }}
               onShiftEnter={() => onRun(id, true)}
               onModEnter={() => onRun(id, false)}

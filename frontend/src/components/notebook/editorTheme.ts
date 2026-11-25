@@ -6,7 +6,7 @@
  */
 import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { type Extension, Prec, RangeSetBuilder } from "@codemirror/state";
+import { type Extension, Prec, RangeSetBuilder, type Text } from "@codemirror/state";
 import { tags as t } from "@lezer/highlight";
 
 const theme = EditorView.theme({
@@ -17,6 +17,10 @@ const theme = EditorView.theme({
   },
   // O `*` vence o span de `special(string)` do QuotedIdentifier, aninhado ou não.
   ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-qualifier)" },
+  // Nome de tabela: identificador logo após o qualificador (`schema.tabela`).
+  ".cm-sql-table, .cm-sql-table *": { color: "var(--syntax-table)" },
+  // Função SQL: identificador seguido de `(` (o dialeto Spark não declara builtins).
+  ".cm-sql-function, .cm-sql-function *": { color: "var(--syntax-function)" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
     fontFamily: "var(--font-code)",
@@ -31,7 +35,7 @@ const theme = EditorView.theme({
     MozOsxFontSmoothing: "auto",
     padding: "0",
     caretColor: "transparent",
-    color: "var(--sx-text, var(--color-text))",
+    color: "var(--syntax-text, var(--color-text))",
   },
   // Sem gutter (o editor não usa números de linha) e linha ativa sem fundo próprio.
   ".cm-activeLine": { backgroundColor: "transparent" },
@@ -62,14 +66,28 @@ const theme = EditorView.theme({
   "&.cm-focused .cm-nonmatchingBracket": { backgroundColor: "var(--color-danger-subtle)" },
 });
 
+/*
+ * Papéis por tag do Lezer. Python (`@lezer/python`): `controlKeyword` = if/for/return…;
+ * `operatorKeyword` = in/not/and/or/is/del; `definitionOperator` = `=`; `updateOperator`
+ * = `+=`…; `compareOperator` = `==`/`<`…; nome em `def` = function(definition(variableName));
+ * nome em `class` = definition(className); chamada = function(variableName); `@` = meta.
+ * Os modificadores do Lezer são normalizados, então a ordem function/definition não importa.
+ */
 const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.moduleKeyword, t.operatorKeyword], color: "var(--syntax-keyword)", fontWeight: "700" },
-  { tag: [t.definitionKeyword, t.self, t.null, t.bool], color: "var(--syntax-keyword)", fontWeight: "700" },
+  { tag: [t.keyword, t.moduleKeyword], color: "var(--syntax-keyword)", fontWeight: "700" },
+  { tag: [t.definitionKeyword, t.self], color: "var(--syntax-keyword)", fontWeight: "700" },
+  { tag: t.controlKeyword, color: "var(--syntax-control)" },
+  { tag: t.compareOperator, color: "var(--syntax-compare)" },
+  { tag: [t.definitionOperator, t.updateOperator, t.operatorKeyword], color: "var(--syntax-assign)" },
+  { tag: [t.null, t.bool], color: "var(--syntax-constant)" },
   { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)", fontStyle: "var(--sx-str-style)" },
   { tag: [t.number, t.integer, t.float], color: "var(--syntax-number)" },
   { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontFamily: "var(--font-code)" },
-  { tag: [t.function(t.variableName), t.function(t.propertyName)], color: "var(--syntax-function)" },
-  { tag: [t.definition(t.variableName), t.definition(t.function(t.variableName))], color: "var(--syntax-definition)" },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.standard(t.name)], color: "var(--syntax-function)" },
+  {
+    tag: [t.definition(t.variableName), t.definition(t.function(t.variableName)), t.definition(t.className)],
+    color: "var(--syntax-definition)",
+  },
   { tag: [t.className, t.typeName, t.namespace], color: "var(--syntax-type)" },
   { tag: [t.operator, t.punctuation, t.bracket], color: "var(--syntax-punctuation)" },
   { tag: [t.meta, t.annotation, t.processingInstruction], color: "var(--syntax-meta)" },
@@ -102,12 +120,33 @@ export const markdownEditorTheme: Extension = Prec.high(
 );
 
 const qualifierMark = Decoration.mark({ class: "cm-sql-qualifier" });
+const tableMark = Decoration.mark({ class: "cm-sql-table" });
+const functionMark = Decoration.mark({ class: "cm-sql-function" });
 const QUALIFIER_TAIL = /^\.[\w"`]/;
+/** Termina em `<nome>.`: o identificador seguinte é o último segmento de um nome qualificado. */
+const QUALIFIED_HEAD = /[\w"`]\.$/;
+const CALL_TAIL = /^\s*\(/;
+/** Nó Lezer, tipado via `syntaxTree` (`@lezer/common` não é dependência direta). */
+type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]>;
+/** Palavras que antecedem nome de tabela/view em DDL/DML (`CREATE TABLE t (`, `INSERT INTO t (`). */
+const TABLE_INTRODUCER = /^(table|into|view|exists)$/i;
+
+/** Texto do irmão anterior na árvore Lezer, pulando comentários (nulo se não houver). */
+function prevTokenText(node: SyntaxNode, doc: Text): string | null {
+  let prev = node.prevSibling;
+  while (prev && (prev.name === "LineComment" || prev.name === "BlockComment")) prev = prev.prevSibling;
+  return prev ? doc.sliceString(prev.from, prev.to) : null;
+}
 
 /**
  * SQL: o lang-sql etiqueta todo identificador como `name`, sem distinguir o
  * qualificador (`main.schema.`) do nome final. Marca os identificadores
- * seguidos de `.` + nome; o último segmento e as colunas ficam neutros.
+ * seguidos de `.` + nome (qualificador), o segmento logo após o qualificador
+ * (nome de tabela; `alias.coluna` também cai aqui, a gramática não distingue)
+ * e o identificador não qualificado seguido de `(` (chamada de função).
+ * Exceção: se o token anterior (Lezer, sem espaços/comentários) for TABLE,
+ * INTO, VIEW ou EXISTS, é nome de tabela em DDL/DML e fica neutro.
+ * Sem qualificador, o identificador fica neutro.
  */
 function qualifierDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -121,6 +160,19 @@ function qualifierDecorations(view: EditorView): DecorationSet {
         const next = doc.sliceString(node.to, Math.min(node.to + 2, doc.length));
         if (QUALIFIER_TAIL.test(next)) {
           builder.add(node.from, node.to, qualifierMark);
+          return;
+        }
+        const prev = doc.sliceString(Math.max(node.from - 2, 0), node.from);
+        if (QUALIFIED_HEAD.test(prev)) {
+          builder.add(node.from, node.to, tableMark);
+          return;
+        }
+        if (node.name === "Identifier") {
+          const after = doc.sliceString(node.to, Math.min(node.to + 32, doc.length));
+          if (!CALL_TAIL.test(after)) return;
+          const prevToken = prevTokenText(node.node, doc);
+          if (prevToken !== null && TABLE_INTRODUCER.test(prevToken)) return;
+          builder.add(node.from, node.to, functionMark);
         }
       },
     });
