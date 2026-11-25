@@ -3,8 +3,11 @@
 import base64
 import binascii
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone, tzinfo
+from functools import lru_cache
 from html import escape
+from importlib import resources
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -27,7 +30,7 @@ from ..kernels.languages import CELL_LANGUAGE_LABELS
 from .common import cell_language, cell_source
 
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
-CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+CSP = "default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'"
 WARNING_UNSUPPORTED = "saída não exportável"
 _STAMP_FORMAT = "%d/%m/%Y %H:%M:%S"
 _LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
@@ -63,9 +66,118 @@ _SANITIZE: dict[str, Any] = {
 }
 _MARKDOWN = MarkdownIt("js-default")
 
-# Pygments -> classes curtas, nos grupos de cor de editorTheme.ts; a busca sobe pela hierarquia.
-# Sem correspondência (Name.Builtin, texto), herda a cor base de pre>code (--syntax-variable).
-# True/False/None seguem a cor de número e o nome em def/class a de chamada, como no app.
+DEFAULT_CODE_FONT = "VT323"
+DEFAULT_MARKDOWN_FONT = "Roboto"
+MAX_FONT_NAME = 64
+# Mesma regra de FONT_NAME_PATTERN (frontend/src/state/appearance.ts): nada que escape de uma string CSS entre aspas.
+_FONT_NAME = re.compile(r"[^\"'\\;{}\x00-\x1f\x7f]+")
+_CODE_FALLBACK = "ui-monospace, SFMono-Regular, Menlo, monospace"
+_MARKDOWN_FALLBACK = 'system-ui, -apple-system, "Segoe UI", sans-serif'
+_LATIN_RANGE = (
+    "U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,"
+    "U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD"
+)
+_LATIN_EXT_RANGE = (
+    "U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,"
+    "U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF"
+)
+
+
+@dataclass(frozen=True)
+class _FontFile:
+    file: str
+    weight: str
+    style: str = "normal"
+    unicode_range: str = ""
+
+
+def _roboto_files() -> tuple[_FontFile, ...]:
+    variants = (("400", "normal"), ("500", "normal"), ("600", "normal"), ("700", "normal"))
+    variants += (("400", "italic"), ("600", "italic"), ("700", "italic"))
+    return tuple(
+        _FontFile(f"roboto-{subset}-{weight}-{style}.woff2", weight, style, span)
+        for subset, span in (("latin", _LATIN_RANGE), ("latin-ext", _LATIN_EXT_RANGE))
+        for weight, style in variants
+    )
+
+
+# Famílias empacotadas em export/fonts/ (cópias das do app). O Roboto do fontsource não traz unicode-range e o
+# subconjunto latin-ext não cobre ASCII: sem a faixa, a face declarada por último valeria para todo o texto.
+_BUNDLED: dict[str, tuple[_FontFile, ...]] = {
+    "VT323": (_FontFile("VT323-Regular.ttf", "400"),),
+    "Monocode": (_FontFile("monocode-regular.woff2", "400"), _FontFile("monocode-medium.woff2", "500 700")),
+    "Roboto": _roboto_files(),
+}
+_FONT_FORMATS = {".ttf": ("font/ttf", "truetype"), ".woff2": ("font/woff2", "woff2")}
+
+
+def validate_font_name(name: str) -> str:
+    """Return `name` if it is safe to place inside a quoted CSS font-family; raise ValueError otherwise."""
+    if name != name.strip() or not 0 < len(name) <= MAX_FONT_NAME or not _FONT_NAME.fullmatch(name):
+        raise ValueError("invalid font name")
+    return name
+
+
+@dataclass(frozen=True)
+class ExportFonts:
+    """Font names chosen for code/outputs and markdown text; validated on construction."""
+
+    code: str = DEFAULT_CODE_FONT
+    markdown: str = DEFAULT_MARKDOWN_FONT
+
+    def __post_init__(self) -> None:
+        validate_font_name(self.code)
+        validate_font_name(self.markdown)
+
+
+@lru_cache(maxsize=None)
+def _font_base64(file: str) -> str:
+    data = resources.files(__package__).joinpath("fonts", file).read_bytes()
+    return base64.b64encode(data).decode("ascii")
+
+
+@lru_cache(maxsize=None)
+def _font_face_css(family: str) -> str:
+    rules = []
+    for face in _BUNDLED[family]:
+        mime, fmt = _FONT_FORMATS[face.file[face.file.rindex(".") :]]
+        extra = f"unicode-range:{face.unicode_range};" if face.unicode_range else ""
+        if family == DEFAULT_CODE_FONT:
+            extra += "size-adjust:140%;"
+        rules.append(
+            f'@font-face{{font-family:"{family}";src:url(data:{mime};base64,{_font_base64(face.file)}) format("{fmt}");'
+            f"font-weight:{face.weight};font-style:{face.style};font-display:swap;{extra}}}"
+        )
+    return "\n".join(rules)
+
+
+def _css_string(name: str) -> str:
+    # Dentro de <style> o texto é cru: "<" vira escape CSS para não fechar o elemento (nome já validado).
+    return '"' + name.replace("<", "\\3c ") + '"'
+
+
+def _font_stack(name: str, default: str, fallback: str) -> str:
+    """Bundled font: its name plus generics. Other name: it, then the slot's bundled default, then generics."""
+    head = [_css_string(name)] if name in _BUNDLED else [_css_string(name), _css_string(default)]
+    return ", ".join([*head, fallback])
+
+
+def _font_css(fonts: ExportFonts) -> str:
+    """`@font-face` rules (only the families in use) and the `:root` variables read by `_CSS`."""
+    families: list[str] = []
+    for name, default in ((fonts.code, DEFAULT_CODE_FONT), (fonts.markdown, DEFAULT_MARKDOWN_FONT)):
+        wanted = name if name in _BUNDLED else default
+        if wanted not in families:
+            families.append(wanted)
+    code = _font_stack(fonts.code, DEFAULT_CODE_FONT, _CODE_FALLBACK)
+    markdown = _font_stack(fonts.markdown, DEFAULT_MARKDOWN_FONT, _MARKDOWN_FALLBACK)
+    faces = "\n".join(_font_face_css(family) for family in families)
+    return f"{faces}\n:root{{--font-code:{code};--font-markdown:{markdown}}}\n"
+
+
+# Pygments -> classes curtas (grupos de cor de editorTheme.ts); a busca sobe pela hierarquia. Sem correspondência
+# herda a cor base de pre>code (--syntax-variable): texto e Name.Builtin em Python fora de chamada (em SQL vai
+# para t-type; seguido de "(" vira t-fn). True/False/None seguem a cor de número; o nome em def/class, a de chamada.
 _TOKEN_CLASSES: dict[_TokenType, str] = {
     Keyword: "t-kw",
     Keyword.Constant: "t-num",
@@ -102,6 +214,8 @@ section.cell{margin:16px 0}
 .lang{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 pre{background:var(--code-bg);padding:10px 12px;overflow-x:auto;border-radius:6px;margin:4px 0;white-space:pre-wrap;word-break:break-word}
 pre>code{color:var(--syntax-variable)}
+pre,pre>code,.out,.nb-grid,.dataframe,.md code,.md pre{font-family:var(--font-code);font-synthesis:none}
+.md{font-family:var(--font-markdown)}
 .t-kw{color:var(--syntax-keyword)}.t-str{color:var(--syntax-string)}.t-num{color:var(--syntax-number)}
 .t-com{color:var(--syntax-comment)}.t-fn{color:var(--syntax-function)}
 .t-type{color:var(--syntax-type)}.t-cls{color:var(--syntax-class)}.t-op{color:var(--syntax-text)}.t-meta{color:var(--syntax-keyword)}
@@ -317,8 +431,16 @@ def _title(name: str) -> str:
     return stem.strip() or "Notebook"
 
 
-def to_html_report(notebook: dict[str, Any], name: str, generated_at: datetime | None = None) -> bytes:
-    """Render `notebook` as one UTF-8 HTML document; `name` only supplies the title."""
+def to_html_report(
+    notebook: dict[str, Any],
+    name: str,
+    generated_at: datetime | None = None,
+    fonts: ExportFonts | None = None,
+) -> bytes:
+    """Render `notebook` as one UTF-8 HTML document; `name` only supplies the title.
+
+    `fonts` picks the code and markdown fonts (default VT323/Roboto). Bundled families are embedded as base64.
+    """
     stamp = _stamp(generated_at)
     cells = notebook.get("cells", [])
     sections: list[str] = []
@@ -337,7 +459,7 @@ def to_html_report(notebook: dict[str, Any], name: str, generated_at: datetime |
         '<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">'
         f'<meta http-equiv="Content-Security-Policy" content="{CSP}">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>{title}</title><style>{_CSS}</style></head><body>"
+        f"<title>{title}</title><style>{_font_css(fonts or ExportFonts())}{_CSS}</style></head><body>"
         f"<header><h1>{title}</h1><p>{_meta_lines(notebook, stamp, len(cells))}</p></header>"
         f"{nav}<main>{''.join(sections)}</main>{_footer(stamp)}</body></html>"
     )
