@@ -2,7 +2,8 @@
  * Painel Table info: encaixado à direita do conteúdo (não é modal), mostra os
  * metadados de `/api/catalog/table` da tabela aberta pela árvore do Catalog.
  * Só dados que não dependem do kernel; `history`/`stats` só no Iceberg, `properties` no Iceberg e no `glue`.
- * Tabelas do `glue` trazem ainda o armazenamento do AWS Glue (classification, formatos, SerDe) e não têm DROP.
+ * Tabelas do `glue` trazem ainda o armazenamento do AWS Glue (classification, formatos, SerDe); tipo, formato e
+ * semântica do DROP chegam do backend como nos demais catálogos. Delta no `glue` guarda o schema no log Delta.
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
  */
 import type { ReactNode } from "react";
@@ -16,6 +17,14 @@ import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import own from "./TableInfoPanel.module.css";
 import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
+
+const DELTA_LOG_NOTE =
+  "Delta table: the schema lives in the Delta log, not in the catalog. Only partition columns are listed here.";
+
+/** Tabela cujo schema não está no catálogo (Delta registrada no `glue`): `columns` traz só as partições. */
+function schemaInDeltaLog(info: TableInfo): boolean {
+  return info.schema_source === "delta_log";
+}
 
 const METADATA_ERRORS: Record<string, string> = {
   unavailable: "Iceberg metadata unavailable — showing catalog registration only.",
@@ -77,9 +86,6 @@ function dropSentence(info: TableInfo): ReactNode {
           only; files are deleted only with DROP TABLE … PURGE.
         </>
       );
-    case "none":
-      // O catálogo não expõe DROP (ex.: `glue`): sem frase nem ação.
-      return null;
     default:
       return null;
   }
@@ -110,7 +116,7 @@ function Overview({ info }: { info: TableInfo }) {
     ["Location", info.location ?? DASH],
     ["Comment", info.description ? <span className={styles.prose}>{info.description}</span> : DASH],
     ["Partitions", info.partition_columns.length > 0 ? info.partition_columns.join(", ") : "None"],
-    ["Columns", String(info.columns.length)],
+    ["Columns", schemaInDeltaLog(info) ? "In the Delta log" : String(info.columns.length)],
     ["Registered at", formatDate(info.created_at)],
     ["Updated at", formatDate(info.updated_at)],
     ["Current version", formatVersion(info.version)],
@@ -128,7 +134,10 @@ function Overview({ info }: { info: TableInfo }) {
 }
 
 function Columns({ info }: { info: TableInfo }) {
-  if (info.columns.length === 0) return <p className={styles.empty}>No columns registered.</p>;
+  if (info.columns.length === 0) {
+    const text = schemaInDeltaLog(info) ? "No partition columns; the schema lives in the Delta log." : "No columns registered.";
+    return <p className={styles.empty}>{text}</p>;
+  }
   return (
     <table className={styles.grid}>
       <thead>
@@ -293,6 +302,7 @@ export function TableInfoPanel() {
   }
 
   const metadataError = data?.metadata_error ? METADATA_ERRORS[data.metadata_error] : null;
+  const notice = metadataError ?? (data && schemaInDeltaLog(data) ? DELTA_LOG_NOTE : null);
 
   return (
     <InfoPanelShell
@@ -320,9 +330,9 @@ export function TableInfoPanel() {
         ) : undefined
       }
       notices={
-        metadataError ? (
+        notice ? (
           <p className={styles.notice} role="status">
-            {metadataError}
+            {notice}
           </p>
         ) : null
       }
