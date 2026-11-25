@@ -88,6 +88,11 @@ def _delete_database(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[s
     return {}
 
 
+def _update_database(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
+    glue_repo.update_database(conn, params.get("Name"), params.get("DatabaseInput"))
+    return {}
+
+
 def _get_table(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
     return {"Table": glue_repo.get_table(conn, params.get("DatabaseName"), params.get("Name"))}
 
@@ -187,6 +192,38 @@ def _batch_delete_partition(conn: sqlite3.Connection, params: dict[str, Any]) ->
     return {"Errors": errors}
 
 
+def _delete_partition(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
+    glue_repo.delete_partition(conn, params.get("DatabaseName"), params.get("TableName"), params.get("PartitionValues"))
+    return {}
+
+
+def _update_partition(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
+    glue_repo.update_partition(
+        conn,
+        params.get("DatabaseName"),
+        params.get("TableName"),
+        params.get("PartitionValueList"),
+        params.get("PartitionInput"),
+    )
+    return {}
+
+
+def _get_user_defined_functions(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
+    """Funções definidas pelo usuário não são suportadas: a lista é sempre vazia (o database, se informado, precisa existir)."""
+    if params.get("DatabaseName") is not None:
+        glue_repo.get_database(conn, params["DatabaseName"])
+    return {"UserDefinedFunctions": []}
+
+
+def _get_user_defined_function(conn: sqlite3.Connection, params: dict[str, Any]) -> dict[str, Any]:
+    glue_repo.get_database(conn, params.get("DatabaseName"))
+    raise glue_repo.GlueEntityNotFound("function_not_found", "Function not found.")
+
+
+def _create_user_defined_function(_conn: sqlite3.Connection, _params: dict[str, Any]) -> dict[str, Any]:
+    raise GlueInvalidInput("udf_not_supported", "User-defined functions are not supported by this catalog.")
+
+
 READ_OPERATIONS: dict[str, Operation] = {
     "GetDatabase": _get_database,
     "GetDatabases": _get_databases,
@@ -194,9 +231,12 @@ READ_OPERATIONS: dict[str, Operation] = {
     "GetTables": _get_tables,
     "GetPartitions": _get_partitions,
     "GetPartition": _get_partition,
+    "GetUserDefinedFunctions": _get_user_defined_functions,
+    "GetUserDefinedFunction": _get_user_defined_function,
 }
 WRITE_OPERATIONS: dict[str, Operation] = {
     "CreateDatabase": _create_database,
+    "UpdateDatabase": _update_database,
     "DeleteDatabase": _delete_database,
     "CreateTable": _create_table,
     "UpdateTable": _update_table,
@@ -204,4 +244,7 @@ WRITE_OPERATIONS: dict[str, Operation] = {
     "CreatePartition": _create_partition,
     "BatchCreatePartition": _batch_create_partition,
     "BatchDeletePartition": _batch_delete_partition,
+    "DeletePartition": _delete_partition,
+    "UpdatePartition": _update_partition,
+    "CreateUserDefinedFunction": _create_user_defined_function,
 }

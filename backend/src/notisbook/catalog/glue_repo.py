@@ -8,8 +8,10 @@ Regras: as camadas de `locations.LAYERS` e o `default` existem sempre e não se 
 `nb_*`, `iceberg_*` e `glue_*`, e a location (`s3://notislake/...`, gravada como veio e checada em forma `s3a` sem `/`
 final) não se sobrepõe à de outra tabela de nenhum dos três. `MANAGED_TABLE` só em `s3://notislake/<camada>/<tabela>`
 (o DROP do cliente Hive apaga a pasta da tabela). O `LocationUri` de um database fica dentro de `s3://notislake/` e o
-DeleteDatabase é recusado se a pasta contém tabela ou outro database (a JVM apaga o `LocationUri` inteiro). Erros:
-`GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
+DeleteDatabase é recusado se a pasta contém tabela ou outro database (a JVM apaga o `LocationUri` inteiro); o
+UpdateDatabase segue a mesma regra e não troca o `LocationUri` das camadas nem do `default`. Tabelas e partições saem
+com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags, `Retention`, listas e mapas).
+Erros: `GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
 """
 
 import json
@@ -43,6 +45,16 @@ _TABLE_COLUMNS = (
     "database_name, name, table_type, description, storage_descriptor, partition_keys, parameters, extra, "
     "create_time, update_time, version_id"
 )
+# Campos do StorageDescriptor que o cliente Java lê como valor primitivo ou coleção, sem tratar ausência (NPE).
+_DESCRIPTOR_DEFAULTS: dict[str, Callable[[], Any]] = {
+    "Compressed": lambda: False,
+    "StoredAsSubDirectories": lambda: False,
+    "NumberOfBuckets": lambda: 0,
+    "Columns": list,
+    "BucketColumns": list,
+    "SortColumns": list,
+    "Parameters": dict,
+}
 _ALREADY_EXISTS = {"ErrorCode": "AlreadyExistsException", "ErrorMessage": "Partition already exists."}
 
 
@@ -137,6 +149,18 @@ def _require_object(payload: Any) -> dict[str, Any]:
     return payload
 
 
+def _complete_descriptor(descriptor: dict[str, Any]) -> dict[str, Any]:
+    """Cópia do StorageDescriptor com os campos ausentes ou nulos preenchidos; o que o cliente enviou é mantido."""
+    out = dict(descriptor)
+    for key, default in _DESCRIPTOR_DEFAULTS.items():
+        if out.get(key) is None:
+            out[key] = default()
+    serde = out.get("SerdeInfo")
+    if isinstance(serde, dict) and serde.get("Parameters") is None:
+        out["SerdeInfo"] = {**serde, "Parameters": {}}
+    return out
+
+
 def _database_dict(row: tuple[Any, ...]) -> dict[str, Any]:
     name, description, location_uri, parameters, created = row
     out: dict[str, Any] = {"Name": name, "Parameters": json.loads(parameters), "CreateTime": created}
@@ -202,14 +226,19 @@ def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_dat
     return False
 
 
-def _checked_location_uri(conn: sqlite3.Connection, location_uri: str | None) -> str | None:
-    """`LocationUri` do CreateDatabase: vazio vira `None`; senão precisa estar dentro de `s3://notislake/` e não conter nada."""
+def _checked_location_uri(
+    conn: sqlite3.Connection, location_uri: str | None, skip_database: str | None = None
+) -> str | None:
+    """`LocationUri` de Create/UpdateDatabase: vazio vira `None`; senão precisa estar dentro de `s3://notislake/` e não conter nada.
+
+    `skip_database` é o database que está sendo atualizado: a pasta dele não conta como "em uso".
+    """
     if not location_uri:
         return None
     segments = _location_segments(location_uri)
     if segments is None:
         raise GlueInvalidInput("location_outside_notislake", "LocationUri must be a folder inside s3://notislake/.")
-    if _folder_in_use(conn, segments):
+    if _folder_in_use(conn, segments, skip_database):
         raise GlueInvalidInput("location_in_use", "LocationUri contains the location of another database or table.")
     return location_uri
 
@@ -232,6 +261,34 @@ def create_database(conn: sqlite3.Connection, database_input: Any) -> dict[str, 
         (key, description, location_uri, parameters, time.time()),
     )
     return get_database(conn, key)
+
+
+def update_database(conn: sqlite3.Connection, name: Any, database_input: Any) -> None:
+    """Substitui descrição, `LocationUri` e `Parameters` (como o UpdateDatabase); o nome não muda.
+
+    O `LocationUri` segue as regras do CreateDatabase, exceto quando é o mesmo já gravado (ALTER DATABASE ... SET
+    DBPROPERTIES o reenvia). Camadas e `default` mantêm o `LocationUri`: informá-lo diferente é recusado, omiti-lo o preserva.
+    Levanta `GlueEntityNotFound` e `GlueInvalidInput`.
+    """
+    key = _require_database(conn, name)
+    payload = _require_object(database_input)
+    if _name(payload.get("Name")) != key:
+        raise GlueInvalidInput("database_rename", "A database cannot be renamed.")
+    description = _optional_text(payload, "Description")
+    raw_location = _optional_text(payload, "LocationUri")
+    parameters = _dump(_string_map(payload, "Parameters"))
+    current = conn.execute("SELECT location_uri FROM glue_databases WHERE name = ?", (key,)).fetchone()[0]
+    same = bool(raw_location) and current is not None and _location_segments(raw_location) == _location_segments(current)
+    if key in locations.LAYERS or key == DEFAULT_DATABASE:
+        if raw_location and not same:
+            raise GlueInvalidInput("protected_location", f"The LocationUri of database {key} cannot be changed.")
+        location_uri = current
+    else:
+        location_uri = current if same else _checked_location_uri(conn, raw_location, skip_database=key)
+    conn.execute(
+        "UPDATE glue_databases SET description = ?, location_uri = ?, parameters = ? WHERE name = ?",
+        (description, location_uri, parameters, key),
+    )
 
 
 def delete_database(conn: sqlite3.Connection, name: Any) -> None:
@@ -260,14 +317,17 @@ def _table_dict(row: tuple[Any, ...]) -> dict[str, Any]:
             "Name": name,
             "DatabaseName": database,
             "TableType": table_type,
-            "StorageDescriptor": json.loads(descriptor),
+            "StorageDescriptor": _complete_descriptor(json.loads(descriptor)),
             "PartitionKeys": json.loads(keys),
             "Parameters": json.loads(parameters),
             "CreateTime": created,
             "UpdateTime": updated,
             "VersionId": str(version),
+            "IsRegisteredWithLakeFormation": False,
+            "IsMaterializedView": False,
         }
     )
+    out.setdefault("Retention", 0)
     if description is not None:
         out["Description"] = description
     return out
@@ -528,7 +588,7 @@ def _partition_dict(row: tuple[Any, ...]) -> dict[str, Any]:
         "DatabaseName": database,
         "TableName": table,
         "CreationTime": created,
-        "StorageDescriptor": json.loads(descriptor),
+        "StorageDescriptor": _complete_descriptor(json.loads(descriptor)),
         "Parameters": json.loads(parameters),
     }
 
@@ -632,3 +692,40 @@ def batch_delete_partitions(
             (db_key, table_key, values_key),
         )
     return []
+
+
+def delete_partition(conn: sqlite3.Connection, database: str, table: str, values: Any) -> None:
+    """Remove a partição pelos `Values` (só a linha); a inexistente é ignorada, como no `batch_delete_partitions`."""
+    db_key, table_key, _, _ = _table_partition_context(conn, database, table)
+    conn.execute(
+        "DELETE FROM glue_partitions WHERE database_name = ? AND table_name = ? AND values_json = ?",
+        (db_key, table_key, _values_key(_partition_values(values))),
+    )
+
+
+def update_partition(conn: sqlite3.Connection, database: str, table: str, values: Any, partition_input: Any) -> None:
+    """Substitui a partição `values` pelo PartitionInput; `Values` diferentes no input renomeiam a partição.
+
+    Mesmas regras de location do `batch_create_partitions`. Levanta `GlueEntityNotFound` (partição inexistente),
+    `GlueAlreadyExists` (o novo `Values` já existe) e `GlueInvalidInput`.
+    """
+    db_key, table_key, key_count, table_location = _table_partition_context(conn, database, table)
+    old_key = _values_key(_partition_values(values))
+    payload = _require_object(partition_input)
+    new_values = _partition_values(payload.get("Values", values))
+    if len(new_values) != key_count:
+        raise GlueInvalidInput("partition_values_mismatch", "Values must match the table partition keys.")
+    descriptor = _dict_field(payload, "StorageDescriptor")
+    _check_partition_location(descriptor, table_location)
+    parameters = _dump(_string_map(payload, "Parameters"))
+    new_key = _values_key(new_values)
+    exists = "SELECT 1 FROM glue_partitions WHERE database_name = ? AND table_name = ? AND values_json = ?"
+    if conn.execute(exists, (db_key, table_key, old_key)).fetchone() is None:
+        raise GlueEntityNotFound("partition_not_found", "Partition not found.")
+    if new_key != old_key and conn.execute(exists, (db_key, table_key, new_key)).fetchone() is not None:
+        raise GlueAlreadyExists("partition_exists", "Partition already exists.")
+    conn.execute(
+        "UPDATE glue_partitions SET values_json = ?, storage_descriptor = ?, parameters = ? "
+        "WHERE database_name = ? AND table_name = ? AND values_json = ?",
+        (new_key, _dump(descriptor), parameters, db_key, table_key, old_key),
+    )
