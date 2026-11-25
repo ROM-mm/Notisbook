@@ -5,6 +5,7 @@ sem kernel. A location sai como foi gravada (`s3://...`), não na forma canônic
 parâmetros saem mascarados por `catalog_info.redact`. `sqlite3.Error` sobe ao chamador (JSON ilegível vira `sqlite3.DatabaseError` no Table info).
 """
 
+import json
 import sqlite3
 from datetime import UTC, datetime
 from typing import Any
@@ -17,15 +18,28 @@ from .registry import MAX_TABLES
 GLUE_CATALOG = glue_repo.GLUE_CATALOG
 ERR_UNREADABLE = "glue_catalog_unreadable"
 FORMAT_UNKNOWN = "unknown"
-# DELETE no Glue só remove o registro, mas a semântica de DROP por formato ainda não é exposta para o `glue`.
-DROP_NONE = "none"
+FORMAT_ICEBERG = "iceberg"
+FORMAT_DELTA = "delta"
+FORMAT_HUDI = "hudi"
+TYPE_MANAGED = "MANAGED"
+TYPE_EXTERNAL = "EXTERNAL"
+# Mesmos valores de `registry` e `iceberg_jdbc`: MANAGED apaga entrada e arquivos; EXTERNAL e Iceberg só a entrada (Iceberg apaga com PURGE).
+DROP_DELETES_FILES = "deletes_files"
+DROP_REGISTRY_ONLY = "registry_only"
+DROP_REGISTRY_ONLY_UNLESS_PURGE = "registry_only_unless_purge"
+# Onde está o schema real: o Delta guarda só um placeholder no Glue e o schema fica no `_delta_log`.
+SCHEMA_STORAGE_DESCRIPTOR = "storage_descriptor"
+SCHEMA_SPARK_PROPERTIES = "spark_properties"
+SCHEMA_DELTA_LOG = "delta_log"
+_SCHEMA_PARTS = "spark.sql.sources.schema.part."
 VERSION_KIND = "glue_version"
 
 # Consulta leve por tabela: só os campos de que a árvore e o resumo precisam, sem carregar o StorageDescriptor inteiro.
 _NODE_FIELDS = (
     "name, description, json_extract(storage_descriptor, '$.Location'), "
     "json_extract(parameters, '$.classification'), json_extract(parameters, '$.\"spark.sql.sources.provider\"'), "
-    "json_extract(storage_descriptor, '$.InputFormat'), json_extract(storage_descriptor, '$.SerdeInfo.SerializationLibrary')"
+    "json_extract(storage_descriptor, '$.InputFormat'), json_extract(storage_descriptor, '$.SerdeInfo.SerializationLibrary'), "
+    "table_type, json_extract(parameters, '$.table_type')"
 )
 _SERDE_HINTS = (
     ("parquet", "parquet"),
@@ -52,13 +66,27 @@ def _text(value: Any) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def _format(classification: Any, provider: Any, input_format: Any, serde: Any) -> str:
-    """Formato pela `classification` (convenção do Glue), depois pelo provider Spark e por fim pelo SerDe/InputFormat."""
+def _format(classification: Any, provider: Any, input_format: Any, serde: Any, iceberg_type: Any = None) -> str:
+    """Iceberg (`table_type=ICEBERG`) e provider Delta/Hudi primeiro; depois `classification`, provider e SerDe/InputFormat."""
+    if (_text(iceberg_type) or "").upper() == "ICEBERG":
+        return FORMAT_ICEBERG
+    if (_text(provider) or "").lower() in (FORMAT_DELTA, FORMAT_HUDI):
+        return str(_text(provider)).lower()
     for hint in (classification, provider):
         if _text(hint):
             return str(_text(hint)).lower()
     blob = f"{_text(input_format) or ''} {_text(serde) or ''}".lower()
     return next((fmt for key, fmt in _SERDE_HINTS if key in blob), FORMAT_UNKNOWN)
+
+
+def _kind(glue_table_type: Any) -> str:
+    return TYPE_MANAGED if glue_table_type == "MANAGED_TABLE" else TYPE_EXTERNAL
+
+
+def _drop_behavior(fmt: str, kind: str) -> str:
+    if fmt == FORMAT_ICEBERG:
+        return DROP_REGISTRY_ONLY_UNLESS_PURGE
+    return DROP_DELETES_FILES if kind == TYPE_MANAGED else DROP_REGISTRY_ONLY
 
 
 def _shown_location(recorded: Any, canonical: str | None = None) -> str | None:
@@ -74,12 +102,12 @@ def _iso(epoch: Any) -> str | None:
 
 
 def _node(database: str, row: tuple[Any, ...]) -> dict[str, Any]:
-    name, description, location, classification, provider, input_format, serde = row
+    name, description, location, classification, provider, input_format, serde, glue_type, iceberg_type = row
     return {
         "name": name,
         "namespace": [database],
-        "format": _format(classification, provider, input_format, serde),
-        "table_type": "EXTERNAL",
+        "format": _format(classification, provider, input_format, serde, iceberg_type),
+        "table_type": _kind(glue_type),
         "is_temporary": False,
         "location": _shown_location(location),
         # O bucket não é sondado na listagem (mesma regra do Iceberg em s3a).
@@ -139,7 +167,7 @@ def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     formats: dict[str, int] = {}
     for database, *row in conn.execute(f"SELECT database_name, {_NODE_FIELDS} FROM glue_tables"):
         per_db[database] = per_db.get(database, 0) + 1
-        fmt = _format(row[3], row[4], row[5], row[6])
+        fmt = _format(row[3], row[4], row[5], row[6], row[8])
         formats[fmt] = formats.get(fmt, 0) + 1
     names = _database_names(conn)
     return {
@@ -179,11 +207,69 @@ def build_catalog_info(conn: sqlite3.Connection | None) -> dict[str, Any]:
     }
 
 
-def _columns(table: dict[str, Any]) -> list[dict[str, Any]]:
-    """Colunas do StorageDescriptor seguidas das partition keys (o Glue as guarda fora de `Columns`)."""
+def _spark_type(spec: Any) -> str:
+    """Tipo do schema JSON do Spark (string ou objeto aninhado) na notação do Hive."""
+    if isinstance(spec, str):
+        return spec
+    if not isinstance(spec, dict):
+        return ""
+    kind = spec.get("type")
+    if kind == "struct":
+        fields = spec.get("fields")
+        inner = ",".join(f"{f.get('name')}:{_spark_type(f.get('type'))}" for f in fields if isinstance(f, dict)) if isinstance(fields, list) else ""
+        return f"struct<{inner}>"
+    if kind == "array":
+        return f"array<{_spark_type(spec.get('elementType'))}>"
+    if kind == "map":
+        return f"map<{_spark_type(spec.get('keyType'))},{_spark_type(spec.get('valueType'))}>"
+    return str(kind or "")
+
+
+def _spark_schema_columns(parameters: dict[str, str]) -> list[dict[str, Any]]:
+    """Colunas de `spark.sql.sources.schema.part.N` (como o Hudi as grava); vazio se ausente ou ilegível."""
+    parts = []
+    index = 0
+    while (chunk := parameters.get(f"{_SCHEMA_PARTS}{index}")) is not None:
+        parts.append(chunk)
+        index += 1
+    if not parts:
+        return []
+    try:
+        schema = json.loads("".join(parts))
+    except ValueError:
+        return []
+    fields = schema.get("fields") if isinstance(schema, dict) else None
+    return [
+        {"Name": f["name"], "Type": _spark_type(f.get("type")), "Comment": (f.get("metadata") or {}).get("comment")}
+        for f in fields or []
+        if isinstance(f, dict) and f.get("name")
+    ]
+
+
+def _schema_source(fmt: str, table: dict[str, Any]) -> str:
+    """De onde vêm `columns`: Delta não tem schema no Glue; Hudi sem `Columns` usa as propriedades do Spark."""
+    if fmt == FORMAT_DELTA:
+        return SCHEMA_DELTA_LOG
+    if fmt == FORMAT_HUDI and not table["StorageDescriptor"].get("Columns") and _spark_schema_columns(table["Parameters"]):
+        return SCHEMA_SPARK_PROPERTIES
+    return SCHEMA_STORAGE_DESCRIPTOR
+
+
+def _columns(table: dict[str, Any], source: str = SCHEMA_STORAGE_DESCRIPTOR) -> list[dict[str, Any]]:
+    """Colunas do schema (StorageDescriptor ou propriedades Spark) seguidas das partition keys (o Glue as guarda fora de `Columns`).
+
+    No Delta o `Columns` é só um placeholder: ficam apenas as partition keys.
+    """
     out: list[dict[str, Any]] = []
-    sources = ((table["StorageDescriptor"].get("Columns"), False), (table["PartitionKeys"], True))
-    for items, is_partition in sources:
+    keys = table["PartitionKeys"]
+    names = {c.get("Name") for c in keys if isinstance(c, dict)}
+    if source == SCHEMA_SPARK_PROPERTIES:
+        body = [c for c in _spark_schema_columns(table["Parameters"]) if c["Name"] not in names]
+    elif source == SCHEMA_DELTA_LOG:
+        body = []
+    else:
+        body = table["StorageDescriptor"].get("Columns")
+    for items, is_partition in ((body, False), (keys, True)):
         for col in items if isinstance(items, list) else []:
             if not isinstance(col, dict) or not col.get("Name"):
                 continue
@@ -239,16 +325,22 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
     descriptor = raw["StorageDescriptor"]
     params = raw["Parameters"]
     fmt = _format(
-        params.get("classification"), params.get("spark.sql.sources.provider"), descriptor.get("InputFormat"), _serde_library(descriptor)
+        params.get("classification"),
+        params.get("spark.sql.sources.provider"),
+        descriptor.get("InputFormat"),
+        _serde_library(descriptor),
+        params.get("table_type"),
     )
-    columns = _columns(raw)
+    kind = _kind(raw["TableType"])
+    source = _schema_source(fmt, raw)
+    columns = _columns(raw, source)
     return {
         "catalog": GLUE_CATALOG,
         "database": raw["DatabaseName"],
         "table": raw["Name"],
         "format": fmt,
-        "table_type": "EXTERNAL",
-        "drop_behavior": DROP_NONE,
+        "table_type": kind,
+        "drop_behavior": _drop_behavior(fmt, kind),
         "location": _shown_location(descriptor.get("Location")),
         "available": None,
         "description": raw.get("Description"),
@@ -256,6 +348,7 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
         "updated_at": _iso(raw.get("UpdateTime")),
         "partition_columns": [c["name"] for c in columns if c["is_partition"]],
         "columns": columns,
+        "schema_source": source,
         "version": {"kind": VERSION_KIND, "value": raw.get("VersionId")},
         "history": None,
         "properties": _properties(raw["Parameters"]),
