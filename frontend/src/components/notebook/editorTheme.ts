@@ -300,7 +300,7 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
   }
   if (word === "retain") return next?.name === "Number";
   if (word === "matched") return isKeyword(doc, prev, /^(when|not)$/i);
-  if (word === "location") return tokens[i + 1]?.name === "String";
+  if (word === "location") return next?.name === "String";
   if (SPARK_FORMATS.test(word)) return isKeyword(doc, prev, /^(using|to)$/i);
   return i === 0 && DELTA_STATEMENT.test(word);
 }
