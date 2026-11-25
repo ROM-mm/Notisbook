@@ -613,6 +613,15 @@
   grid-template-columns: 104px minmax(0, 1fr);
 }
 
+/* Marcador "●" do estado do container (card e diálogo de detalhes). */
+.stateDot {
+  color: inherit;
+}
+
+.stateDotRunning {
+  color: var(--color-success);
+}
+
 .dockerState {
   display: flex;
   flex-wrap: wrap;
