@@ -70,10 +70,10 @@ is_long_option() {
 }
 
 # Opções longas da CLI que não pulam o seed (as que pulam estão no laço abaixo); com elas, decide se `--x` é
-# desconhecida. Mínimos = menor prefixo não ambíguo no argparse.
+# desconhecida. `--if-missing` e `--yes` ficam de fora: só valem com `--seed-samples`/`uninstall`, que já pulam.
+# Mínimos = menor prefixo não ambíguo no argparse.
 is_known_passthrough_option() {
-  is_long_option "$1" --port 3 || is_long_option "$1" --no-browser 3 \
-    || is_long_option "$1" --if-missing 4 || is_long_option "$1" --yes 3
+  is_long_option "$1" --port 3 || is_long_option "$1" --no-browser 3
 }
 
 # Primeira vez (pasta de notebooks ativa inexistente): copia os exemplos. Não semeia com --root do operador
