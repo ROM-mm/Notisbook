@@ -1,4 +1,4 @@
-"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]` and `notisbook uninstall [--yes]`."""
+"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]`, `notisbook uninstall [--yes]` and `notisbook --install-default-runtimes`."""
 
 import argparse
 import dataclasses
@@ -29,7 +29,7 @@ from .config import (
     default_root,
     ensure_home,
 )
-from .maintenance import uninstall, update
+from .maintenance import runtimes_bootstrap, uninstall, update
 from .notislake import binary
 from .notislake.supervisor import NotislakeSupervisor, StartError
 from .onboarding import run_onboarding
@@ -64,6 +64,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="stop the running Notisbook registered in the data folder, whatever its version, and exit (starts no server)",
     )
+    parser.add_argument(
+        "--install-default-runtimes",
+        action="store_true",
+        help="install the default Spark and DuckDB runtimes and exit (starts no server)",
+    )
     commands = parser.add_subparsers(dest="command")
     update_cmd = commands.add_parser("update", help="update Notisbook to the latest release (or --version)")
     update_cmd.add_argument("--version", dest="target_version", metavar="X.Y.Z", help="release to install (default: latest)")
@@ -72,9 +77,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.command and _server_flags_set(args):
         parser.error(f"server options cannot be combined with the '{args.command}' command")
+    if args.install_default_runtimes and _server_options_set(args):
+        parser.error("--install-default-runtimes cannot be combined with server options")
     if args.port is None:
         args.port = DEFAULT_PORT
     return args
+
+
+def _server_options_set(args: argparse.Namespace) -> bool:
+    return args.port is not None or args.root is not None or args.no_browser
 
 
 def _server_flags_set(args: argparse.Namespace) -> bool:
@@ -85,6 +96,7 @@ def _server_flags_set(args: argparse.Namespace) -> bool:
         or args.no_browser
         or args.check_notislake
         or args.stop_running
+        or args.install_default_runtimes
     )
 
 
@@ -285,6 +297,8 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(_check_notislake())
     if args.stop_running:
         sys.exit(_stop_running())
+    if args.install_default_runtimes:
+        sys.exit(runtimes_bootstrap.run())
     signals = _ShutdownSignals()
     signals.install()
     try:
