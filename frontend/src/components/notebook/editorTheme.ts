@@ -42,9 +42,6 @@ const theme = EditorView.theme({
   ".cm-content": {
     fontFamily: "var(--font-code)",
     fontWeight: "400",
-    // Sobrescreve o antialiased global só no código: traço mais encorpado no macOS.
-    WebkitFontSmoothing: "auto",
-    MozOsxFontSmoothing: "auto",
     padding: "0",
     caretColor: "transparent",
     color: "var(--syntax-text, var(--color-text))",

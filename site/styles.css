@@ -40,11 +40,11 @@
   --color-border: #000000;
   --color-border-strong: #000000;
   --color-text: #000000;
-  --color-text-muted: #3c3d40;
-  --color-text-subtle: #6b6d72;
+  --color-text-muted: #222326;
+  --color-text-subtle: #4a4b4f;
   --color-text-inverse: #ffffff;
   --color-accent: #000000;
-  --color-accent-hover: #3c3d40;
+  --color-accent-hover: #4a4b4f;
   --color-accent-subtle: #e9eaed;
   --color-accent-text: #000000;
   --color-focus-ring: #000000;
@@ -81,50 +81,51 @@
   --brand-mint: #bbf7d0;
   --brand-star: #fde68a;
   --home-mark-shadow: #000;
+  --color-on-mint: #000000; /* Só do site: texto sobre o fundo verde de marca; fundo fixo, então valor único nos dois temas */
 
   --sx-kw: #0b45d6;
   --sx-text: var(--color-text);
   --sx-str: #117f32;
   --sx-num: #c6420e;
-  --sx-com: #737373;
+  --sx-com: #595959;
   --sx-fn: #00788c;
   --sx-type: #8f3fbf;
   --sx-dec: #8c6a00;
-  --sx-op: #555555;
+  --sx-op: #333333;
   --sx-qual: #4d154d;
 
   /* Código (Python, Spark SQL e DuckDB), claro: escala de cinza, a mesma paleta
    * nas duas linguagens; diferenciação só por cor. */
-  --sx-code-kw: #767676; /* keyword, controle e decorator */
-  --sx-code-text: #2b2b2b; /* texto base, pontuação e operador */
-  --sx-code-mod: #2b2b2b; /* caminho de módulo em import/from */
-  --sx-code-class: #3c3c3c; /* classe importada ou referenciada */
-  --sx-code-class-call: #4d4d4d; /* classe chamada: `Classe(` */
-  --sx-code-var: #111111; /* variável */
-  --sx-code-attr: #111111; /* atributo: `.nome` fora de chamada */
-  --sx-code-fn: #4d4d4d; /* chamada de método/função, nome em def/class */
-  --sx-code-str: #6a6a6a; /* string */
-  --sx-code-num: #5e5e5e; /* número, True/False/None */
-  --sx-code-com: #949494; /* comentário */
-  --sx-code-type: #3c3c3c; /* tipo SQL */
-  --sx-code-qual: #111111; /* qualificador SQL, com o ponto: `bronze.` */
-  --sx-code-table: #2b2b2b; /* nome de tabela SQL */
-  --sx-code-col: #111111; /* coluna SQL e alias de coluna */
-  --sx-code-alias: #2b2b2b; /* alias de tabela SQL */
+  --sx-code-kw: #5c5c5c; /* keyword, controle e decorator */
+  --sx-code-text: #000000; /* texto base, pontuação e operador */
+  --sx-code-mod: #1a1a1a; /* caminho de módulo em import/from */
+  --sx-code-class: #000000; /* classe importada ou referenciada */
+  --sx-code-class-call: #262626; /* classe chamada: `Classe(` */
+  --sx-code-var: #000000; /* variável */
+  --sx-code-attr: #000000; /* atributo: `.nome` fora de chamada */
+  --sx-code-fn: #262626; /* chamada de método/função, nome em def/class */
+  --sx-code-str: #4d4d4d; /* string */
+  --sx-code-num: #424242; /* número, True/False/None */
+  --sx-code-com: #666666; /* comentário */
+  --sx-code-type: #333333; /* tipo SQL */
+  --sx-code-qual: #000000; /* qualificador SQL, com o ponto: `bronze.` */
+  --sx-code-table: #1a1a1a; /* nome de tabela SQL */
+  --sx-code-col: #000000; /* coluna SQL e alias de coluna */
+  --sx-code-alias: #1a1a1a; /* alias de tabela SQL */
   /* Código (Python, Spark SQL e DuckDB), escuro: mesmos papéis de --sx-code-* */
-  --sx-dark-code-kw: #808080;
+  --sx-dark-code-kw: #a6a6a6;
   --sx-dark-code-text: #ffffff;
   --sx-dark-code-mod: #ffffff;
   --sx-dark-code-class: #ffffff;
   --sx-dark-code-class-call: #ffffff;
-  --sx-dark-code-var: #838383;
-  --sx-dark-code-attr: #838383;
-  --sx-dark-code-fn: #868686;
-  --sx-dark-code-str: #8e8e8e;
-  --sx-dark-code-num: #999999;
-  --sx-dark-code-com: #616161;
-  --sx-dark-code-type: #a0a0a0;
-  --sx-dark-code-qual: #838383;
+  --sx-dark-code-var: #ffffff;
+  --sx-dark-code-attr: #ffffff;
+  --sx-dark-code-fn: #b8b8b8;
+  --sx-dark-code-str: #c4c4c4;
+  --sx-dark-code-num: #cccccc;
+  --sx-dark-code-com: #8c8c8c;
+  --sx-dark-code-type: #d4d4d4;
+  --sx-dark-code-qual: #ffffff;
   --sx-dark-code-table: #ffffff;
   --sx-dark-code-col: #ffffff;
   --sx-dark-code-alias: #ffffff;
@@ -135,24 +136,24 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --color-bg: #2d2d2b;
-    --color-bg-subtle: #2d2d2b;
-    --color-bg-muted: #2d2d2b;
-    --color-bg-hover: #363634;
-    --color-bg-active: #3d3d3a;
-    --color-surface: #2d2d2b;
-    --color-surface-raised: #2d2d2b;
+    --color-bg: #121212;
+    --color-bg-subtle: #121212;
+    --color-bg-muted: #1a1a1a;
+    --color-bg-hover: #222222;
+    --color-bg-active: #2a2a2a;
+    --color-surface: #1a1a1a;
+    --color-surface-raised: #222222;
     --color-border: #4a4a47;
     --color-border-strong: #5c5c58;
-    --color-text: #f2f1ec;
-    --color-text-muted: #c8c6bf;
-    --color-text-subtle: #9a9891;
-    --color-text-inverse: #2d2d2b;
-    --color-accent: #f2f1ec;
-    --color-accent-hover: #c8c6bf;
-    --color-accent-subtle: #3d3d3a;
-    --color-accent-text: #f2f1ec;
-    --color-focus-ring: #f2f1ec;
+    --color-text: #ffffff;
+    --color-text-muted: #d9d9d9;
+    --color-text-subtle: #bdbdbd;
+    --color-text-inverse: #121212;
+    --color-accent: #ffffff;
+    --color-accent-hover: #d9d9d9;
+    --color-accent-subtle: #2a2a2a;
+    --color-accent-text: #ffffff;
+    --color-focus-ring: #ffffff;
     --color-success: #7ee2a0;
     --color-success-text: #7ee2a0;
     --color-success-subtle: #1f3d26;
@@ -161,24 +162,24 @@
     --color-danger: #ff7b80;
     --color-danger-text: #ff7b80;
     --color-danger-subtle: #4a1f22;
-    --color-code-bg: #2d2d2b;
-    --color-bg-panel: #2d2d2b;
-    --color-cell-bg: #2d2d2b;
-    --color-cell-bg-active: #333331;
-    --color-bg-side: #2d2d2b;
-    --color-selection: #3d3d3a;
+    --color-code-bg: #121212;
+    --color-bg-panel: #121212;
+    --color-cell-bg: #121212;
+    --color-cell-bg-active: #1a1a1a;
+    --color-bg-side: #121212;
+    --color-selection: #2a2a2a;
     --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
-    --on-accent: #2d2d2b;
-    --home-mark-shadow: #cfc9bc;
+    --on-accent: #121212;
+    --home-mark-shadow: #e6e6e6;
     --sx-kw: #5cb8ff;
-    --sx-text: #c4cad0;
+    --sx-text: #e3e7eb;
     --sx-str: #ffc35a;
     --sx-num: #8ff0a4;
-    --sx-com: #939da5;
+    --sx-com: #b4bcc3;
     --sx-fn: #ffe680;
     --sx-type: #6fe3d6;
     --sx-dec: #e0a6ff;
-    --sx-op: #a8b0b8;
+    --sx-op: #ccd2d8;
     --sx-qual: #c39bd3;
     --sx-code-kw: var(--sx-dark-code-kw);
     --sx-code-text: var(--sx-dark-code-text);
@@ -201,24 +202,24 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-bg: #2d2d2b;
-  --color-bg-subtle: #2d2d2b;
-  --color-bg-muted: #2d2d2b;
-  --color-bg-hover: #363634;
-  --color-bg-active: #3d3d3a;
-  --color-surface: #2d2d2b;
-  --color-surface-raised: #2d2d2b;
+  --color-bg: #121212;
+  --color-bg-subtle: #121212;
+  --color-bg-muted: #1a1a1a;
+  --color-bg-hover: #222222;
+  --color-bg-active: #2a2a2a;
+  --color-surface: #1a1a1a;
+  --color-surface-raised: #222222;
   --color-border: #4a4a47;
   --color-border-strong: #5c5c58;
-  --color-text: #f2f1ec;
-  --color-text-muted: #c8c6bf;
-  --color-text-subtle: #9a9891;
-  --color-text-inverse: #2d2d2b;
-  --color-accent: #f2f1ec;
-  --color-accent-hover: #c8c6bf;
-  --color-accent-subtle: #3d3d3a;
-  --color-accent-text: #f2f1ec;
-  --color-focus-ring: #f2f1ec;
+  --color-text: #ffffff;
+  --color-text-muted: #d9d9d9;
+  --color-text-subtle: #bdbdbd;
+  --color-text-inverse: #121212;
+  --color-accent: #ffffff;
+  --color-accent-hover: #d9d9d9;
+  --color-accent-subtle: #2a2a2a;
+  --color-accent-text: #ffffff;
+  --color-focus-ring: #ffffff;
   --color-success: #7ee2a0;
   --color-success-text: #7ee2a0;
   --color-success-subtle: #1f3d26;
@@ -227,24 +228,24 @@
   --color-danger: #ff7b80;
   --color-danger-text: #ff7b80;
   --color-danger-subtle: #4a1f22;
-  --color-code-bg: #2d2d2b;
-  --color-bg-panel: #2d2d2b;
-  --color-cell-bg: #2d2d2b;
-  --color-cell-bg-active: #333331;
-  --color-bg-side: #2d2d2b;
-  --color-selection: #3d3d3a;
+  --color-code-bg: #121212;
+  --color-bg-panel: #121212;
+  --color-cell-bg: #121212;
+  --color-cell-bg-active: #1a1a1a;
+  --color-bg-side: #121212;
+  --color-selection: #2a2a2a;
   --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
-  --on-accent: #2d2d2b;
-  --home-mark-shadow: #cfc9bc;
+  --on-accent: #121212;
+  --home-mark-shadow: #e6e6e6;
   --sx-kw: #5cb8ff;
-  --sx-text: #c4cad0;
+  --sx-text: #e3e7eb;
   --sx-str: #ffc35a;
   --sx-num: #8ff0a4;
-  --sx-com: #939da5;
+  --sx-com: #b4bcc3;
   --sx-fn: #ffe680;
   --sx-type: #6fe3d6;
   --sx-dec: #e0a6ff;
-  --sx-op: #a8b0b8;
+  --sx-op: #ccd2d8;
   --sx-qual: #c39bd3;
   --sx-code-kw: var(--sx-dark-code-kw);
   --sx-code-text: var(--sx-dark-code-text);
@@ -273,7 +274,7 @@ body {
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.55;
-  -webkit-font-smoothing: antialiased;
+  -webkit-font-smoothing: auto;
 }
 a { color: inherit; }
 img { max-width: 100%; display: block; }
@@ -378,7 +379,7 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 .dot, .sq { width: 7px; height: 7px; background: var(--color-success); display: inline-block; }
 .hero h1 { font-size: clamp(34px, 5.6vw, 58px); letter-spacing: -0.025em; }
 .hero h1 .slogan { display: block; font-size: 0.7em; margin-top: 10px; font-family: var(--font-brand); letter-spacing: 0; }
-.hero h1 .slogan mark { background: var(--brand-mint); color: #1c1c1a; padding: 0 8px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.hero h1 .slogan mark { background: var(--brand-mint); color: var(--color-on-mint); padding: 0 8px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .hero .lead { font-size: 17px; }
 .hero-cta { display: flex; flex-wrap: wrap; gap: 12px; margin: 30px 0 28px; }
 

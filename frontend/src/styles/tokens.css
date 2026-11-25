@@ -73,11 +73,11 @@
   --color-border: #000000;
   --color-border-strong: #000000;
   --color-text: #000000;
-  --color-text-muted: #3c3d40;
-  --color-text-subtle: #6b6d72;
+  --color-text-muted: #222326;
+  --color-text-subtle: #4a4b4f;
   --color-text-inverse: #ffffff;
   --color-accent: #000000;
-  --color-accent-hover: #3c3d40;
+  --color-accent-hover: #4a4b4f;
   --color-accent-subtle: #e9eaed;
   --color-accent-text: #000000;
   --color-focus-ring: #000000;
@@ -105,7 +105,7 @@
   --on-fill: #000000;
   --on-accent: #ffffff;
   --hover: #e9eaed;
-  --placeholder: #6b6d72;
+  --placeholder: #4a4b4f;
   --yellow: #e9eaed;
   --blue: #e9eaed;
   --peach: #f3ecdc;
@@ -124,58 +124,58 @@
   --sx-kw: #0b45d6;
   --sx-str: #117f32;
   --sx-num: #c6420e;
-  --sx-com: #737373;
+  --sx-com: #595959;
   --sx-fn: #00788c;
   --sx-type: #8f3fbf;
   --sx-dec: #8c6a00;
-  --sx-op: #555555;
+  --sx-op: #333333;
   --sx-qual: #4d154d;
 
   /* Código (Python, Spark SQL e DuckDB), claro: escala de cinza, a mesma paleta
    * nas duas linguagens; diferenciação só por cor. */
-  --sx-code-kw: #767676; /* keyword, controle e decorator */
-  --sx-code-text: #2b2b2b; /* texto base, pontuação e operador */
-  --sx-code-mod: #2b2b2b; /* caminho de módulo em import/from */
-  --sx-code-class: #3c3c3c; /* classe importada ou referenciada */
-  --sx-code-class-call: #4d4d4d; /* classe chamada: `Classe(` */
-  --sx-code-var: #111111; /* variável */
-  --sx-code-attr: #111111; /* atributo: `.nome` fora de chamada */
-  --sx-code-fn: #4d4d4d; /* chamada de método/função, nome em def/class */
-  --sx-code-str: #6a6a6a; /* string */
-  --sx-code-num: #5e5e5e; /* número, True/False/None */
-  --sx-code-com: #949494; /* comentário */
-  --sx-code-type: #3c3c3c; /* tipo SQL */
-  --sx-code-qual: #111111; /* qualificador SQL, com o ponto: `bronze.` */
-  --sx-code-table: #2b2b2b; /* nome de tabela SQL */
-  --sx-code-col: #111111; /* coluna SQL e alias de coluna */
-  --sx-code-alias: #2b2b2b; /* alias de tabela SQL */
+  --sx-code-kw: #5c5c5c; /* keyword, controle e decorator */
+  --sx-code-text: #000000; /* texto base, pontuação e operador */
+  --sx-code-mod: #1a1a1a; /* caminho de módulo em import/from */
+  --sx-code-class: #000000; /* classe importada ou referenciada */
+  --sx-code-class-call: #262626; /* classe chamada: `Classe(` */
+  --sx-code-var: #000000; /* variável */
+  --sx-code-attr: #000000; /* atributo: `.nome` fora de chamada */
+  --sx-code-fn: #262626; /* chamada de método/função, nome em def/class */
+  --sx-code-str: #4d4d4d; /* string */
+  --sx-code-num: #424242; /* número, True/False/None */
+  --sx-code-com: #666666; /* comentário */
+  --sx-code-type: #333333; /* tipo SQL */
+  --sx-code-qual: #000000; /* qualificador SQL, com o ponto: `bronze.` */
+  --sx-code-table: #1a1a1a; /* nome de tabela SQL */
+  --sx-code-col: #000000; /* coluna SQL e alias de coluna */
+  --sx-code-alias: #1a1a1a; /* alias de tabela SQL */
 
   /* Valores escuros da sintaxe, definidos uma única vez; os dois seletores
    * escuros abaixo apenas apontam os --sx-* para cá. */
   --sx-dark-kw: #5cb8ff;
-  --sx-dark-text: #c4cad0;
+  --sx-dark-text: #e3e7eb;
   --sx-dark-str: #ffc35a;
   --sx-dark-num: #8ff0a4;
-  --sx-dark-com: #939da5;
+  --sx-dark-com: #b4bcc3;
   --sx-dark-fn: #ffe680;
   --sx-dark-type: #6fe3d6;
   --sx-dark-dec: #e0a6ff;
-  --sx-dark-op: #a8b0b8;
+  --sx-dark-op: #ccd2d8;
   --sx-dark-qual: #c39bd3;
   /* Código (Python, Spark SQL e DuckDB), escuro: mesmos papéis de --sx-code-* */
-  --sx-dark-code-kw: #808080;
+  --sx-dark-code-kw: #a6a6a6;
   --sx-dark-code-text: #ffffff;
   --sx-dark-code-mod: #ffffff;
   --sx-dark-code-class: #ffffff;
   --sx-dark-code-class-call: #ffffff;
-  --sx-dark-code-var: #838383;
-  --sx-dark-code-attr: #838383;
-  --sx-dark-code-fn: #868686;
-  --sx-dark-code-str: #8e8e8e;
-  --sx-dark-code-num: #999999;
-  --sx-dark-code-com: #616161;
-  --sx-dark-code-type: #a0a0a0;
-  --sx-dark-code-qual: #838383;
+  --sx-dark-code-var: #ffffff;
+  --sx-dark-code-attr: #ffffff;
+  --sx-dark-code-fn: #b8b8b8;
+  --sx-dark-code-str: #c4c4c4;
+  --sx-dark-code-num: #cccccc;
+  --sx-dark-code-com: #8c8c8c;
+  --sx-dark-code-type: #d4d4d4;
+  --sx-dark-code-qual: #ffffff;
   --sx-dark-code-table: #ffffff;
   --sx-dark-code-col: #ffffff;
   --sx-dark-code-alias: #ffffff;
@@ -194,15 +194,15 @@
     --color-surface-raised: #222222;
     --color-border: #3a3a3a;
     --color-border-strong: #4d4d4d;
-    --color-text: #e6e6e6;
-    --color-text-muted: #bdbdbd;
-    --color-text-subtle: #9a9a9a;
+    --color-text: #ffffff;
+    --color-text-muted: #d9d9d9;
+    --color-text-subtle: #bdbdbd;
     --color-text-inverse: #121212;
-    --color-accent: #e6e6e6;
-    --color-accent-hover: #bdbdbd;
+    --color-accent: #ffffff;
+    --color-accent-hover: #d9d9d9;
     --color-accent-subtle: #2a2a2a;
-    --color-accent-text: #e6e6e6;
-    --color-focus-ring: #e6e6e6;
+    --color-accent-text: #ffffff;
+    --color-focus-ring: #ffffff;
     --color-success: #bbf7d0;
     --color-success-text: #bbf7d0;
     --color-success-subtle: rgba(187, 247, 208, 0.15);
@@ -222,10 +222,10 @@
     --color-bg-side: #121212;
     --color-selection: #2a2a2a;
     --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
-    --on-fill: #e6e6e6;
+    --on-fill: #ffffff;
     --on-accent: #121212;
     --hover: #222222;
-    --placeholder: #9a9a9a;
+    --placeholder: #bdbdbd;
     --yellow: #2a2a2a;
     --blue: #2a2a2a;
     --peach: rgba(212, 162, 76, 0.14);
@@ -233,7 +233,7 @@
     --coral: #4a1f22;
     --creamy: #121212;
     --brand-mark-shadow: transparent;
-    --home-mark-shadow: #cccccc;
+    --home-mark-shadow: #e6e6e6;
     /* Sintaxe escura: valores em --sx-dark-* (:root); bloco idêntico nos dois seletores escuros. */
     --sx-kw: var(--sx-dark-kw);
     --sx-text: var(--sx-dark-text);
@@ -276,15 +276,15 @@
   --color-surface-raised: #222222;
   --color-border: #3a3a3a;
   --color-border-strong: #4d4d4d;
-  --color-text: #e6e6e6;
-  --color-text-muted: #bdbdbd;
-  --color-text-subtle: #9a9a9a;
+  --color-text: #ffffff;
+  --color-text-muted: #d9d9d9;
+  --color-text-subtle: #bdbdbd;
   --color-text-inverse: #121212;
-  --color-accent: #e6e6e6;
-  --color-accent-hover: #bdbdbd;
+  --color-accent: #ffffff;
+  --color-accent-hover: #d9d9d9;
   --color-accent-subtle: #2a2a2a;
-  --color-accent-text: #e6e6e6;
-  --color-focus-ring: #e6e6e6;
+  --color-accent-text: #ffffff;
+  --color-focus-ring: #ffffff;
   --color-success: #bbf7d0;
   --color-success-text: #bbf7d0;
   --color-success-subtle: rgba(187, 247, 208, 0.15);
@@ -304,10 +304,10 @@
   --color-bg-side: #121212;
   --color-selection: #2a2a2a;
   --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
-  --on-fill: #e6e6e6;
+  --on-fill: #ffffff;
   --on-accent: #121212;
   --hover: #222222;
-  --placeholder: #9a9a9a;
+  --placeholder: #bdbdbd;
   --yellow: #2a2a2a;
   --blue: #2a2a2a;
   --peach: rgba(212, 162, 76, 0.14);
@@ -315,7 +315,7 @@
   --coral: #4a1f22;
   --creamy: #121212;
   --brand-mark-shadow: transparent;
-  --home-mark-shadow: #cccccc;
+  --home-mark-shadow: #e6e6e6;
   /* Sintaxe escura: valores em --sx-dark-* (:root); bloco idêntico nos dois seletores escuros. */
   --sx-kw: var(--sx-dark-kw);
   --sx-text: var(--sx-dark-text);

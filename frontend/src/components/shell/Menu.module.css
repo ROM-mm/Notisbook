@@ -3,12 +3,10 @@
   display: inline-flex;
 }
 
-/* A VT323 pesa nos menus; suavizamos cor, antialiasing e espaçamento para legibilidade. */
+/* Menus: texto na cor plena do tema e espaçamento de letras para legibilidade da VT323. */
 .barTrigger,
 .list {
-  --menu-text: color-mix(in srgb, var(--color-text) 85%, var(--color-text-muted));
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --menu-text: var(--color-text);
   letter-spacing: 0.02em;
 }
 

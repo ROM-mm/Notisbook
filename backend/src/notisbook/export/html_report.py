@@ -185,20 +185,18 @@ _TOKEN_CLASSES: dict[_TokenType, str] = {
 _CALLABLE_NAMES = (Name, Name.Builtin)
 
 _CSS = """
-/* Escala de cinzas de frontend/src/styles/tokens.css (--sx-code-* e --sx-dark-code-*), fonte da paleta;
-   o código da célula (pre>code) tem cor base --syntax-variable, como identificador no app; as classes t-* sobrepõem
-   por papel e pontuação/operador usa --syntax-text. Ao mudar a paleta, atualize os dois.
-   O export não porta os papéis do app: no escuro, colunas/tabelas SQL e classes Python sem marcação saem
-   na cor de variável (#838383), e no app em #ffffff. */
-:root{color-scheme:light dark;--syntax-keyword:#767676;--syntax-text:#2b2b2b;--syntax-variable:#111111;--syntax-function:#4d4d4d;--syntax-string:#6a6a6a;--syntax-number:#5e5e5e;--syntax-comment:#949494;--syntax-type:#3c3c3c;--syntax-class:#3c3c3c;--color-border-strong:#8a8f98;--bg:#fff;--fg:#1f2328;--muted:#656d76;--code-bg:#f6f8fa;--err:#cf222e;--err-bg:#ffebe9}
-@media (prefers-color-scheme:dark){:root{--syntax-keyword:#808080;--syntax-text:#ffffff;--syntax-variable:#838383;--syntax-function:#868686;--syntax-string:#8e8e8e;--syntax-number:#999999;--syntax-comment:#616161;--syntax-type:#a0a0a0;--syntax-class:#ffffff;--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--code-bg:#161b22;--err:#ff7b72;--err-bg:#3d1214}}
+/* Valores de frontend/src/styles/tokens.css (cores base, --sx-code-* e --sx-dark-code-*), fonte da paleta; ao mudar, atualize os dois.
+   O código da célula (pre>code) tem cor base --syntax-variable e as classes t-* sobrepõem por papel; pontuação/operador usa --syntax-text.
+   O export não porta os papéis módulo, atributo, tabela e alias de tabela do app: módulo (Name.Namespace) vira t-op e sai na cor de texto (--syntax-text); os demais saem na cor de variável. */
+:root{color-scheme:light dark;--syntax-keyword:#5c5c5c;--syntax-text:#000000;--syntax-variable:#000000;--syntax-function:#262626;--syntax-string:#4d4d4d;--syntax-number:#424242;--syntax-comment:#666666;--syntax-type:#333333;--syntax-class:#000000;--color-border-strong:#000000;--bg:#ffffff;--fg:#000000;--muted:#222326;--code-bg:#ffffff;--err:#cf222e;--err-bg:#ffebe9}
+@media (prefers-color-scheme:dark){:root{--syntax-keyword:#a6a6a6;--syntax-text:#ffffff;--syntax-variable:#ffffff;--syntax-function:#b8b8b8;--syntax-string:#c4c4c4;--syntax-number:#cccccc;--syntax-comment:#8c8c8c;--syntax-type:#d4d4d4;--syntax-class:#ffffff;--color-border-strong:#4d4d4d;--bg:#121212;--fg:#ffffff;--muted:#d9d9d9;--code-bg:#121212;--err:#ff7b72;--err-bg:#3d1214}}
 body{margin:0 auto;max-width:960px;padding:24px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
 header{border-bottom:1px solid var(--color-border-strong);margin-bottom:16px}
 header p{color:var(--muted);margin:4px 0 12px}
 nav ul{list-style:none;padding-left:0}nav li.l2{margin-left:16px}nav li.l3{margin-left:32px}
 section.cell{margin:16px 0}
 .lang{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-pre{background:var(--code-bg);padding:10px 12px;overflow-x:auto;border-radius:6px;margin:4px 0;white-space:pre-wrap;word-break:break-word}
+pre{background:var(--code-bg);border:1px solid var(--color-border-strong);padding:10px 12px;overflow-x:auto;border-radius:6px;margin:4px 0;white-space:pre-wrap;word-break:break-word}
 pre>code{color:var(--syntax-variable)}
 pre,pre>code,.out,.nb-grid,.dataframe,.md code,.md pre{font-family:var(--font-code);font-synthesis:none}
 .md{font-family:var(--font-markdown)}
