@@ -48,6 +48,7 @@ _LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 </svg>
 """
 _LOGO_DATA_URI = "data:image/svg+xml;base64," + base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
+_REPO_URL = "https://github.com/ROM-mm/Notisbook"
 
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 _ALLOWED_CLASSES = {"nb-grid", "num", "null", "nb-grid-footer", "dataframe"}
@@ -234,6 +235,7 @@ td,th{padding:4px 10px;text-align:left}
 .nb-grid-footer{padding:6px 10px;font-size:12px;color:var(--muted)}
 footer{margin-top:24px;padding-top:8px;border-top:1px solid var(--color-border-strong);font-size:12px;color:var(--muted)}
 footer img{width:16px;height:16px;vertical-align:text-bottom}
+footer a{color:inherit}
 @media print{body{max-width:none;padding:0}.out,.nb-grid{overflow:visible}.nb-grid td,.nb-grid th,.dataframe td,.dataframe th{font-size:7.5pt;padding:1px 3px}pre{white-space:pre-wrap}section.cell{break-inside:avoid-page}nav{display:none}}
 """
 
@@ -406,9 +408,10 @@ def _stamp(moment: datetime | None) -> str:
     return base.astimezone(_brasilia_tz()).strftime(_STAMP_FORMAT)
 
 
-def _footer(stamp: str) -> str:
+def _footer() -> str:
     logo = f'<img src="{_LOGO_DATA_URI}" alt="Notisbook" width="16" height="16">'
-    return f"<footer>Exportado pelo {logo} Notisbook em {escape(stamp)} (horário de Brasília)</footer>"
+    link = f'<a href="{_REPO_URL}" target="_blank" rel="noopener noreferrer">{_REPO_URL}</a>'
+    return f"<footer>Exported by {logo} Notisbook {link}</footer>"
 
 
 def _meta_lines(notebook: dict[str, Any], stamp: str, cell_count: int) -> str:
@@ -461,6 +464,6 @@ def to_html_report(
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>{title}</title><style>{_font_css(fonts or ExportFonts())}{_CSS}</style></head><body>"
         f"<header><h1>{title}</h1><p>{_meta_lines(notebook, stamp, len(cells))}</p></header>"
-        f"{nav}<main>{''.join(sections)}</main>{_footer(stamp)}</body></html>"
+        f"{nav}<main>{''.join(sections)}</main>{_footer()}</body></html>"
     )
     return page.encode("utf-8")
