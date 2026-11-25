@@ -213,7 +213,7 @@ def s3a_plan(env_dir: Path, version: str, ours: dict[str, Any]) -> tuple[str, S3
         return "outdated", None, True
     if current is not None and isinstance(ours.get("bundle"), dict) and bundle_for(version) is not None:
         # The old layout is only usable while the jars of the current set are still inside the env.
-        # is_file() só engole ENOENT/ENOTDIR/EBADF/ELOOP; EACCES sobe e não pode derrubar a listagem.
+        # is_file() only swallows ENOENT/ENOTDIR/EBADF/ELOOP; EACCES propagates and must not break the listing.
         try:
             complete = all((jars_dir(env_dir) / artifact.filename).is_file() for artifact in current.artifacts)
         except OSError:
