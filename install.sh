@@ -273,6 +273,8 @@ do_install() {
     if ! "$bin" --install-default-runtimes </dev/null; then
       warn "could not install all default runtimes; install them in Settings › Runtimes"
     fi
+  elif [ -z "${NOTISBOOK_UPDATING:-}" ]; then
+    say "Default runtimes are installed only on the first install; add them in Settings › Runtimes."
   fi
 
   say ""
