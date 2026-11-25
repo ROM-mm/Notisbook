@@ -271,6 +271,7 @@ do_install() {
   env -u NOTISBOOK_MINIO_DIST "$bin" --check-notislake || err "the MinIO package check failed"
 
   runtimes_failed=0
+  samples_failed=0
   runtimes_note=""
   if [ "$fresh" = 1 ]; then
     say "Installing default runtimes (may take several minutes)..."
@@ -279,13 +280,18 @@ do_install() {
       runtimes_failed=1
       warn "could not install all default runtimes; install them in Settings › Runtimes"
     fi
+    # --if-missing: an existing notebooks folder is never touched. A failure must not fail the install.
+    if ! "$bin" --seed-samples --if-missing </dev/null; then
+      samples_failed=1
+      warn "could not copy the sample notebooks; the app still works without them"
+    fi
   elif [ -z "${NOTISBOOK_UPDATING:-}" ]; then
     # Kept for the final block: the screen clear below would erase it.
     runtimes_note="Default runtimes are installed only on the first install; add them in Settings › Runtimes."
   fi
 
-  # Clear only on a terminal and only when nothing failed: the runtime warning must stay on screen.
-  if [ -t 1 ] && [ "$runtimes_failed" = 0 ]; then
+  # Clear only on a terminal and only when nothing failed: the runtime and samples warnings must stay on screen.
+  if [ -t 1 ] && [ "$runtimes_failed" = 0 ] && [ "$samples_failed" = 0 ]; then
     # Home + erase display only: the scrollback must survive, so avoid the tool that also erases it.
     printf '\033[H\033[2J'
   fi
@@ -293,6 +299,8 @@ do_install() {
   say ""
   say "Notisbook $("$bin" --version 2>/dev/null || echo "$version") installed"
   say "  binary   $bin"
+  # Default location only: the app may use a folder saved in its preferences, and the CLI cannot report it.
+  say "  notebooks   ${NOTISBOOK_HOME:-$HOME/.notisbook}/notebooks"
   say ""
   say "Runtimes"
   # A failed summary is cosmetic: warn and carry on.
