@@ -166,9 +166,13 @@ export const Cell = memo(function Cell({
                 // mesmo sem foco no botão), se o foco foi para o ⋮/título nem no blur da
                 // janela (Alt+Tab). Só lê o DOM/estado: a view pode já ter sido destruída.
                 // Não executa nada.
+                // A flag vale só para este blur: zerada logo após lida, para um blur posterior
+                // (dentro da janela do timer, que segue como fallback) não herdar o clique interno.
+                const clickedInside = internalMouseDown.current;
+                internalMouseDown.current = false;
                 if (
                   isMarkdown &&
-                  !internalMouseDown.current &&
+                  !clickedInside &&
                   document.hasFocus() &&
                   !focusInsideCell(id)
                 )
