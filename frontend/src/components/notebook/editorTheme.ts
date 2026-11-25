@@ -217,7 +217,10 @@ const SPARK_BY_CLAUSES = /^(cluster|distribute|sort)$/i;
 const SPARK_FORMATS = /^(delta|parquet)$/i;
 /** Statements do Delta cujo nome seguinte é a tabela: `OPTIMIZE t`, `VACUUM t`. */
 const DELTA_STATEMENT = /^(optimize|vacuum)$/i;
-/** Palavras que fecham a lista de relações do FROM (depois delas, `,` não introduz relação). */
+/**
+ * Palavras que fecham a lista de relações do FROM (depois delas, `,` não introduz relação).
+ * `CLUSTER`/`DISTRIBUTE`/`SORT` só fecham seguidas de BY (`FROM a, sort` = tabela `sort`).
+ */
 const FROM_CLAUSE_END =
   /^(where|group|having|order|limit|union|intersect|except|on|using|select|set|values|window|qualify|lateral|cluster|distribute|sort)$/i;
 /** Funções que o StandardSQL etiqueta como `Keyword` (COUNT…); só viram função seguidas de `(`. */
@@ -363,8 +366,11 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
     }
     const inCall = parens[parens.length - 1]?.call === true;
     if (tok.name === "Keyword" || tok.name === "Identifier") {
+      const word = bareName(doc, tok);
+      const next = tokens[i + 1];
+      const closesFrom = !SPARK_BY_CLAUSES.test(word) || (next !== undefined && bareName(doc, next) === "by");
       if (isKeyword(doc, tok, /^from$/i) && !inCall) fromOpen = true;
-      else if (FROM_CLAUSE_END.test(bareName(doc, tok))) fromOpen = false;
+      else if (FROM_CLAUSE_END.test(word) && closesFrom) fromOpen = false;
     }
     if (!SQL_NAME.has(tok.name) || contextKeyword(doc, tokens, i)) return;
     if (isKeyword(doc, prev, /^using$/i) && isDdl) {
