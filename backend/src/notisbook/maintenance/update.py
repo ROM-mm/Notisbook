@@ -25,6 +25,8 @@ REPO = "ROM-mm/Notisbook"
 CURL = "/usr/bin/curl"
 INSTALL_FROM_ENV = "NOTISBOOK_INSTALL_FROM"
 VERSION_ENV = "NOTISBOOK_VERSION"
+# Avisa o install.sh de que é update: só a primeira instalação instala os runtimes padrão.
+UPDATING_ENV = "NOTISBOOK_UPDATING"
 CURL_TIMEOUT_S = 120.0
 SCRIPT_NAME = "install.sh"
 SUMS_NAME = "SHA256SUMS"
@@ -197,6 +199,7 @@ def run(target_version: str | None) -> int:
 
 def _exec_installer(workdir: Path, target: str) -> int:
     os.environ.pop(VERSION_ENV, None)
+    os.environ[UPDATING_ENV] = "1"
     sys.stdout.flush()
     sys.stderr.flush()
     try:

@@ -85,7 +85,7 @@
 }
 
 /* Cores ANSI (classes do ansi_up), legíveis nos dois temas */
-.area :global(.ansi-black-fg) { color: #3b3b3b; }
+.area :global(.ansi-black-fg) { color: #000; }
 .area :global(.ansi-red-fg) { color: #c4322f; }
 .area :global(.ansi-green-fg) { color: #2b8a3e; }
 .area :global(.ansi-yellow-fg) { color: #a66a00; }
@@ -93,7 +93,7 @@
 .area :global(.ansi-magenta-fg) { color: #a03ab8; }
 .area :global(.ansi-cyan-fg) { color: #0e7f8c; }
 .area :global(.ansi-white-fg) { color: #8a8a85; }
-.area :global(.ansi-bright-black-fg) { color: #6b6b68; }
+.area :global(.ansi-bright-black-fg) { color: #000; }
 .area :global(.ansi-bright-red-fg) { color: #e5484d; }
 .area :global(.ansi-bright-green-fg) { color: #30a46c; }
 .area :global(.ansi-bright-yellow-fg) { color: #c47f00; }
@@ -118,6 +118,9 @@
   :global(:root:not([data-theme="light"])) .area :global(.ansi-blue-fg) { color: #7c9cf5; }
   :global(:root:not([data-theme="light"])) .area :global(.ansi-magenta-fg) { color: #d38bf0; }
   :global(:root:not([data-theme="light"])) .area :global(.ansi-cyan-fg) { color: #4ccce6; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-white-fg) { color: #fff; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-bright-black-fg) { color: #b0b0ad; }
+  :global(:root:not([data-theme="light"])) .area :global(.ansi-bright-white-fg) { color: #fff; }
 }
 
 :global(:root[data-theme="dark"]) .area :global(.ansi-black-fg) { color: #a3a3a0; }
@@ -127,6 +130,9 @@
 :global(:root[data-theme="dark"]) .area :global(.ansi-blue-fg) { color: #7c9cf5; }
 :global(:root[data-theme="dark"]) .area :global(.ansi-magenta-fg) { color: #d38bf0; }
 :global(:root[data-theme="dark"]) .area :global(.ansi-cyan-fg) { color: #4ccce6; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-white-fg) { color: #fff; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-bright-black-fg) { color: #b0b0ad; }
+:global(:root[data-theme="dark"]) .area :global(.ansi-bright-white-fg) { color: #fff; }
 
 /* Resumo de erro do Spark (padrão "erro curto + ver detalhes"). */
 .errHead {

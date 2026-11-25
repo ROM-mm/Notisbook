@@ -6,20 +6,29 @@
 
 /* Cores de sintaxe do CodeMirror. Os --sx-* variam por tema em tokens.css;
  * este mapeamento vale para claro e escuro.
- * Paleta duplicada em _CSS de backend/src/notisbook/export/html_report.py
- * (export HTML); os dois precisam andar juntos. */
+ * O export HTML recolore só as classes t-* com a mesma escala de cinzas
+ * (_CSS de backend/src/notisbook/export/html_report.py); os dois andam juntos. */
 .notebook {
+  --syntax-text: var(--sx-text, var(--color-text));
   --syntax-keyword: var(--sx-kw);
+  --syntax-control: var(--sx-kw);
+  --syntax-compare: var(--sx-op);
+  --syntax-assign: var(--sx-op);
+  --syntax-constant: var(--sx-kw);
   --syntax-string: var(--sx-str);
   --syntax-number: var(--sx-num);
   --syntax-comment: var(--sx-com);
   --syntax-function: var(--sx-fn);
   --syntax-definition: var(--sx-fn);
-  --syntax-type: var(--sx-type);
   --syntax-punctuation: var(--sx-op);
   --syntax-meta: var(--sx-dec);
-  --syntax-property: var(--sx-text, var(--color-text));
-  --syntax-qualifier: var(--sx-qual);
+  /* Fora de Python/SQL os papéis de identificador mantêm o mapeamento genérico. */
+  --syntax-variable: var(--sx-text, var(--color-text));
+  --syntax-class: var(--sx-type);
+  --syntax-module: var(--sx-qual);
+  --syntax-attribute: var(--sx-text, var(--color-text));
+  --syntax-class-call: var(--sx-fn);
+  --syntax-alias: var(--sx-text, var(--color-text));
   --syntax-heading: var(--sx-op);
   --syntax-link: var(--sx-fn);
 
@@ -30,6 +39,49 @@
   /* Rola por roda/trackpad/teclado, sem barra visível. Só este contêiner:
    * saídas e editores mantêm a própria barra. */
   scrollbar-width: none;
+}
+
+/* Paleta por linguagem da célula (`data-cell-language`, Cell.tsx); markdown e
+ * células sem linguagem ficam no mapeamento padrão de `.notebook`.
+ * Python e SQL/DuckDB usam a mesma paleta (--sx-code-*, tokens.css): os papéis
+ * comuns ficam no seletor compartilhado; os blocos por linguagem só trazem os
+ * papéis de identificador que diferem. Diferenciação só por cor (VT323). */
+.notebook [data-cell-language="python"],
+.notebook [data-cell-language="sql"],
+.notebook [data-cell-language="duckdb"] {
+  --syntax-text: var(--sx-code-text);
+  --syntax-keyword: var(--sx-code-kw);
+  --syntax-control: var(--sx-code-kw);
+  --syntax-meta: var(--sx-code-kw);
+  --syntax-comment: var(--sx-code-com);
+  --syntax-compare: var(--sx-code-text);
+  --syntax-assign: var(--sx-code-text);
+  --syntax-punctuation: var(--sx-code-text);
+  --syntax-function: var(--sx-code-fn);
+  --syntax-string: var(--sx-code-str);
+  --syntax-number: var(--sx-code-num);
+  --syntax-constant: var(--sx-code-num);
+}
+
+.notebook [data-cell-language="python"] {
+  /* Nome em def/class com a cor de chamada; decorator inteiro com a de keyword. */
+  --syntax-definition: var(--sx-code-fn);
+  --syntax-variable: var(--sx-code-var);
+  --syntax-attribute: var(--sx-code-attr);
+  --syntax-module: var(--sx-code-mod);
+  --syntax-class: var(--sx-code-class);
+  --syntax-class-call: var(--sx-code-class-call);
+}
+
+.notebook [data-cell-language="sql"],
+.notebook [data-cell-language="duckdb"] {
+  --syntax-definition: var(--sx-code-text);
+  /* Papéis de identificador no SQL: coluna→variável, tipo→classe, qualificador→módulo, tabela→atributo. */
+  --syntax-variable: var(--sx-code-col);
+  --syntax-class: var(--sx-code-type);
+  --syntax-module: var(--sx-code-qual);
+  --syntax-attribute: var(--sx-code-table);
+  --syntax-alias: var(--sx-code-alias);
 }
 
 .notebook::-webkit-scrollbar {
@@ -86,10 +138,11 @@
   padding-left: 0;
 }
 
+/* Borda em vez de caixa com background: a borda alinha ao pixel físico e fica com a espessura da borda da célula. */
 .addLine {
   flex: 1;
-  height: 1px;
-  background: var(--color-border);
+  height: 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .addBtn {
@@ -136,11 +189,9 @@
   color: var(--color-text);
 }
 
-/* Seleção (modo comando e edição): borda mais forte e fundo levemente
- * destacado, para distinguir a célula ativa no tema claro. */
+/* Célula ativa só com a borda forte: o cursor já indica o foco e o fundo cinza destoava nos dois temas. */
 .cellActive {
   border-color: var(--color-border-strong);
-  background: var(--color-cell-bg-active);
 }
 
 /* Faixa do cabeçalho: nome da linguagem à esquerda, status e ações à direita. */
@@ -376,6 +427,7 @@
   color: var(--color-text-subtle);
   font-family: var(--font-sans);
   font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 

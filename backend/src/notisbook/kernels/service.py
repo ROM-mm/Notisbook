@@ -731,7 +731,9 @@ class KernelService:
         return found
 
     def _migrate_legacy_kernelspecs(self) -> None:
-        """Move para `<home>/kernels` os specs globais deste home com env instalado; os demais deste home só são apagados.
+        """Move para `<home>/kernels` os specs globais deste home com env instalado; os demais deste home são apagados.
+
+        Um env gerenciado inutilizável vai para a lixeira antes de o spec ser apagado.
 
         Specs de outro home ou não reconhecidos não são tocados; o Docker global tem passo próprio.
         """
@@ -746,6 +748,10 @@ class KernelService:
                 migrate = state is PythonState.USABLE and name not in present
                 if migrate:
                     copy_kernel_json(spec_dir, target_root / name)
+                elif state is PythonState.UNUSABLE and env_dir.is_dir() and self._is_managed_env(env_dir):
+                    if not self._trash_env(env_dir):
+                        log.warning("legacy kernelspec %s kept: env %s is unusable and could not be trashed", name, env_dir.name)
+                        continue
                 shutil.rmtree(spec_dir)
                 log.info("%s legacy kernelspec %s", "migrated" if migrate else "removed", name)
             except OSError as exc:

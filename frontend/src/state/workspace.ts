@@ -133,6 +133,8 @@ interface WorkspaceState {
   setLeftOpen: (open: boolean) => void;
   toggleRight: () => void;
   setRightOpen: (open: boolean) => void;
+  /** Fecha a lateral direita SEM encerrar a navegação (`browsing`); usado ao abrir o painel de info do Catalog/Table. */
+  hideRight: () => void;
   /** Abre as duas laterais e sai do modo foco (entrada num notebook vinda da Home). */
   showPanels: () => void;
   /** Abre o AppShell com o painel Notebooks, sem notebook aberto; com `dir`, expande a árvore até ele. */
@@ -201,7 +203,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   toggleLeft: () => set((s) => (s.focusMode || !s.leftOpen ? { leftOpen: true, focusMode: false } : { leftOpen: false })),
   setLeftOpen: (open) => set(open ? { leftOpen: true, focusMode: false } : { leftOpen: false }),
-  // Fechar o painel direito sempre encerra a navegação (`browsing`).
+  // Fechar o painel direito por `toggleRight`/`setRightOpen(false)` encerra a navegação (`browsing`).
+  // `hideRight` é a exceção intencional e preserva `browsing`: o painel de info do Catalog ocupa a direita sem encerrar o Browse.
   toggleRight: () =>
     set((s) =>
       s.focusMode || !s.rightOpen
@@ -210,6 +213,7 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
     ),
   setRightOpen: (open) =>
     set(open ? { rightOpen: true, focusMode: false } : { rightOpen: false, browsing: false }),
+  hideRight: () => set({ rightOpen: false }),
   showPanels: () => set({ leftOpen: true, rightOpen: true, focusMode: false }),
   startBrowsing: (dir) => {
     if (dir) useNotebookTree.getState().expandTo(dir);

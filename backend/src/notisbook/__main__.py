@@ -1,4 +1,4 @@
-"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]` and `notisbook uninstall [--yes]`."""
+"""CLI entry point: `notisbook [--port N] [--root DIR] [--no-browser]`, `notisbook update [--version X.Y.Z]`, `notisbook uninstall [--yes]`, `notisbook --install-default-runtimes`, `notisbook --runtimes-summary` and `notisbook --seed-samples [--if-missing]`."""
 
 import argparse
 import dataclasses
@@ -26,14 +26,18 @@ from .config import (
     HOST,
     Settings,
     default_home,
-    default_root,
     ensure_home,
 )
-from .maintenance import uninstall, update
+from .maintenance import (
+    runtimes_bootstrap,
+    runtimes_summary,
+    samples_seed,
+    uninstall,
+    update,
+)
 from .notislake import binary
 from .notislake.supervisor import NotislakeSupervisor, StartError
-from .onboarding import run_onboarding
-from .preferences import RootRejected, read_notebooks_root, validate_notebooks_root
+from .onboarding import run_onboarding, saved_or_default_root
 from .runtimes.docker import catalog as docker_catalog
 from .runtimes.docker import cli as docker_cli
 from .runtimes.docker.service import inspect_container
@@ -64,27 +68,75 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help="stop the running Notisbook registered in the data folder, whatever its version, and exit (starts no server)",
     )
+    parser.add_argument(
+        "--install-default-runtimes",
+        action="store_true",
+        help="install the default Spark and DuckDB runtimes and exit (starts no server)",
+    )
+    parser.add_argument(
+        "--runtimes-summary",
+        action="store_true",
+        help="list the managed Spark and DuckDB runtimes and exit (starts no server)",
+    )
+    parser.add_argument(
+        "--seed-samples",
+        action="store_true",
+        help="copy the bundled sample notebooks missing from the active notebooks folder and exit (starts no server)",
+    )
+    parser.add_argument(
+        "--if-missing",
+        action="store_true",
+        help="with --seed-samples: do nothing if the notebooks folder already exists",
+    )
     commands = parser.add_subparsers(dest="command")
     update_cmd = commands.add_parser("update", help="update Notisbook to the latest release (or --version)")
     update_cmd.add_argument("--version", dest="target_version", metavar="X.Y.Z", help="release to install (default: latest)")
     uninstall_cmd = commands.add_parser("uninstall", help="remove Notisbook and keep your data folder")
     uninstall_cmd.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     args = parser.parse_args(argv)
+    actions = [
+        flag
+        for flag, active in (
+            ("--check-notislake", args.check_notislake),
+            ("--stop-running", args.stop_running),
+            ("--install-default-runtimes", args.install_default_runtimes),
+            ("--runtimes-summary", args.runtimes_summary),
+            ("--seed-samples", args.seed_samples),
+        )
+        if active
+    ]
+    if len(actions) > 1:
+        parser.error(f"{' and '.join(actions[:2])} cannot be combined: each one is a separate action")
     if args.command and _server_flags_set(args):
         parser.error(f"server options cannot be combined with the '{args.command}' command")
+    if args.install_default_runtimes and _serve_options_set(args):
+        parser.error("--install-default-runtimes cannot be combined with server options")
+    if args.runtimes_summary and _serve_options_set(args):
+        parser.error("--runtimes-summary cannot be combined with server options")
+    if args.seed_samples and _serve_options_set(args):
+        parser.error("--seed-samples cannot be combined with server options")
+    if args.if_missing and not args.seed_samples:
+        parser.error("--if-missing requires --seed-samples")
     if args.port is None:
         args.port = DEFAULT_PORT
     return args
 
 
+def _serve_options_set(args: argparse.Namespace) -> bool:
+    """True se alguma opção que configura o servidor (--port, --root, --no-browser) foi passada."""
+    return args.port is not None or args.root is not None or args.no_browser
+
+
 def _server_flags_set(args: argparse.Namespace) -> bool:
     """True se alguma flag do modo servidor foi passada (argparse aceitaria `--port 1 update` em silêncio)."""
     return (
-        args.port is not None
-        or args.root is not None
-        or args.no_browser
+        _serve_options_set(args)
         or args.check_notislake
         or args.stop_running
+        or args.install_default_runtimes
+        or args.runtimes_summary
+        or args.seed_samples
+        or args.if_missing
     )
 
 
@@ -147,13 +199,8 @@ def _resolve_root(cli_root: Path | None, home: Path) -> tuple[Path, str, bool]:
     """
     if cli_root is not None:
         return cli_root.expanduser().resolve(), "cli", True
-    saved = read_notebooks_root(home)
-    if saved is not None:
-        try:
-            return validate_notebooks_root(saved, home), "saved", False
-        except RootRejected as exc:
-            print(f"Notisbook: saved notebooks folder {saved} is not usable ({exc.message}); using the default.", file=sys.stderr)
-    return default_root(home).resolve(), "default", False
+    root, source = saved_or_default_root(home)
+    return root, source, False
 
 
 def _stop_owned_containers() -> None:
@@ -285,6 +332,12 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(_check_notislake())
     if args.stop_running:
         sys.exit(_stop_running())
+    if args.install_default_runtimes:
+        sys.exit(runtimes_bootstrap.run())
+    if args.runtimes_summary:
+        sys.exit(runtimes_summary.run())
+    if args.seed_samples:
+        sys.exit(samples_seed.run(if_missing=args.if_missing))
     signals = _ShutdownSignals()
     signals.install()
     try:

@@ -38,6 +38,9 @@ export function ResizeHandle({ orientation, label, onDragStart, onDrag, onReset,
   const gap = variant === "gap";
   // Linha de 1px no lugar da borda do painel; a área de captura vem de `hit`,
   // sobreposta à linha. Estilos inline: sem CSS module próprio.
+  // A linha é borda, não fundo: em escala fracionária a caixa de 1px vira 2px
+  // físicos e a borda fica em 1, igual às bordas dos painéis vizinhos.
+  const lineColor = hover || dragging ? "var(--color-accent)" : "var(--color-border)";
   const line: CSSProperties = {
     position: "relative",
     zIndex: 2,
@@ -45,8 +48,9 @@ export function ResizeHandle({ orientation, label, onDragStart, onDrag, onReset,
     touchAction: "none",
     cursor: vertical ? "col-resize" : "row-resize",
     [vertical ? "width" : "height"]: gap ? GAP_SIZE : LINE_SIZE,
-    background: gap ? "transparent" : hover || dragging ? "var(--color-accent)" : "var(--color-border)",
-    transition: "background var(--transition-fast)",
+    background: "transparent",
+    ...(gap ? {} : { [vertical ? "borderLeft" : "borderTop"]: `1px solid ${lineColor}` }),
+    transition: "border-color var(--transition-fast)",
   };
   const grip: CSSProperties = {
     position: "absolute",

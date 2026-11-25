@@ -9,7 +9,7 @@
  *   job do ambiente (o backend também responde 409, e a mensagem dele é mostrada).
  */
 import { useEffect, useMemo, useState } from "react";
-import { getDuckDBExtensions } from "../../api/duckdb";
+import { duckdbKernelName, getDuckDBExtensions } from "../../api/duckdb";
 import { ApiError, errorMessage } from "../../api/http";
 import type { DockerRuntime, DockerRuntimes, DuckDBExtensions, DuckDBStatus, InstalledDuckDB, InstalledSpark, SessionInfo, SparkVersions } from "../../api/types";
 import { DockerInstalledRow } from "./DockerInstalledRow";
@@ -86,7 +86,6 @@ function SparkRow({ item, sessions, installing, installingVersion, onRemove }: {
         <div className={styles.rowTitle}>
           <span className={styles.rowVersion}>Spark {item.version}</span>
           <CategoryTag category="processing" />
-          <span className={styles.rowKernel}>{item.kernel_name}</span>
           {item.legacy ? (
             <span className={styles.tag} title="Runtime created outside Notisbook (.venv-spark*)">
               legacy
@@ -209,7 +208,6 @@ function DuckDBRow({ item, sessions, installing, installingVersion, onRemove }: 
         <div className={styles.rowTitle}>
           <span className={styles.rowVersion}>DuckDB {item.version}</span>
           <CategoryTag category="analytics" />
-          <span className={styles.rowKernel}>{item.kernel_name}</span>
           {using.length > 0 ? <span className={`${styles.tag} ${styles.tagActive}`}>in use</span> : null}
         </div>
         <div className={styles.rowMeta}>
@@ -297,7 +295,15 @@ export function InstalledList({ versions, duckdb, docker, connectionsDir, sessio
             />
           ))}
           {duckInstalled.map((item) => (
-            <DuckDBRow key={item.kernel_name} item={item} sessions={sessions} installing={duckBusy.has(item.kernel_name)} installingVersion={duckInstalling.has(item.kernel_name)} onRemove={onRemoveDuckDB} />
+            <DuckDBRow
+              key={item.kernel_name}
+              item={item}
+              sessions={sessions}
+              // O backend registra o job pelo nome versionado; o alias legado `duckdb` também consulta por ele.
+              installing={duckBusy.has(item.kernel_name) || duckBusy.has(duckdbKernelName(item.version))}
+              installingVersion={duckInstalling.has(item.kernel_name) || duckInstalling.has(duckdbKernelName(item.version))}
+              onRemove={onRemoveDuckDB}
+            />
           ))}
           {dockerInstalled.map((rt) => (
             <DockerInstalledRow key={rt.key} runtime={rt} connectionsDir={connectionsDir} sessions={sessions} onAction={onDockerAction} onRecreate={onDockerRecreate} />

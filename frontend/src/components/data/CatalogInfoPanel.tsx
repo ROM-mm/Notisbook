@@ -121,8 +121,8 @@ function Config({ info }: { info: CatalogInfo }) {
         <tbody>
           {info.config.map((c) => (
             <tr key={c.key}>
-              <td className={styles.mono}>{c.key}</td>
-              <td className={styles.mono}>
+              <td className={styles.value}>{c.key}</td>
+              <td className={styles.value}>
                 {c.value}
                 {c.redacted ? <span className={styles.flag}>redacted</span> : null}
               </td>
@@ -151,9 +151,9 @@ function Namespaces({ info }: { info: CatalogInfo }) {
         <tbody>
           {info.namespaces.map((n) => (
             <tr key={n.name}>
-              <td className={styles.mono}>{n.name}</td>
-              <td className={styles.mono}>{numberFormat.format(n.tables)}</td>
-              <td className={styles.mono}>{numberFormat.format(n.views)}</td>
+              <td className={styles.value}>{n.name}</td>
+              <td className={styles.value}>{numberFormat.format(n.tables)}</td>
+              <td className={styles.value}>{numberFormat.format(n.views)}</td>
             </tr>
           ))}
         </tbody>

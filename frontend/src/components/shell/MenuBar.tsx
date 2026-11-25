@@ -6,6 +6,7 @@
 import { exportNotebook, type ExportFormat } from "../../api/export";
 import { saveBlob } from "../../lib/download";
 import { basename, dirname } from "../../lib/paths";
+import { useAppearance } from "../../state/appearance";
 import { type EditableCellType, type InsertWhere, toNotebook } from "../../state/notebook";
 import { openAppearance, openSettings } from "../../state/router";
 import { type ThemePref, useTheme } from "../../state/theme";
@@ -30,7 +31,9 @@ export function newNotebook(entry: NotebookEntry | null): void {
 
 function exportAs(entry: NotebookEntry, format: ExportFormat): void {
   const doc = toNotebook(entry.notebook.getState());
-  exportNotebook(format, doc, basename(entry.path))
+  const { code, markdown } = useAppearance.getState().current;
+  const fonts = format === "html" ? { code, markdown } : undefined;
+  exportNotebook(format, doc, basename(entry.path), fonts)
     .then(({ blob, filename }) => saveBlob(blob, filename ?? `notebook.${format}`))
     .catch((err: unknown) =>
       window.alert(`Could not export the notebook: ${err instanceof Error ? err.message : String(err)}`),
