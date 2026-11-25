@@ -16,12 +16,11 @@ from pathlib import Path
 from typing import Any
 
 from ...config import RUNTIME_HOST
-from ...notislake.locations import ROOT_URI
 from ...notislake.sparkconf import closed_options
 from ...spark.bundles import docker_safety_warehouse_uri
 from . import catalog, cli
 
-# Porta do backend para o container alcançar o catálogo Iceberg REST; o KernelService a põe no env do kernel.
+# Porta do backend para o container alcançar o Glue do app (`/glue`); o KernelService a põe no env do kernel.
 PORT_ENV = "NOTISBOOK_RUNTIME_PORT"
 # Home que o backend usa (o mesmo que o DockerService monta); o `launch` roda em outro processo e o recebe pelo ambiente.
 HOME_ENV = "NOTISBOOK_RUNTIME_HOME"
@@ -43,14 +42,6 @@ def tag_for(connection_file: str) -> str:
     """Tag de kernel derivada do nome do connection file (aceita pelo `incontainer`)."""
     tag = re.sub(r"[^A-Za-z0-9_.-]", "-", Path(connection_file).stem).lstrip("-._")
     return tag[-80:] or "kernel"
-
-
-def iceberg_options() -> list[str]:
-    """Opções do catálogo `iceberg` (REST do backend); vazio se a porta do backend não veio no ambiente."""
-    port = os.environ.get(PORT_ENV, "")
-    if not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
-        return []
-    return ["--iceberg-uri", f"http://{RUNTIME_HOST}:{int(port)}/iceberg", "--iceberg-warehouse", ROOT_URI]
 
 
 def glue_options(runtime: catalog.DockerRuntime) -> list[str]:
@@ -157,7 +148,6 @@ def launch(key: str, connection_file: str) -> None:
         os.getcwd(),
         "--warehouse-dir",
         safety_warehouse(),
-        *iceberg_options(),
         *glue_options(runtime),
         "--s3a-closed",
         json.dumps(closed_options(), sort_keys=True),

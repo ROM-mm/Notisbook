@@ -1,8 +1,7 @@
 """Código executado DENTRO do container do runtime (Python 3.13, só biblioteca padrão).
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
-  run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]
-                         [--s3a-closed JSON] [--glue-uri URI]
+  run <tag> [--cwd DIR] [--warehouse-dir DIR] [--s3a-closed JSON] [--glue-uri URI]
                          lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
                          vira líder de grupo, grava PID+starttime em /run/notisbook e faz exec do ipykernel
   kill <tag>             SIGKILL no grupo do kernel de <tag> (validando PID+starttime)
@@ -28,16 +27,22 @@ RUN_DIR = "/run/notisbook"
 TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
-RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--iceberg-uri", "--iceberg-warehouse", "--s3a-closed", "--glue-uri"}
-# Warehouse do Iceberg: só a raiz do bucket; espelha `notislake.locations.ROOT_URI` (o incontainer não importa `notisbook.*`).
-ICEBERG_WAREHOUSE_URI = "s3a://notislake"
+RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--s3a-closed", "--glue-uri"}
+# Raiz do bucket; espelha `notislake.locations.ROOT_URI` (o incontainer não importa `notisbook.*`). É o warehouse do
+# `glue_catalog`, que cria `<banco>/<tabela>` abaixo dela (ou usa o LocationUri do banco, quando existe).
+GLUE_ROOT_URI = "s3a://notislake"
+# Warehouse do Spark SQL no runtime Glue: o Glue do app recusa LocationUri em `file:` ou na raiz do bucket, então fica
+# na pasta do banco `default`, que o backend semeia com a mesma localização.
+GLUE_WAREHOUSE_URI = f"{GLUE_ROOT_URI}/default"
+# Id de catálogo fixo: com ele o cliente Hive do Glue não consulta o STS (que iria à AWS) para descobrir a conta.
+GLUE_CATALOG_ID = "123456789012"
+GLUE_HIVE_FACTORY = "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
 # Warehouse local de segurança do `spark_catalog`: `file:` absoluto, sem `..`, aspas, vírgula ou controle.
 LOCAL_WAREHOUSE_RE = re.compile(r"file:/[^\x00-\x1f\x7f\"',]{1,500}")
 # Config fechada do bucket vinda do launch (`sparkconf.closed_options()`): chave por bucket e valor simples.
 S3A_KEY_RE = re.compile(r"fs\.s3a\.bucket\.notislake\.[a-z][a-z0-9.]{0,80}")
 S3A_VALUE_RE = re.compile(r"[A-Za-z0-9:./_-]{1,200}")
 S3A_FORBIDDEN = ("secret", "access.key", "token")
-ICEBERG_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/iceberg")
 GLUE_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/glue")
 # Endpoint global do SDK para o que não é o Glue do app: porta morta de loopback (igual a `sparkconf._DEAD_ENDPOINT`), nada vai à AWS real.
 DEAD_ENDPOINT = "http://127.0.0.1:1"
@@ -45,7 +50,6 @@ GLUE_REGION = "us-east-1"
 # Credenciais de ambiente que, se existissem, ganhariam do arquivo de credenciais do Glue na cadeia do SDK.
 AMBIENT_AWS_CREDENTIALS = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE")
 SUBMIT_ARGS = (
-    "--conf spark.sql.catalogImplementation=in-memory "
     "--conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions,"
     "io.delta.sql.DeltaSparkSessionExtension,"
     "org.apache.spark.sql.hudi.HoodieSparkSessionExtension "
@@ -56,6 +60,8 @@ SUBMIT_ARGS = (
     "pyspark-shell"
 )
 PYSPARK_SHELL = "pyspark-shell"
+# Sem o Glue do app (porta do backend ausente) o catálogo cai para a memória: o cliente Hive do Glue iria à AWS.
+LOCAL_CATALOG_CONFS = ("spark.sql.catalogImplementation=in-memory",)
 # Config de log do driver: só erros chegam à saída da célula, como no Spark local (`spark.bundles.render_log4j2`).
 # Raiz e os loggers do limiar do shell em `error`: o Spark imprime "Setting default log level" quando diferem.
 LOG4J2_PATH = os.path.join(RUN_DIR, "jvm-log4j2.properties")
@@ -96,29 +102,43 @@ def _parse_s3a_closed(raw: str) -> dict[str, str] | None:
     return data
 
 
+def _glue_confs(glue_uri: str) -> list[str]:
+    """Catálogo do runtime Glue: Hive com a factory do Glue e o Iceberg nomeado `glue_catalog`, ambos no `/glue` do app.
+
+    O `HadoopFileIO` (S3A, já fechado por bucket) substitui o `S3FileIO`, cujo cliente ignora essa config e iria ao
+    endpoint global. O cliente Hive lê `AWS_ENDPOINT_URL_GLUE` do ambiente (`_glue_env`); o Iceberg recebe o endpoint.
+    """
+    prefix = "spark.sql.catalog.glue_catalog"
+    return [
+        "spark.sql.catalogImplementation=hive",
+        f"spark.hadoop.hive.metastore.client.factory.class={GLUE_HIVE_FACTORY}",
+        f"spark.hadoop.hive.metastore.glue.catalogid={GLUE_CATALOG_ID}",
+        f"spark.sql.warehouse.dir={GLUE_WAREHOUSE_URI}",
+        f"{prefix}=org.apache.iceberg.spark.SparkCatalog",
+        f"{prefix}.catalog-impl=org.apache.iceberg.aws.glue.GlueCatalog",
+        f"{prefix}.io-impl=org.apache.iceberg.hadoop.HadoopFileIO",
+        f"{prefix}.warehouse={GLUE_ROOT_URI}",
+        f"{prefix}.glue.endpoint={glue_uri}",
+        f"{prefix}.glue.skip-archive=true",
+    ]
+
+
 def _submit_args(
     warehouse_dir: str | None,
-    iceberg_uri: str | None = None,
-    iceberg_warehouse: str | None = None,
     s3a_closed: dict[str, str] | None = None,
+    glue_uri: str | None = None,
 ) -> str:
-    """SUBMIT_ARGS com o warehouse e o catálogo `iceberg` (REST) do app; o PySpark separa a variável com shlex.
+    """SUBMIT_ARGS com o catálogo: Glue do app com `glue_uri`; sem ele, memória e o warehouse local de segurança.
 
-    Sem segredos: o token do catálogo e a credencial S3A entram depois, pelo hook do kernel (nunca no `ps`).
+    O PySpark separa a variável com shlex. Sem segredos: a credencial S3A e a do Glue entram depois (hook e tmpfs).
     """
     confs = [f"spark.hadoop.{key}={value}" for key, value in (s3a_closed or {}).items()]
-    if warehouse_dir:
-        confs.append(f"spark.sql.warehouse.dir={warehouse_dir}")
-    if iceberg_uri and iceberg_warehouse:
-        prefix = "spark.sql.catalog.iceberg"
-        confs += [
-            f"{prefix}=org.apache.iceberg.spark.SparkCatalog",
-            f"{prefix}.type=rest",
-            f"{prefix}.uri={iceberg_uri}",
-            f"{prefix}.warehouse={iceberg_warehouse}",
-            f"{prefix}.token-refresh-enabled=false",
-            f"{prefix}.oauth2-server-uri={iceberg_uri}/v1/oauth/tokens",
-        ]
+    if glue_uri:
+        confs += _glue_confs(glue_uri)
+    else:
+        confs += LOCAL_CATALOG_CONFS
+        if warehouse_dir:
+            confs.append(f"spark.sql.warehouse.dir={warehouse_dir}")
     head = SUBMIT_ARGS[: -len(PYSPARK_SHELL)]
     return head + "".join(f"--conf {shlex.quote(conf)} " for conf in confs) + PYSPARK_SHELL
 
@@ -331,9 +351,8 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
         _glue_env(tag, glue_uri)
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
         options.get("--warehouse-dir"),
-        options.get("--iceberg-uri"),
-        options.get("--iceberg-warehouse"),
         _parse_s3a_closed(options["--s3a-closed"]) if "--s3a-closed" in options else None,
+        options.get("--glue-uri"),
     )
     try:
         os.execv(
@@ -371,15 +390,9 @@ def _run_options(rest: list[str]) -> dict[str, str] | None:
         LOCAL_WAREHOUSE_RE.fullmatch(warehouse) and ".." not in warehouse.split("/")
     ):
         return None
-    if options.get("--iceberg-warehouse", ICEBERG_WAREHOUSE_URI) != ICEBERG_WAREHOUSE_URI:
-        return None
     if "--s3a-closed" in options and _parse_s3a_closed(options["--s3a-closed"]) is None:
         return None
     if "--glue-uri" in options and not GLUE_URI_RE.fullmatch(options["--glue-uri"]):
-        return None
-    if ("--iceberg-uri" in options) != ("--iceberg-warehouse" in options):
-        return None
-    if "--iceberg-uri" in options and not ICEBERG_URI_RE.fullmatch(options["--iceberg-uri"]):
         return None
     return options
 
@@ -398,8 +411,7 @@ def main(argv: list[str]) -> None:
     else:
         _fail(
             2,
-            "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] [--iceberg-uri URI --iceberg-warehouse DIR]"
-            " [--s3a-closed JSON] [--glue-uri URI]"
+            "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] [--s3a-closed JSON] [--glue-uri URI]"
             " | kill <tag> | sweep | packages",
         )
 
