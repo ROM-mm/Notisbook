@@ -7,6 +7,8 @@ Mensagens em inglês.
 """
 
 import asyncio
+import os
+from pathlib import Path
 
 from ..config import default_home
 from ..runtimes.defaults import DEFAULT_SPARK_VERSION
@@ -19,7 +21,7 @@ EMPTY_MESSAGE = "  (none — add them in Settings › Runtimes)"
 
 def run() -> int:
     """Imprime uma linha por runtime gerenciado (nome e pasta do env); devolve 0."""
-    home = default_home()
+    home = Path(os.path.abspath(default_home()))
     spark = [(e.display_name, e.env_dir) for e in spark_kernelspec.discover(home)]
     rows = spark + [(e.display_name, e.env_dir) for e in duckdb_kernelspec.discover(home)]
     if rows:

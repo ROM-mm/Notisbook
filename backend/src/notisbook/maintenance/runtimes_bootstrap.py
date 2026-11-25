@@ -51,7 +51,8 @@ async def _install_duckdb(installer: DuckDBInstaller) -> bool | None:
 
 async def _install_spark(installer: SparkInstaller, home: Path) -> bool | None:
     """True instalou, False falhou, None pulou (já instalado ou sem JDK)."""
-    if spark_kernelspec.discover(home):
+    # `discover` compares paths textually; a relative NOTISBOOK_HOME must be normalized like the installers do.
+    if spark_kernelspec.discover(Path(os.path.abspath(home))):
         _say("spark", "skipped: already installed")
         return None
     if await jdk_for_spark(DEFAULT_SPARK_VERSION) is None:
