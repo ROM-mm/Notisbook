@@ -63,19 +63,19 @@ _SANITIZE: dict[str, Any] = {
 }
 _MARKDOWN = MarkdownIt("js-default")
 
-# Tipos do Pygments -> classes curtas, nos mesmos grupos de cor de editorTheme.ts.
-# A busca sobe pela hierarquia do token; o que não casa (Name.Builtin, texto) fica sem cor.
+# Pygments -> classes curtas, nos grupos de cor de editorTheme.ts; a busca sobe pela hierarquia.
+# Sem correspondência (Name.Builtin, texto), herda a cor base de pre>code (--syntax-variable).
 # True/False/None seguem a cor de número e o nome em def/class a de chamada, como no app.
 _TOKEN_CLASSES: dict[_TokenType, str] = {
     Keyword: "t-kw",
     Keyword.Constant: "t-num",
     Keyword.Type: "t-type",
-    Operator.Word: "t-kw",
+    Operator.Word: "t-op",
     Name.Builtin.Pseudo: "t-kw",
     Name.Function: "t-fn",
     Name.Class: "t-fn",
-    Name.Namespace: "t-type",
-    Name.Exception: "t-type",
+    Name.Namespace: "t-op",
+    Name.Exception: "t-cls",
     Name.Decorator: "t-meta",
     Comment: "t-com",
     Comment.Preproc: "t-meta",
@@ -89,9 +89,11 @@ _CALLABLE_NAMES = (Name, Name.Builtin)
 _CSS = """
 /* Escala de cinzas de frontend/src/styles/tokens.css (--sx-code-* e --sx-dark-code-*), fonte da paleta;
    o código da célula (pre>code) tem cor base --syntax-variable, como identificador no app; as classes t-* sobrepõem
-   por papel e pontuação/operador usa --syntax-text. Ao mudar a paleta, atualize os dois. */
-:root{color-scheme:light dark;--syntax-keyword:#767676;--syntax-text:#2b2b2b;--syntax-variable:#111111;--syntax-function:#4d4d4d;--syntax-string:#6a6a6a;--syntax-number:#5e5e5e;--syntax-comment:#949494;--syntax-type:#3c3c3c;--color-border-strong:#8a8f98;--bg:#fff;--fg:#1f2328;--muted:#656d76;--code-bg:#f6f8fa;--err:#cf222e;--err-bg:#ffebe9}
-@media (prefers-color-scheme:dark){:root{--syntax-keyword:#808080;--syntax-text:#ffffff;--syntax-variable:#838383;--syntax-function:#868686;--syntax-string:#8e8e8e;--syntax-number:#999999;--syntax-comment:#616161;--syntax-type:#a0a0a0;--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--code-bg:#161b22;--err:#ff7b72;--err-bg:#3d1214}}
+   por papel e pontuação/operador usa --syntax-text. Ao mudar a paleta, atualize os dois.
+   O export não porta os papéis do app: no escuro, colunas/tabelas SQL e classes Python sem marcação saem
+   na cor de variável (#838383), e no app em #ffffff. */
+:root{color-scheme:light dark;--syntax-keyword:#767676;--syntax-text:#2b2b2b;--syntax-variable:#111111;--syntax-function:#4d4d4d;--syntax-string:#6a6a6a;--syntax-number:#5e5e5e;--syntax-comment:#949494;--syntax-type:#3c3c3c;--syntax-class:#3c3c3c;--color-border-strong:#8a8f98;--bg:#fff;--fg:#1f2328;--muted:#656d76;--code-bg:#f6f8fa;--err:#cf222e;--err-bg:#ffebe9}
+@media (prefers-color-scheme:dark){:root{--syntax-keyword:#808080;--syntax-text:#ffffff;--syntax-variable:#838383;--syntax-function:#868686;--syntax-string:#8e8e8e;--syntax-number:#999999;--syntax-comment:#616161;--syntax-type:#a0a0a0;--syntax-class:#ffffff;--bg:#0d1117;--fg:#e6edf3;--muted:#9198a1;--code-bg:#161b22;--err:#ff7b72;--err-bg:#3d1214}}
 body{margin:0 auto;max-width:960px;padding:24px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
 header{border-bottom:1px solid var(--color-border-strong);margin-bottom:16px}
 header p{color:var(--muted);margin:4px 0 12px}
@@ -102,7 +104,7 @@ pre{background:var(--code-bg);padding:10px 12px;overflow-x:auto;border-radius:6p
 pre>code{color:var(--syntax-variable)}
 .t-kw{color:var(--syntax-keyword)}.t-str{color:var(--syntax-string)}.t-num{color:var(--syntax-number)}
 .t-com{color:var(--syntax-comment)}.t-fn{color:var(--syntax-function)}
-.t-type{color:var(--syntax-type)}.t-op{color:var(--syntax-text)}.t-meta{color:var(--syntax-keyword)}
+.t-type{color:var(--syntax-type)}.t-cls{color:var(--syntax-class)}.t-op{color:var(--syntax-text)}.t-meta{color:var(--syntax-keyword)}
 .out{margin:6px 0 0 12px;overflow-x:auto}
 .stderr,.error{background:var(--err-bg);color:var(--err);border-left:3px solid var(--err)}
 .warn{color:var(--muted);font-style:italic}

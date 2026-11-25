@@ -107,7 +107,7 @@
         <div class="term-bar"><span>zsh</span><button type="button" class="copy" data-copy="curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh&#10;notisbook" data-i18n="copy">Copy</button></div>
 <pre><span class="prompt">$ </span>curl -LsSf https://github.com/ROM-mm/Notisbook/releases/latest/download/install.sh | sh
 <span class="prompt">$ </span>notisbook
-<span class="c" data-i18n="hero.termcomment"># opens http://127.0.0.1:8765/?token=&lt;token&gt; in your browser</span></pre>
+<span class="cm" data-i18n="hero.termcomment"># opens http://127.0.0.1:8765/?token=&lt;token&gt; in your browser</span></pre>
       </div>
       <div class="stack-strip" aria-label="Supported technologies" data-i18n-aria="aria.stack">
         <span class="chip"><svg class="ico" aria-hidden="true"><use href="#s-spark"/></svg>Apache Spark</span>
@@ -264,18 +264,18 @@
         <span class="step-num"><b>02</b><span data-i18n="how.s2k">configure</span></span>
         <h3 data-i18n="how.s2t">Mount a runtime</h3>
         <p data-i18n="how.s2p">Each runtime gets its own isolated environment and kernel, like a partition of its own. Spark is versioned per line, with Delta, Iceberg, Hudi and S3A jars verified by sha256 and the JDK selected for you; AWS Glue 5.0 runs in a local Docker container; DuckDB 2.0.1 ships with its extensions pinned by sha256 (<code>httpfs</code>, <code>iceberg</code>, <code>avro</code>, <code>excel</code>, <code>sqlite_scanner</code>, <code>postgres_scanner</code>, <code>spatial</code>).</p>
-        <div class="term"><pre><span class="prompt">› </span>spark 3.5.9 <span class="c">· jdk 17</span>      <span class="ok">✓</span>
-<span class="prompt">› </span>glue 5.0 <span class="c">· docker</span>        <span class="ok">✓</span>
-<span class="prompt">› </span>duckdb 2.0.1 <span class="c">· 7 ext</span>   <span class="ok">✓</span></pre></div>
+        <div class="term"><pre><span class="prompt">› </span>spark 3.5.9 <span class="cm">· jdk 17</span>      <span class="ok">✓</span>
+<span class="prompt">› </span>glue 5.0 <span class="cm">· docker</span>        <span class="ok">✓</span>
+<span class="prompt">› </span>duckdb 2.0.1 <span class="cm">· 7 ext</span>   <span class="ok">✓</span></pre></div>
       </li>
       <li class="step">
         <span class="step-num"><b>03</b><span data-i18n="how.s3k">run job</span></span>
         <h3 data-i18n="how.s3t">Submit cells, get cataloged tables</h3>
         <p data-i18n="how.s3p">After each cell the catalog is reconciled, like a batch job closing its log: tables written by Spark or DuckDB appear in the Catalog panel, with their files in <code>s3a://notislake/&lt;layer&gt;/</code>. The schema decides the layer.</p>
         <div class="term"><pre><span class="o">.</span><span class="f">saveAsTable</span><span class="o">(</span><span class="s">"bronze.orders"</span><span class="o">)</span>
-<span class="c">→ Catalog › spark › bronze</span>
+<span class="cm">→ Catalog › spark › bronze</span>
 <span class="k">CREATE TABLE</span> <span class="q">notislake.bronze.</span><span class="tb">orders</span> <span class="k">AS</span> <span class="o">…</span>
-<span class="c">→ Catalog › iceberg › bronze</span></pre></div>
+<span class="cm">→ Catalog › iceberg › bronze</span></pre></div>
       </li>
     </ol>
   </div>
@@ -462,7 +462,7 @@
 |  3|Carla| Segurança|
 +---+-----+----------+</pre></div>
           <div class="out"><div class="out-head"><span data-i18n="ex.glue.rt">Runtime install</span><span>Settings</span></div>
-<pre><span class="c">docker › image › container › validate › kernelspec</span> <span class="ok">✓</span></pre></div>
+<pre><span class="cm">docker › image › container › validate › kernelspec</span> <span class="ok">✓</span></pre></div>
           <p class="note" data-i18n="ex.glue.note">The image is built once from Settings on top of <code>public.ecr.aws/glue/aws-glue-libs:5</code> (pinned by digest) and needs about 15 GiB of free disk space.</p>
         </div>
       </div>
@@ -550,11 +550,11 @@
             </ul>
           </div>
           <div class="out"><div class="out-head"><span>~/.notisbook</span></div>
-<pre>catalog.db        <span class="c"># nb_* registry + iceberg_* (JDBC catalog)</span>
-notebooks/        <span class="c"># default notebooks folder</span>
-envs/             <span class="c"># spark-&lt;version&gt;-&lt;id&gt;/, duckdb-&lt;version&gt;-&lt;id&gt;/</span>
-duckdb/           <span class="c"># pinned DuckDB extensions</span>
-minio/            <span class="c"># notislake data, bin, logs</span></pre></div>
+<pre>catalog.db        <span class="cm"># nb_* registry + iceberg_* (JDBC catalog)</span>
+notebooks/        <span class="cm"># default notebooks folder</span>
+envs/             <span class="cm"># spark-&lt;version&gt;-&lt;id&gt;/, duckdb-&lt;version&gt;-&lt;id&gt;/</span>
+duckdb/           <span class="cm"># pinned DuckDB extensions</span>
+minio/            <span class="cm"># notislake data, bin, logs</span></pre></div>
         </div>
         <div class="stack">
           <p class="col-label" data-i18n="ex.cat.how">How it works</p>

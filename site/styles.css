@@ -489,6 +489,8 @@ h2 { font-size: clamp(24px, 3.4vw, 34px); max-width: 22ch; }
 .s { color: var(--sx-code-str); }
 .n { color: var(--sx-code-num); }
 .c { color: var(--sx-code-com); }
+/* Texto anotado que não é código (comentário do hero, runtimes, Catalog, árvore ~/.notisbook): texto secundário, não a cor de comentário do app. */
+.cm { color: var(--color-text-muted); }
 .f { color: var(--sx-code-fn); }
 .o { color: var(--sx-code-text); }
 /* Papéis de identificador do app (editorTheme.ts), mesma paleta em Python e SQL/DuckDB. */
