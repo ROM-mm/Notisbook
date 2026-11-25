@@ -607,7 +607,7 @@
   grid-template-columns: 104px minmax(0, 1fr);
 }
 
-/* Marcador "●" do estado do container (card e diálogo de detalhes). */
+/* Verde só em running: é o único estado saudável do container. */
 .stateDot {
   color: inherit;
 }

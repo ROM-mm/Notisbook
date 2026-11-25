@@ -203,7 +203,8 @@ export const useWorkspace = create<WorkspaceState>((set, get) => ({
 
   toggleLeft: () => set((s) => (s.focusMode || !s.leftOpen ? { leftOpen: true, focusMode: false } : { leftOpen: false })),
   setLeftOpen: (open) => set(open ? { leftOpen: true, focusMode: false } : { leftOpen: false }),
-  // Fechar o painel direito sempre encerra a navegação (`browsing`).
+  // Fechar o painel direito por `toggleRight`/`setRightOpen(false)` encerra a navegação (`browsing`).
+  // `hideRight` é a exceção intencional e preserva `browsing`: o painel de info do Catalog ocupa a direita sem encerrar o Browse.
   toggleRight: () =>
     set((s) =>
       s.focusMode || !s.rightOpen
