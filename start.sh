@@ -63,4 +63,17 @@ if [[ -z "${NOTISBOOK_MINIO_DIST:-}" && -d "$ROOT_DIR/backend/dist/notislake" ]]
   export NOTISBOOK_MINIO_DIST="$ROOT_DIR/backend/dist/notislake"
 fi
 
+# Primeira vez (pasta de notebooks ativa inexistente): copia os exemplos. Com --root do operador
+# não semeia (a pasta é dele). Falha só avisa; o app sobe mesmo assim.
+has_root=0
+for ((i = 0; i < ${#args[@]}; i++)); do
+  case "${args[i]}" in
+    --root|--root=*) has_root=1 ;;
+  esac
+done
+if [[ "$has_root" -eq 0 ]]; then
+  uv run --project "$ROOT_DIR/backend" notisbook --seed-samples --if-missing </dev/null \
+    || echo "Aviso: não foi possível copiar os notebooks de exemplo; seguindo sem eles." >&2
+fi
+
 exec uv run --project "$ROOT_DIR/backend" notisbook ${args[@]+"${args[@]}"}
