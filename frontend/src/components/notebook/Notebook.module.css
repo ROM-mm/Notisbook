@@ -86,10 +86,11 @@
   padding-left: 0;
 }
 
+/* Borda em vez de caixa com background: a borda alinha ao pixel físico e fica com a espessura da borda da célula. */
 .addLine {
   flex: 1;
-  height: 1px;
-  background: var(--color-border);
+  height: 0;
+  border-top: 1px solid var(--color-border);
 }
 
 .addBtn {
