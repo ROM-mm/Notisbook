@@ -211,24 +211,46 @@ def _location_segments(uri: str) -> tuple[str, ...] | None:
     return None if any(part in ("", ".", "..") for part in segments) else segments
 
 
+def _folded(uri: str) -> tuple[str, ...] | None:
+    """Segmentos de `uri` sem distinção de caixa: o bucket roda em disco case-insensitive (`SILVER` é `silver`)."""
+    segments = _location_segments(uri)
+    return None if segments is None else tuple(part.casefold() for part in segments)
+
+
+def _partition_locations_without_table_location(conn: sqlite3.Connection) -> list[str]:
+    """Locations das partições de tabelas sem `Location` (as com `Location` já são cobertas pela pasta da tabela)."""
+    rows = conn.execute(
+        "SELECT p.storage_descriptor FROM glue_partitions p JOIN glue_tables t "
+        "ON t.database_name = p.database_name AND t.name = p.table_name WHERE t.location IS NULL"
+    ).fetchall()
+    found = (json.loads(row[0]).get("Location") for row in rows)
+    return [loc for loc in found if isinstance(loc, str) and loc]
+
+
 def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_database: str | None = None) -> bool:
-    """A pasta `segments` coincide com a de outro database ou tabela, contém uma delas ou está dentro de uma tabela.
+    """A pasta `segments` coincide com a de outro database, tabela ou partição, contém uma delas ou está dentro de uma.
 
     Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto o que está abaixo; e a
     pasta dentro da de uma tabela seria apagada junto com ela. As camadas e o `default` não entram no sentido
-    inverso: abrigam os databases criados com LOCATION abaixo delas e não podem ser excluídos.
+    inverso: abrigam os databases criados com LOCATION abaixo delas e não podem ser excluídos. A comparação ignora a
+    caixa dos segmentos.
     """
     rows = conn.execute("SELECT name, location_uri FROM glue_databases").fetchall()
     kept = [(name, loc) for name, loc in rows if loc is not None and name != skip_database]
     containers = [loc for name, loc in kept if name not in locations.LAYERS and name != DEFAULT_DATABASE]
-    containers += [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
+    containers += [
+        *iceberg_jdbc.known_table_locations(conn),
+        *table_locations(conn),
+        *_partition_locations_without_table_location(conn),
+    ]
+    wanted = tuple(part.casefold() for part in segments)
     for other in [loc for _, loc in kept] + containers:
-        inner = _location_segments(other)
-        if inner is not None and inner[: len(segments)] == segments:
+        inner = _folded(other)
+        if inner is not None and inner[: len(wanted)] == wanted:
             return True
     for other in containers:
-        outer = _location_segments(other)
-        if outer is not None and segments[: len(outer)] == outer:
+        outer = _folded(other)
+        if outer is not None and wanted[: len(outer)] == outer:
             return True
     return False
 
@@ -246,8 +268,11 @@ def _checked_location_uri(
     segments = _location_segments(location_uri)
     if segments is None:
         raise GlueInvalidInput("location_outside_notislake", "LocationUri must be a folder inside s3://notislake/.")
-    if segments[0] == locations.LANDING:
+    first = segments[0]
+    if first.casefold() == locations.LANDING:
         raise GlueInvalidInput("location_in_landing", "LocationUri cannot be inside the landing zone.")
+    if first != first.casefold() and first.casefold() in (*locations.LAYERS, DEFAULT_DATABASE):
+        raise GlueInvalidInput("location_case_variant", "LocationUri cannot start with a case variant of a layer.")
     if _folder_in_use(conn, segments, skip_database):
         raise GlueInvalidInput("location_in_use", "LocationUri overlaps the location of another database or table.")
     return location_uri
@@ -642,12 +667,27 @@ def get_partition(conn: sqlite3.Connection, database: str, table: str, values: A
     return _partition_dict(row)
 
 
+def _in_database_folder(conn: sqlite3.Connection, location: str) -> bool:
+    """`location` está dentro do `LocationUri` de um database que não é camada nem `default`."""
+    folded = _folded(location)
+    if folded is None:
+        return False
+    rows = conn.execute("SELECT name, location_uri FROM glue_databases WHERE location_uri IS NOT NULL").fetchall()
+    for name, uri in rows:
+        if name in locations.LAYERS or name == DEFAULT_DATABASE:
+            continue
+        folder = _folded(uri)
+        if folder is not None and folded[: len(folder)] == folder:
+            return True
+    return False
+
+
 def _check_partition_location(
     conn: sqlite3.Connection, descriptor: dict[str, Any], table_location: str | None, table: tuple[str, str]
 ) -> None:
     """Location da partição: dentro da tabela; sem `Location` na tabela, segue a regra de path sem tabela.
 
-    Nesse caso exige camada e sem sobrepor outra tabela (a própria `table` não conta).
+    Nesse caso exige camada, sem sobrepor outra tabela (a própria `table` não conta) e fora da pasta de database comum.
     """
     location = _descriptor_location(descriptor)
     if location is None:
@@ -657,6 +697,8 @@ def _check_partition_location(
         if table_location is None:
             known = [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn, skip=table)]
             locations.check_path_write(canonical, known)
+            if _in_database_folder(conn, canonical):
+                raise GlueInvalidInput("partition_in_database_folder", "Partition location is inside a database folder.")
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"Partition location refused ({exc.code}).") from None
     if table_location is not None and not locations.within(canonical, table_location):
