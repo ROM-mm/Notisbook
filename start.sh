@@ -69,10 +69,18 @@ is_long_option() {
   [[ "${#1}" -ge "$3" && "$2" == "$1"* ]]
 }
 
+# Opções longas da CLI que não pulam o seed (as que pulam estão no laço abaixo); com elas, decide se `--x` é
+# desconhecida. Mínimos = menor prefixo não ambíguo no argparse.
+is_known_passthrough_option() {
+  is_long_option "$1" --port 3 || is_long_option "$1" --no-browser 3 \
+    || is_long_option "$1" --if-missing 4 || is_long_option "$1" --yes 3
+}
+
 # Primeira vez (pasta de notebooks ativa inexistente): copia os exemplos. Não semeia com --root do operador
 # (a pasta é dele) nem quando o app não sobe ou o comando é de manutenção: -h/--help, --version, --stop-running,
 # --check-notislake, --runtimes-summary, --install-default-runtimes, --seed-samples e os subcomandos `update`/`uninstall`
-# (só o primeiro posicional; o valor de --port/--root não conta). Falha só avisa; o app sobe mesmo assim.
+# (só o primeiro posicional; o valor de --port não conta) e opção `--*` desconhecida (o argparse vai falhar).
+# Falha só avisa; o app sobe mesmo assim.
 skip_seed=0
 expect_value=0
 seen_positional=0
@@ -85,6 +93,8 @@ for a in ${args[@]+"${args[@]}"}; do
       || is_long_option "$name" --check-notislake 3 || is_long_option "$name" --runtimes-summary 4 \
       || is_long_option "$name" --install-default-runtimes 4 || is_long_option "$name" --seed-samples 4; then
       skip_seed=1
+    elif [[ "$name" == --* && "$name" != "--" ]] && ! is_known_passthrough_option "$name"; then
+      skip_seed=1
     fi
     if [[ "$a" != *=* ]] && is_long_option "$name" --port 3; then expect_value=1; fi
   elif [[ "$seen_positional" -eq 0 ]]; then
@@ -93,7 +103,8 @@ for a in ${args[@]+"${args[@]}"}; do
   fi
 done
 if [[ "$skip_seed" -eq 0 ]]; then
-  uv run --project "$ROOT_DIR/backend" notisbook --seed-samples --if-missing </dev/null || {
+  # O app repete o aviso de pasta salva recusada ao subir; o seed o suprime para sair uma vez só.
+  NOTISBOOK_SEED_QUIET_ROOT_WARNING=1 uv run --project "$ROOT_DIR/backend" notisbook --seed-samples --if-missing </dev/null || {
     rc=$?
     # 130 = Ctrl+C durante a cópia: o operador desistiu, então não abre o app.
     [[ "$rc" -eq 130 ]] && exit 130
