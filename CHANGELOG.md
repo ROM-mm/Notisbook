@@ -7,6 +7,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-25
+
+A grayscale look for the app and the HTML export, and a first install that leaves Notisbook ready to use, with the
+default runtimes and the sample notebooks in place.
+
+### Added
+
+- **Default runtimes on the first install.** `install.sh` now runs `notisbook --install-default-runtimes`, which
+  installs Spark 4.1.4 and DuckDB 2.0.1. Updates (`notisbook update`) and reinstalls skip this step and say so: add
+  runtimes in Settings › Runtimes, or run the flag yourself.
+- **Sample notebooks on the first run.** `notisbook --seed-samples` copies the missing samples into the active
+  notebooks folder without overwriting anything; with `--if-missing` it does nothing when the folder already exists.
+  `install.sh` and `start.sh` call it with `--if-missing`, but not when you pass your own `--root`, run a maintenance
+  command or use `update`/`uninstall`. If the seed fails, the app still starts and the warning goes to stderr. The
+  Spark samples now point to Spark 4.1.4.
+- **Runtimes summary.** `notisbook --runtimes-summary` lists the installed Spark and DuckDB runtimes, read-only. The
+  installer ends with a block showing the version, the binary path and the installed runtimes, and explains why Spark
+  is missing when there is no JDK 21 or 17.
+- **Repository link in the HTML export.** The footer of an exported notebook reads "Exported by Notisbook" with the
+  current app icon (light and dark) and a clickable link to the GitHub repository, with no time stamp.
+
+### Changed
+
+- **Grayscale syntax highlighting.** Python and SQL cells use a single grayscale scale, one for each theme, and tell
+  roles apart by color only: no italic strings or bold keywords, even with a code font other than VT323. SQL is read
+  statement by statement, so tables, aliases (including subqueries, comma joins, `MERGE USING` and table functions) and
+  the column in `alias.column` each get their own shade.
+- **Stronger contrast in both themes.** The dark theme moves to a neutral palette on `#121212`, with white text,
+  highlights and focus; the light theme uses black for the main text. Every syntax role reaches at least 4.5:1.
+- **HTML export matches the app.** Exported notebooks use the app colors and the fonts chosen in Settings ›
+  Appearance (VT323 and Roboto by default). The bundled fonts are embedded, so the file works offline.
+- **Consistent selection and panels.** Notebooks and Notislake highlight the selected item as the Catalog does, the
+  active cell is marked only by its border, the shortcuts footer shows Ctrl+Enter, and opening Catalog info or Table
+  info closes the Notebooks sidebar.
+- **Clearer command line.** Passing two action flags together (for example `--runtimes-summary` and
+  `--seed-samples`) is now a usage error with exit code 2 instead of running only one of them.
+
+### Fixed
+
+- **Markdown cells render when you leave them.** A markdown cell renders again when focus moves away or another cell
+  becomes active, and inserting a new cell ends the editing of the previous one.
+- **Spark words used as column names.** `CLUSTER`, `DISTRIBUTE` and `SORT` are keywords only before `BY`, `VERSION`
+  only before `AS OF` and `RETAIN` only before a number, so `SELECT version, operation` keeps the column color.
+  `USING` marks a file format only in `CREATE`/`REPLACE`; in `DELETE ... USING other` it is a table.
+- **Spark runtime discovery.** A permission error on an old Spark runtime's jars folder, or a `kernel.json` containing
+  a null byte, no longer breaks the runtime list, the runtimes summary or the startup.
+- **Installer interruptions.** Ctrl+C and SIGTERM stop the installer cleanly, and the final screen no longer wipes the
+  terminal scrollback or the Homebrew warnings printed earlier.
+- **Docker cleanup.** Removing orphan containers continues past a container that fails and still prunes the images.
+
 ## [0.13.2] - 2026-11-24
 
 A security release: local Spark kernels stop listening on the local network.
