@@ -29,6 +29,8 @@ const theme = EditorView.theme({
   ".cm-sql-type, .cm-sql-type *": { color: "var(--syntax-class)" },
   // Palavra do Spark fora da lista do lang-sql (MERGE, MATCHED, DELTA…): cor de keyword.
   ".cm-sql-keyword, .cm-sql-keyword *": { color: "var(--syntax-keyword)" },
+  // Coluna entre crases (`QuotedIdentifier`, tag `special(string)`): papel de coluna/variável.
+  ".cm-sql-column, .cm-sql-column *": { color: "var(--syntax-variable)" },
   // Python (ver `pythonRoleHighlight`): classe por heurística, classe chamada e caminho de módulo em import.
   ".cm-py-class, .cm-py-class *": { color: "var(--syntax-class)" },
   ".cm-py-class-call, .cm-py-class-call *": { color: "var(--syntax-class-call)" },
@@ -95,7 +97,9 @@ const highlight = HighlightStyle.define([
   { tag: t.compareOperator, color: "var(--syntax-compare)" },
   { tag: [t.definitionOperator, t.updateOperator, t.operatorKeyword], color: "var(--syntax-assign)" },
   { tag: [t.null, t.bool], color: "var(--syntax-constant)" },
-  { tag: [t.string, t.special(t.string), t.regexp], color: "var(--syntax-string)" },
+  // Sem regra para `special(string)`: f-string (Python) e template (JS) caem na de `string`; o
+  // `QuotedIdentifier` do SQL (mesma tag) recebe o papel de coluna por decoração (`.cm-sql-column`).
+  { tag: [t.string, t.regexp], color: "var(--syntax-string)" },
   { tag: [t.number, t.integer, t.float], color: "var(--syntax-number)" },
   { tag: [t.comment, t.lineComment, t.blockComment], color: "var(--syntax-comment)", fontFamily: "var(--font-code)" },
   { tag: [t.function(t.variableName), t.function(t.propertyName), t.standard(t.name)], color: "var(--syntax-function)" },
@@ -170,6 +174,7 @@ const aliasMark = Decoration.mark({ class: "cm-sql-alias" });
 const functionMark = Decoration.mark({ class: "cm-sql-function" });
 const sqlTypeMark = Decoration.mark({ class: "cm-sql-type" });
 const sqlKeywordMark = Decoration.mark({ class: "cm-sql-keyword" });
+const columnMark = Decoration.mark({ class: "cm-sql-column" });
 /**
  * Tipos do Spark que o StandardSQL do lang-sql não lista em `types` (lá eles viriam como
  * `Identifier`). Definir `types` no dialeto não basta: sem `keywords` o `SQLDialect.define`
@@ -196,6 +201,13 @@ const SPARK_CLAUSE_KEYWORDS = new Set([
   "tablesample",
   "over",
   "partition",
+  // `VACUUM t RETAIN 168 HOURS`, `CLUSTER BY`, `DISTRIBUTE BY`, `SORT BY`, `VERSION AS OF`.
+  // `TIMESTAMP` fica de fora: no lang-sql já é tipo (`TIMESTAMP AS OF` sai com a cor de tipo).
+  "retain",
+  "cluster",
+  "distribute",
+  "sort",
+  "version",
 ]);
 /**
  * Palavras do Spark/Delta que também são nomes comuns (`SELECT location, delta`): só viram
@@ -229,10 +241,13 @@ type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]>;
 /**
  * Palavras que antecedem nome de tabela/view (`FROM t`, `CREATE TABLE t (`, `INSERT INTO t (`).
  * O nome seguinte é tabela, nunca função, mesmo seguido de `(`.
- * `USING` fica de fora: só introduz relação no MERGE (ver `sqlStatementRoles`); no DDL vem o
- * formato (`USING csv`) e no `JOIN ... USING (cols)` vêm colunas.
+ * `USING` fica de fora (ver `sqlStatementRoles`): no DDL (CREATE/REPLACE) vem o formato
+ * (`USING csv`), no `JOIN ... USING (cols)` vêm colunas e nos demais (MERGE, `DELETE FROM t
+ * USING outra` do DuckDB) vem relação.
  */
 const TABLE_INTRODUCER = /^(table|into|view|exists|from|join|update)$/i;
+/** Statements de DDL em que o nome após `USING` é o formato (`CREATE TABLE t USING csv`). */
+const DDL_STATEMENT = /^(create|replace)$/i;
 /** Funções cujo `FROM` interno não é de tabela: `EXTRACT(YEAR FROM ts)`, `TRIM(BOTH ' ' FROM s)`. */
 const FROM_INSIDE_CALL = /^(extract|trim|substring)$/i;
 const SQL_NAME = new Set(["Identifier", "QuotedIdentifier", "CompositeIdentifier"]);
@@ -279,13 +294,13 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
 
 /**
  * Papéis SQL que o lang-sql não distingue (todo identificador é `name`), por statement:
- * - relação: nome após FROM/JOIN/INTO/TABLE/VIEW/EXISTS/UPDATE, após USING só no MERGE, após
+ * - relação: nome após FROM/JOIN/INTO/TABLE/VIEW/EXISTS/UPDATE, após USING fora do DDL, após
  *   `,` na lista do FROM e após OPTIMIZE/VACUUM; o identificador seguinte (direto ou após AS) é
  *   alias de tabela, e o que segue o `)` de uma subquery aberta após FROM/JOIN (ou USING no
  *   MERGE) ou de uma função de tabela (`FROM read_parquet('x') r`) é alias dela; o nome da
  *   função de tabela sai com a cor de função.
  *   `FROM` dentro de EXTRACT/TRIM/SUBSTRING e `LATERAL VIEW` não introduzem relação; o nome após
- *   `USING` fora do MERGE (formato do DDL: `USING csv`) sai com a cor de keyword.
+ *   `USING` no DDL (CREATE/REPLACE: `USING csv`) é o formato e sai com a cor de keyword.
  * - `x.y…` (`CompositeIdentifier`): se `x` é tabela ou alias do statement, `x` = alias e
  *   o resto fica como coluna; senão os segmentos até o último `.` (inclusive) = qualificador
  *   e o último segmento = tabela.
@@ -293,7 +308,9 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
  *   `(` = função; tipo do Spark fora da lista do lang-sql = tipo; palavra do Spark/Delta
  *   fora da lista (MERGE, QUALIFY…) = keyword, as ambíguas (LOCATION, DELTA, MATCHED…) só no
  *   contexto (`contextKeyword`).
- * Os demais identificadores ficam com a tag `name` (papel de coluna).
+ * Os demais identificadores ficam com a tag `name` (papel de coluna); o `QuotedIdentifier`
+ * (`` `col` ``), cuja tag é `special(string)`, recebe a marca de coluna para não sair com a
+ * cor de string — solto ou como segmento após um alias (`` v.`col` ``).
  */
 function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number, to: number, mark: Decoration) => void): void {
   const tokens = statementTokens(statement, []);
@@ -302,6 +319,7 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
   const known = new Set<string>();
   const ddlFormat = new Set<number>();
   const isMerge = tokens[0] !== undefined && bareName(doc, tokens[0]) === "merge";
+  const isDdl = tokens[0] !== undefined && DDL_STATEMENT.test(bareName(doc, tokens[0]));
   // `)` que fecha subquery (após FROM/JOIN, ou USING no MERGE) ou função de tabela
   // (`read_parquet('x')`): o nome seguinte é alias dela.
   const subqueryClose = new Set<number>();
@@ -339,7 +357,7 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
       else if (FROM_CLAUSE_END.test(bareName(doc, tok))) fromOpen = false;
     }
     if (!SQL_NAME.has(tok.name) || contextKeyword(doc, tokens, i)) return;
-    if (isKeyword(doc, prev, /^using$/i) && !isMerge) {
+    if (isKeyword(doc, prev, /^using$/i) && isDdl) {
       ddlFormat.add(i);
       return;
     }
@@ -377,6 +395,9 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
       if (!head || !tail || head === tail) return;
       if (known.has(bareName(doc, head))) {
         add(head.from, head.to, aliasMark);
+        for (let c = head.nextSibling; c; c = c.nextSibling) {
+          if (c.name === "QuotedIdentifier") add(c.from, c.to, columnMark);
+        }
         return;
       }
       // Inclui o `.` final: o qualificador (`bronze.`) inteiro tem a cor de módulo.
@@ -392,6 +413,7 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
     else if (contextKeyword(doc, tokens, i)) add(tok.from, tok.to, sqlKeywordMark);
     else if (tok.name === "Identifier" && SPARK_EXTRA_TYPES.has(bareName(doc, tok))) add(tok.from, tok.to, sqlTypeMark);
     else if (tok.name === "Identifier" && callNext) add(tok.from, tok.to, functionMark);
+    else if (tok.name === "QuotedIdentifier") add(tok.from, tok.to, columnMark);
   });
 }
 
