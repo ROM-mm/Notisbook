@@ -14,7 +14,13 @@ import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language
 import { EditorState, type Extension, Prec } from "@codemirror/state";
 import { EditorView, drawSelection, keymap, placeholder as placeholderExt } from "@codemirror/view";
 import { useEffect, useRef } from "react";
-import { markdownEditorTheme, notebookEditorTheme, pythonNotebookLanguage, sqlQualifierHighlight } from "./editorTheme";
+import {
+  markdownEditorTheme,
+  notebookEditorTheme,
+  pythonNotebookLanguage,
+  pythonRoleHighlight,
+  sqlQualifierHighlight,
+} from "./editorTheme";
 
 // Spark SQL usa crase como aspas de identificador; StandardSQL só reconhece `"`.
 // Sem `keywords`/`types` o define() herda os mesmos defaults do StandardSQL.
@@ -46,7 +52,7 @@ export interface CodeEditorProps extends CodeEditorHandlers {
 function languageExtension(language: EditorLanguage): Extension {
   switch (language) {
     case "python":
-      return [pythonNotebookLanguage(), indentUnit.of("    ")];
+      return [pythonNotebookLanguage(), indentUnit.of("    "), pythonRoleHighlight];
     case "sql":
       return [sql({ dialect: sparkSqlDialect }), indentUnit.of("  "), sqlQualifierHighlight];
     case "markdown":

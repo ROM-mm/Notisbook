@@ -7,7 +7,7 @@
 import { python, pythonLanguage } from "@codemirror/lang-python";
 import { HighlightStyle, LanguageSupport, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
-import { type Extension, Prec, RangeSetBuilder, type Text } from "@codemirror/state";
+import { type EditorState, type Extension, Prec, RangeSetBuilder, type Text } from "@codemirror/state";
 import { styleTags, tags as t } from "@lezer/highlight";
 
 const theme = EditorView.theme({
@@ -17,11 +17,17 @@ const theme = EditorView.theme({
     fontSize: "13.5px",
   },
   // O `*` vence o span de `special(string)` do QuotedIdentifier, aninhado ou não.
-  ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-qualifier)" },
+  // Qualificador SQL usa o papel de módulo; nome de tabela, o de atributo.
+  ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-module)" },
   // Nome de tabela: identificador logo após o qualificador (`schema.tabela`).
-  ".cm-sql-table, .cm-sql-table *": { color: "var(--syntax-table)" },
+  ".cm-sql-table, .cm-sql-table *": { color: "var(--syntax-attribute)" },
   // Função SQL: identificador seguido de `(` (o dialeto Spark não declara builtins).
   ".cm-sql-function, .cm-sql-function *": { color: "var(--syntax-function)" },
+  // Tipo do Spark fora da lista do lang-sql (BIGINT, STRING…): mesma cor de `typeName`.
+  ".cm-sql-type, .cm-sql-type *": { color: "var(--syntax-class)" },
+  // Python (ver `pythonRoleHighlight`): classe por heurística e caminho de módulo em import.
+  ".cm-py-class, .cm-py-class *": { color: "var(--syntax-class)" },
+  ".cm-py-module, .cm-py-module *": { color: "var(--syntax-module)" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
     fontFamily: "var(--font-code)",
@@ -74,6 +80,10 @@ const theme = EditorView.theme({
  * nome em `class` = definition(className); chamada = function(variableName); `@` = meta.
  * Ajustes do notebook sobre o Python (ver `pythonNotebookLanguage`): `return` = keyword
  * e o nome do decorator (`@F.udf`) inteiro = meta.
+ * Papéis de identificador: `variableName` (Python) e `name` (identificador SQL) = variável; `propertyName`
+ * fora de chamada = atributo; `typeName` (tipo SQL) = classe. Classe Python e módulo em
+ * import vêm de decoração (`pythonRoleHighlight`); qualificador/tabela SQL, de
+ * `sqlQualifierHighlight`.
  * Os modificadores do Lezer são normalizados, então a ordem function/definition não importa.
  */
 const highlight = HighlightStyle.define([
@@ -91,10 +101,13 @@ const highlight = HighlightStyle.define([
     tag: [t.definition(t.variableName), t.definition(t.function(t.variableName)), t.definition(t.className)],
     color: "var(--syntax-definition)",
   },
-  { tag: [t.className, t.typeName, t.namespace], color: "var(--syntax-type)" },
+  { tag: [t.className, t.typeName], color: "var(--syntax-class)" },
+  { tag: t.namespace, color: "var(--syntax-module)" },
   { tag: [t.operator, t.punctuation, t.bracket], color: "var(--syntax-punctuation)" },
   { tag: [t.meta, t.annotation, t.processingInstruction], color: "var(--syntax-meta)" },
-  { tag: t.propertyName, color: "var(--syntax-property)" },
+  { tag: t.propertyName, color: "var(--syntax-attribute)" },
+  // Tags mais específicas (function/definition/standard…) têm regra própria e vencem esta.
+  { tag: [t.variableName, t.name], color: "var(--syntax-variable)" },
   // markdown
   {
     tag: t.heading,
@@ -152,6 +165,13 @@ export const markdownEditorTheme: Extension = Prec.high(
 const qualifierMark = Decoration.mark({ class: "cm-sql-qualifier" });
 const tableMark = Decoration.mark({ class: "cm-sql-table" });
 const functionMark = Decoration.mark({ class: "cm-sql-function" });
+const sqlTypeMark = Decoration.mark({ class: "cm-sql-type" });
+/**
+ * Tipos do Spark que o StandardSQL do lang-sql não lista em `types` (lá eles viriam como
+ * `Identifier`). Definir `types` no dialeto não basta: sem `keywords` o `SQLDialect.define`
+ * ignora `types`, e a lista padrão de keywords não é exportada.
+ */
+const SPARK_EXTRA_TYPES = new Set(["bigint", "tinyint", "string", "long", "short", "byte"]);
 const QUALIFIER_TAIL = /^\.[\w"`]/;
 /** Termina em `<nome>.`: o identificador seguinte é o último segmento de um nome qualificado. */
 const QUALIFIED_HEAD = /[\w"`]\.$/;
@@ -176,7 +196,9 @@ function prevTokenText(node: SyntaxNode, doc: Text): string | null {
  * e o identificador não qualificado seguido de `(` (chamada de função).
  * Exceção: se o token anterior (Lezer, sem espaços/comentários) for TABLE,
  * INTO, VIEW ou EXISTS, é nome de tabela em DDL/DML e fica neutro.
- * Sem qualificador, o identificador fica neutro.
+ * Identificador não qualificado cujo texto é tipo do Spark ausente da lista do lang-sql
+ * (BIGINT, STRING…) recebe a cor de tipo (papel de classe). Os demais identificadores
+ * sem qualificador ficam com a tag `name` (papel de variável).
  */
 function qualifierDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
@@ -189,12 +211,17 @@ function qualifierDecorations(view: EditorView): DecorationSet {
         if (node.name !== "Identifier" && node.name !== "QuotedIdentifier") return;
         const next = doc.sliceString(node.to, Math.min(node.to + 2, doc.length));
         if (QUALIFIER_TAIL.test(next)) {
-          builder.add(node.from, node.to, qualifierMark);
+          // Inclui o `.` seguinte: o qualificador (`bronze.`) inteiro tem a cor de módulo.
+          builder.add(node.from, node.to + 1, qualifierMark);
           return;
         }
         const prev = doc.sliceString(Math.max(node.from - 2, 0), node.from);
         if (QUALIFIED_HEAD.test(prev)) {
           builder.add(node.from, node.to, tableMark);
+          return;
+        }
+        if (node.name === "Identifier" && SPARK_EXTRA_TYPES.has(doc.sliceString(node.from, node.to).toLowerCase())) {
+          builder.add(node.from, node.to, sqlTypeMark);
           return;
         }
         if (node.name === "Identifier") {
@@ -220,6 +247,113 @@ export const sqlQualifierHighlight: Extension = ViewPlugin.fromClass(
     update(u: ViewUpdate) {
       if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state)) {
         this.decorations = qualifierDecorations(u.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
+
+const pyClassMark = Decoration.mark({ class: "cm-py-class" });
+const pyModuleMark = Decoration.mark({ class: "cm-py-module" });
+/** Heurística de classe: maiúscula inicial e ao menos uma minúscula (`DataFrame`; não `F` nem `MAX_ROWS`). */
+const PY_CLASS_NAME = /^_*[A-Z]\w*[a-z]\w*$/;
+/** Pais em que o `VariableName` já tem papel próprio: chamada, definição e decorator. */
+const PY_OWN_ROLE_PARENT = new Set(["CallExpression", "ClassDefinition", "FunctionDefinition", "Decorator"]);
+const PY_IMPORT_DOT = new Set([".", "...", "Ellipsis"]);
+
+type PyRole = "class" | "module";
+type RoleSink = (from: number, to: number, role: PyRole) => void;
+
+/**
+ * `ImportStatement` do `@lezer/python` é plano (`dottedName`/`importedNames` são regras
+ * inline), então o papel depende da posição em relação às palavras `from`/`import`/`as`:
+ * - `from a.b import X, y as Z`: `a`, `.`, `b` = módulo; `X`/`Z` = classe se CamelCase; `y` = variável.
+ * - `import a.b as c, GlueContext`: segmentos e pontos = módulo, exceto CamelCase = classe;
+ *   o alias após `as` = classe se CamelCase, senão variável.
+ */
+function importRoles(node: SyntaxNode, doc: Text, add: RoleSink): void {
+  const fromForm = node.firstChild?.name === "from";
+  let inPath = true;
+  let alias = false;
+  for (let c = node.firstChild; c; c = c.nextSibling) {
+    switch (c.name) {
+      case "from":
+        continue;
+      case "import":
+        inPath = !fromForm;
+        continue;
+      case "as":
+        alias = true;
+        continue;
+      case ",":
+        alias = false;
+        continue;
+      case "VariableName": {
+        const isClass = PY_CLASS_NAME.test(doc.sliceString(c.from, c.to));
+        if (alias) {
+          if (isClass) add(c.from, c.to, "class");
+          alias = false;
+        } else if (fromForm && inPath) add(c.from, c.to, "module");
+        else if (isClass) add(c.from, c.to, "class");
+        else if (!fromForm) add(c.from, c.to, "module");
+        continue;
+      }
+      default:
+        if (inPath && !alias && PY_IMPORT_DOT.has(c.name)) add(c.from, c.to, "module");
+    }
+  }
+}
+
+/**
+ * Papéis Python que a árvore não expõe por tag: classe (heurística CamelCase, fora de
+ * chamada/definição/decorator, onde chamada e definição mantêm a própria cor) e
+ * caminho de módulo em `import`/`from`. Os demais papéis (variável, atributo, chamada)
+ * vêm das tags no `HighlightStyle`.
+ */
+function pythonRoles(state: EditorState, ranges: readonly { from: number; to: number }[], add: RoleSink): void {
+  const doc = state.doc;
+  let last = -1;
+  const sink: RoleSink = (from, to, role) => {
+    if (from < last) return; // nó que atravessa dois intervalos visíveis: já emitido
+    last = to;
+    add(from, to, role);
+  };
+  for (const { from, to } of ranges) {
+    syntaxTree(state).iterate({
+      from,
+      to,
+      enter: (node) => {
+        if (node.name === "ImportStatement") {
+          importRoles(node.node, doc, sink);
+          return false;
+        }
+        if (node.name !== "VariableName") return;
+        const parent = node.node.parent;
+        if (parent && PY_OWN_ROLE_PARENT.has(parent.name)) return;
+        if (PY_CLASS_NAME.test(doc.sliceString(node.from, node.to))) sink(node.from, node.to, "class");
+      },
+    });
+  }
+}
+
+function pythonRoleDecorations(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  pythonRoles(view.state, view.visibleRanges, (from, to, role) =>
+    builder.add(from, to, role === "class" ? pyClassMark : pyModuleMark),
+  );
+  return builder.finish();
+}
+
+/** Registrar somente na linguagem Python (ver `CodeEditor.languageExtension`). */
+export const pythonRoleHighlight: Extension = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = pythonRoleDecorations(view);
+    }
+    update(u: ViewUpdate) {
+      if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state)) {
+        this.decorations = pythonRoleDecorations(u.view);
       }
     }
   },

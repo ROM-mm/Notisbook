@@ -15,17 +15,18 @@
   --syntax-compare: var(--sx-op);
   --syntax-assign: var(--sx-op);
   --syntax-constant: var(--sx-kw);
-  --syntax-table: var(--sx-text, var(--color-text));
   --syntax-string: var(--sx-str);
   --syntax-number: var(--sx-num);
   --syntax-comment: var(--sx-com);
   --syntax-function: var(--sx-fn);
   --syntax-definition: var(--sx-fn);
-  --syntax-type: var(--sx-type);
   --syntax-punctuation: var(--sx-op);
   --syntax-meta: var(--sx-dec);
-  --syntax-property: var(--sx-text, var(--color-text));
-  --syntax-qualifier: var(--sx-qual);
+  /* Fora de Python/SQL os papéis de identificador mantêm o mapeamento genérico. */
+  --syntax-variable: var(--sx-text, var(--color-text));
+  --syntax-class: var(--sx-type);
+  --syntax-module: var(--sx-qual);
+  --syntax-attribute: var(--sx-text, var(--color-text));
   --syntax-heading: var(--sx-op);
   --syntax-link: var(--sx-fn);
 
@@ -55,8 +56,10 @@
   --syntax-number: var(--sx-py-num);
   --syntax-constant: var(--sx-py-num);
   --syntax-punctuation: var(--sx-py-op);
-  --syntax-type: var(--sx-py-type);
-  --syntax-property: var(--sx-py-text);
+  --syntax-variable: var(--sx-role-var);
+  --syntax-class: var(--sx-role-class);
+  --syntax-module: var(--sx-role-mod);
+  --syntax-attribute: var(--sx-role-attr);
 }
 
 .notebook [data-cell-language="sql"],
@@ -74,10 +77,11 @@
   --syntax-number: var(--sx-sql-num);
   --syntax-constant: var(--sx-sql-num);
   --syntax-punctuation: var(--sx-sql-op);
-  --syntax-type: var(--sx-sql-type);
-  --syntax-property: var(--sx-sql-text);
-  --syntax-qualifier: var(--sx-sql-qual);
-  --syntax-table: var(--sx-sql-table);
+  /* Papéis de identificador no SQL: coluna→variável, tipo→classe, qualificador→módulo, tabela→atributo. */
+  --syntax-variable: var(--sx-role-var);
+  --syntax-class: var(--sx-role-class);
+  --syntax-module: var(--sx-role-mod);
+  --syntax-attribute: var(--sx-role-attr);
 }
 
 .notebook::-webkit-scrollbar {

@@ -131,7 +131,7 @@
   --sx-op: #555555;
   --sx-qual: #4d154d;
 
-  /* Python, claro (C2) */
+  /* Python, claro */
   --sx-py-text: #1a1a1a;
   --sx-py-kw: #595959; /* keyword e comentário */
   --sx-py-ctl: #9e3341; /* fluxo, ==, nome em def/class, decorator */
@@ -141,7 +141,7 @@
   --sx-py-op: #1a1a1a;
   --sx-py-type: #1a1a1a;
 
-  /* Spark SQL (e DuckDB), claro (C2) */
+  /* Spark SQL (e DuckDB), claro */
   --sx-sql-text: #2e2416;
   --sx-sql-kw: #595959; /* keyword e comentário */
   --sx-sql-fn: #7a5200;
@@ -151,6 +151,12 @@
   --sx-sql-type: #66522f;
   --sx-sql-qual: #5e3e1a;
   --sx-sql-table: #1c140a;
+
+  /* Papéis de identificador (variável, classe, módulo, atributo), comuns a Python e SQL, claro */
+  --sx-role-var: #5a3e9e; /* variável / coluna */
+  --sx-role-class: #8a3b78; /* classe / tipo */
+  --sx-role-mod: #6e6e6e; /* módulo / qualificador */
+  --sx-role-attr: #2f55b0; /* atributo / nome de tabela */
 
   /* Valores escuros da sintaxe, definidos uma única vez; os dois seletores
    * escuros abaixo apenas apontam os --sx-* para cá. */
@@ -183,6 +189,11 @@
   --sx-dark-sql-type: #c9b48a;
   --sx-dark-sql-qual: #d9c39a;
   --sx-dark-sql-table: #f6ebd3;
+  /* Papéis de identificador (variável, classe, módulo, atributo), comuns a Python e SQL, escuro */
+  --sx-dark-role-var: #c9b8f0;
+  --sx-dark-role-class: #f4b6c2;
+  --sx-dark-role-mod: #a8a8a8;
+  --sx-dark-role-attr: #9eb9f7;
 }
 
 /* Escuro seguindo o sistema, exceto quando o usuário forçou o claro. */
@@ -266,6 +277,10 @@
     --sx-sql-type: var(--sx-dark-sql-type);
     --sx-sql-qual: var(--sx-dark-sql-qual);
     --sx-sql-table: var(--sx-dark-sql-table);
+    --sx-role-var: var(--sx-dark-role-var);
+    --sx-role-class: var(--sx-dark-role-class);
+    --sx-role-mod: var(--sx-dark-role-mod);
+    --sx-role-attr: var(--sx-dark-role-attr);
   }
 }
 
@@ -349,6 +364,10 @@
   --sx-sql-type: var(--sx-dark-sql-type);
   --sx-sql-qual: var(--sx-dark-sql-qual);
   --sx-sql-table: var(--sx-dark-sql-table);
+  --sx-role-var: var(--sx-dark-role-var);
+  --sx-role-class: var(--sx-dark-role-class);
+  --sx-role-mod: var(--sx-dark-role-mod);
+  --sx-role-attr: var(--sx-dark-role-attr);
 }
 
 /* Claro forçado pelo toggle (explícito para vencer a media query). */
