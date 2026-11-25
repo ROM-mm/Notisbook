@@ -138,8 +138,14 @@
 }
 
 .badgeOk {
+  border-color: var(--color-success);
   background: var(--color-success-subtle);
   color: var(--color-text);
+}
+
+/* O "✓" (primeiro span, aria-hidden) no verde de marca; o rótulo fica em --color-text. */
+.badgeOk > [aria-hidden="true"] {
+  color: var(--color-success);
 }
 
 .badgeBad {
