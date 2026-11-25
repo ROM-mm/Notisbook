@@ -33,21 +33,6 @@ MAX_IMAGE_BYTES = 10 * 1024 * 1024
 CSP = "default-src 'none'; img-src data:; font-src data:; style-src 'unsafe-inline'"
 WARNING_UNSUPPORTED = "saída não exportável"
 _STAMP_FORMAT = "%d/%m/%Y %H:%M:%S"
-_LOGO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-<rect x="0.5" y="0.5" width="99" height="99" rx="22" fill="#ffffff" stroke="#d9d9d5"/>
-<rect x="16" y="16" width="17.4" height="17.4" fill="#111111"/>
-<rect x="67" y="16" width="17.4" height="17.4" fill="#111111"/>
-<rect x="16" y="33" width="17.4" height="17.4" fill="#111111"/>
-<rect x="67" y="33" width="17.4" height="17.4" fill="#111111"/>
-<rect x="16" y="50" width="17.4" height="17.4" fill="#111111"/>
-<rect x="67" y="50" width="17.4" height="17.4" fill="#111111"/>
-<rect x="16" y="67" width="17.4" height="17.4" fill="#111111"/>
-<rect x="67" y="67" width="17.4" height="17.4" fill="#111111"/>
-<rect x="33" y="33" width="17.4" height="17.4" fill="#7fb800"/>
-<rect x="50" y="50" width="17.4" height="17.4" fill="#7fb800"/>
-</svg>
-"""
-_LOGO_DATA_URI = "data:image/svg+xml;base64," + base64.b64encode(_LOGO_SVG.encode("utf-8")).decode("ascii")
 _REPO_URL = "https://github.com/ROM-mm/Notisbook"
 
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
@@ -235,6 +220,8 @@ td,th{padding:4px 10px;text-align:left}
 .nb-grid-footer{padding:6px 10px;font-size:12px;color:var(--muted)}
 footer{margin-top:24px;padding-top:8px;border-top:1px solid var(--color-border-strong);font-size:12px;color:var(--muted)}
 footer img{width:16px;height:16px;vertical-align:text-bottom}
+footer .logo-dark{display:none}
+@media (prefers-color-scheme:dark){footer .logo-light{display:none}footer .logo-dark{display:inline}}
 footer a{color:inherit}
 @media print{body{max-width:none;padding:0}.out,.nb-grid{overflow:visible}.nb-grid td,.nb-grid th,.dataframe td,.dataframe th{font-size:7.5pt;padding:1px 3px}pre{white-space:pre-wrap}section.cell{break-inside:avoid-page}nav{display:none}}
 """
@@ -408,8 +395,18 @@ def _stamp(moment: datetime | None) -> str:
     return base.astimezone(_brasilia_tz()).strftime(_STAMP_FORMAT)
 
 
+@lru_cache(maxsize=None)
+def _brand_data_uri(file: str) -> str:
+    data = resources.files(__package__).joinpath("brand", file).read_bytes()
+    return "data:image/svg+xml;base64," + base64.b64encode(data).decode("ascii")
+
+
 def _footer() -> str:
-    logo = f'<img src="{_LOGO_DATA_URI}" alt="Notisbook" width="16" height="16">'
+    # Duas imagens decorativas; o CSS mostra só a do tema ativo (sem JS, CSP inalterada).
+    logo = "".join(
+        f'<img class="logo-{variant}" src="{_brand_data_uri(f"favicon-{variant}.svg")}" alt="" width="16" height="16">'
+        for variant in ("light", "dark")
+    )
     link = f'<a href="{_REPO_URL}" target="_blank" rel="noopener noreferrer">{_REPO_URL}</a>'
     return f"<footer>Exported by {logo} Notisbook {link}</footer>"
 
