@@ -4,10 +4,11 @@
  * se aplica sem reconfigurar o editor. As cores de sintaxe (`--syntax-*`) são
  * definidas em `Notebook.module.css`, no contêiner do notebook.
  */
-import { HighlightStyle, syntaxHighlighting, syntaxTree } from "@codemirror/language";
+import { python, pythonLanguage } from "@codemirror/lang-python";
+import { HighlightStyle, LanguageSupport, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from "@codemirror/view";
 import { type Extension, Prec, RangeSetBuilder, type Text } from "@codemirror/state";
-import { tags as t } from "@lezer/highlight";
+import { styleTags, tags as t } from "@lezer/highlight";
 
 const theme = EditorView.theme({
   "&": {
@@ -71,6 +72,8 @@ const theme = EditorView.theme({
  * `operatorKeyword` = in/not/and/or/is/del; `definitionOperator` = `=`; `updateOperator`
  * = `+=`…; `compareOperator` = `==`/`<`…; nome em `def` = function(definition(variableName));
  * nome em `class` = definition(className); chamada = function(variableName); `@` = meta.
+ * Ajustes do notebook sobre o Python (ver `pythonNotebookLanguage`): `return` = keyword
+ * e o nome do decorator (`@F.udf`) inteiro = meta.
  * Os modificadores do Lezer são normalizados, então a ordem function/definition não importa.
  */
 const highlight = HighlightStyle.define([
@@ -110,6 +113,34 @@ const highlight = HighlightStyle.define([
 ]);
 
 export const notebookEditorTheme: Extension = [theme, syntaxHighlighting(highlight)];
+
+/**
+ * Python com dois ajustes de tags sobre o `@lezer/python`, aplicados por `styleTags`
+ * no parser (regras com contexto vencem as de profundidade 0 do pacote):
+ * - `return` sai de `controlKeyword` (rosa) para `keyword` (cor de keyword); os demais
+ *   `controlKeyword` (if/for/while/break/continue/pass/yield/try/except/with/raise…) não mudam.
+ * - Em `Decorator { At dottedName ArgList? }` o `dottedName` é regra inline, então os
+ *   `VariableName` e `.` são filhos diretos de `Decorator` e recebem `meta`, como o `@`.
+ *   O `ArgList` (e o que há dentro dele) mantém as tags normais.
+ * Mesmo `data` do `pythonLanguage`: indentação, folding e autocomplete são preservados.
+ */
+const pythonNotebook = new LanguageSupport(
+  pythonLanguage.configure({
+    props: [
+      styleTags({
+        "ReturnStatement/return": t.keyword,
+        "Decorator/VariableName": t.meta,
+        'Decorator/"."': t.meta,
+      }),
+    ],
+  }),
+  python().support,
+);
+
+/** Instância única: todas as células Python compartilham a mesma linguagem configurada. */
+export function pythonNotebookLanguage(): LanguageSupport {
+  return pythonNotebook;
+}
 
 /** Célula markdown: o corpo usa a fonte de conteúdo; `tags.monospace` (código) volta a `--font-code`. */
 export const markdownEditorTheme: Extension = Prec.high(
