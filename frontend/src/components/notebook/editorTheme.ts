@@ -309,9 +309,9 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
  * Papéis SQL que o lang-sql não distingue (todo identificador é `name`), por statement:
  * - relação: nome após FROM/JOIN/INTO/TABLE/VIEW/EXISTS/UPDATE, após USING fora do DDL, após
  *   `,` na lista do FROM e após OPTIMIZE/VACUUM; o identificador seguinte (direto ou após AS) é
- *   alias de tabela, e o que segue o `)` de uma subquery aberta após FROM/JOIN (ou USING no
- *   MERGE) ou de uma função de tabela (`FROM read_parquet('x') r`) é alias dela; o nome da
- *   função de tabela sai com a cor de função.
+ *   alias de tabela, e o que segue o `)` de uma subquery aberta após FROM/JOIN (ou USING fora
+ *   do DDL: MERGE, `DELETE FROM t USING (…) s`) ou de uma função de tabela
+ *   (`FROM read_parquet('x') r`) é alias dela; o nome da função de tabela sai com a cor de função.
  *   `FROM` dentro de EXTRACT/TRIM/SUBSTRING e `LATERAL VIEW` não introduzem relação; o nome após
  *   `USING` no DDL (CREATE/REPLACE: `USING csv`) é o formato e sai com a cor de keyword.
  * - `x.y…` (`CompositeIdentifier`): se `x` é tabela ou alias do statement, `x` = alias e
@@ -331,9 +331,8 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
   const alias = new Set<number>();
   const known = new Set<string>();
   const ddlFormat = new Set<number>();
-  const isMerge = tokens[0] !== undefined && bareName(doc, tokens[0]) === "merge";
   const isDdl = tokens[0] !== undefined && DDL_STATEMENT.test(bareName(doc, tokens[0]));
-  // `)` que fecha subquery (após FROM/JOIN, ou USING no MERGE) ou função de tabela
+  // `)` que fecha subquery (após FROM/JOIN, ou USING fora do DDL) ou função de tabela
   // (`read_parquet('x')`): o nome seguinte é alias dela.
   const subqueryClose = new Set<number>();
   // Função de tabela no FROM/JOIN: o nome sai com a cor de função, não de tabela.
@@ -356,7 +355,7 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number,
         tableCall.add(i - 1);
         known.delete(bareName(doc, prev!.lastChild ?? prev!));
       }
-      const subquery = isKeyword(doc, prev, /^(from|join)$/i) || (isMerge && isKeyword(doc, prev, /^using$/i)) || fnTable;
+      const subquery = isKeyword(doc, prev, /^(from|join)$/i) || (!isDdl && isKeyword(doc, prev, /^using$/i)) || fnTable;
       parens.push({ call, subquery, fromOpen });
       fromOpen = false;
     } else if (tok.name === ")") {
