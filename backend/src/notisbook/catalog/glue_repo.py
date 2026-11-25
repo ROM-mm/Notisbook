@@ -212,16 +212,23 @@ def _location_segments(uri: str) -> tuple[str, ...] | None:
 
 
 def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_database: str | None = None) -> bool:
-    """A pasta `segments` é igual à de outro database ou de uma tabela de qualquer catálogo, ou as contém.
+    """A pasta `segments` coincide com a de outro database ou tabela, contém uma delas ou está dentro de uma tabela.
 
-    Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto o que está abaixo.
+    Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto o que está abaixo; e a
+    pasta dentro da de uma tabela seria apagada junto com ela. As camadas e o `default` não entram no sentido
+    inverso: abrigam os databases criados com LOCATION abaixo delas e não podem ser excluídos.
     """
     rows = conn.execute("SELECT name, location_uri FROM glue_databases").fetchall()
-    others = [loc for name, loc in rows if loc is not None and name != skip_database]
-    others += [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
-    for other in others:
+    kept = [(name, loc) for name, loc in rows if loc is not None and name != skip_database]
+    containers = [loc for name, loc in kept if name not in locations.LAYERS and name != DEFAULT_DATABASE]
+    containers += [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
+    for other in [loc for _, loc in kept] + containers:
         inner = _location_segments(other)
         if inner is not None and inner[: len(segments)] == segments:
+            return True
+    for other in containers:
+        outer = _location_segments(other)
+        if outer is not None and segments[: len(outer)] == outer:
             return True
     return False
 
@@ -229,24 +236,27 @@ def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_dat
 def _checked_location_uri(
     conn: sqlite3.Connection, location_uri: str | None, skip_database: str | None = None
 ) -> str | None:
-    """`LocationUri` de Create/UpdateDatabase: vazio vira `None`; senão precisa estar dentro de `s3://notislake/` e não conter nada.
+    """`LocationUri` de Create/UpdateDatabase: vazio vira `None`; senão uma pasta de `s3://notislake/` fora da `landing/`.
 
-    `skip_database` é o database que está sendo atualizado: a pasta dele não conta como "em uso".
+    A pasta não pode sobrepor outro database nem tabela (`_folder_in_use`). `skip_database` é o database que está
+    sendo atualizado: a pasta dele não conta como "em uso".
     """
     if not location_uri:
         return None
     segments = _location_segments(location_uri)
     if segments is None:
         raise GlueInvalidInput("location_outside_notislake", "LocationUri must be a folder inside s3://notislake/.")
+    if segments[0] == locations.LANDING:
+        raise GlueInvalidInput("location_in_landing", "LocationUri cannot be inside the landing zone.")
     if _folder_in_use(conn, segments, skip_database):
-        raise GlueInvalidInput("location_in_use", "LocationUri contains the location of another database or table.")
+        raise GlueInvalidInput("location_in_use", "LocationUri overlaps the location of another database or table.")
     return location_uri
 
 
 def create_database(conn: sqlite3.Connection, database_input: Any) -> dict[str, Any]:
     """Cria o database a partir do DatabaseInput. Levanta `GlueAlreadyExists` (inclui as camadas), `GlueInvalidInput`.
 
-    `LocationUri` fora de `s3://notislake/` ou que contenha outro database/tabela é recusado.
+    `LocationUri` fora de `s3://notislake/`, em `landing/` ou que sobreponha outro database/tabela é recusado.
     """
     payload = _require_object(database_input)
     key = _name(payload.get("Name"))
@@ -632,12 +642,21 @@ def get_partition(conn: sqlite3.Connection, database: str, table: str, values: A
     return _partition_dict(row)
 
 
-def _check_partition_location(descriptor: dict[str, Any], table_location: str | None) -> None:
+def _check_partition_location(
+    conn: sqlite3.Connection, descriptor: dict[str, Any], table_location: str | None, table: tuple[str, str]
+) -> None:
+    """Location da partição: dentro da tabela; sem `Location` na tabela, segue a regra de path sem tabela.
+
+    Nesse caso exige camada e sem sobrepor outra tabela (a própria `table` não conta).
+    """
     location = _descriptor_location(descriptor)
     if location is None:
         return
     try:
         canonical = locations.parse_notislake(location).uri
+        if table_location is None:
+            known = [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn, skip=table)]
+            locations.check_path_write(canonical, known)
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"Partition location refused ({exc.code}).") from None
     if table_location is not None and not locations.within(canonical, table_location):
@@ -663,7 +682,7 @@ def batch_create_partitions(
         if len(values) != key_count:
             raise GlueInvalidInput("partition_values_mismatch", "Values must match the table partition keys.")
         descriptor = _dict_field(payload, "StorageDescriptor")
-        _check_partition_location(descriptor, table_location)
+        _check_partition_location(conn, descriptor, table_location, (db_key, table_key))
         prepared.setdefault(_values_key(values), (values, descriptor, _string_map(payload, "Parameters")))
     errors: list[dict[str, Any]] = []
     now = time.time()
@@ -716,7 +735,7 @@ def update_partition(conn: sqlite3.Connection, database: str, table: str, values
     if len(new_values) != key_count:
         raise GlueInvalidInput("partition_values_mismatch", "Values must match the table partition keys.")
     descriptor = _dict_field(payload, "StorageDescriptor")
-    _check_partition_location(descriptor, table_location)
+    _check_partition_location(conn, descriptor, table_location, (db_key, table_key))
     parameters = _dump(_string_map(payload, "Parameters"))
     new_key = _values_key(new_values)
     exists = "SELECT 1 FROM glue_partitions WHERE database_name = ? AND table_name = ? AND values_json = ?"
