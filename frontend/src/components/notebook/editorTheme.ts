@@ -201,14 +201,15 @@ const SPARK_CLAUSE_KEYWORDS = new Set([
   "tablesample",
   "over",
   "partition",
-  // `VACUUM t RETAIN 168 HOURS`, `CLUSTER BY`, `DISTRIBUTE BY`, `SORT BY`, `VERSION AS OF`.
-  // `TIMESTAMP` fica de fora: no lang-sql já é tipo (`TIMESTAMP AS OF` sai com a cor de tipo).
-  "retain",
-  "cluster",
-  "distribute",
-  "sort",
-  "version",
 ]);
+/**
+ * Palavras de cláusula do Spark/Delta que também são nomes comuns de coluna (`SELECT version,
+ * operation` do DESCRIBE HISTORY): só viram keyword no contexto (ver `contextKeyword`) —
+ * `CLUSTER BY`/`DISTRIBUTE BY`/`SORT BY` seguidas de BY. `VERSION AS OF` e `RETAIN 168 HOURS`
+ * têm regra própria. `TIMESTAMP` fica de fora: no lang-sql já é tipo (`TIMESTAMP AS OF` sai com
+ * a cor de tipo).
+ */
+const SPARK_BY_CLAUSES = /^(cluster|distribute|sort)$/i;
 /**
  * Palavras do Spark/Delta que também são nomes comuns (`SELECT location, delta`): só viram
  * keyword no contexto (ver `contextKeyword`); fora dele seguem o papel de identificador.
@@ -278,7 +279,9 @@ function isPunct(doc: Text, node: SyntaxNode | undefined, text: string): boolean
 /**
  * `Identifier` do índice `i` que deve sair com a cor de keyword: palavras do Spark inequívocas e
  * de cláusula sempre; as ambíguas só no contexto — `MATCHED` após WHEN/NOT, `LOCATION` seguido de
- * string, `DELTA`/`PARQUET` após USING/TO (formato), `OPTIMIZE`/`VACUUM` abrindo o statement.
+ * string, `DELTA`/`PARQUET` após USING/TO (formato), `OPTIMIZE`/`VACUUM` abrindo o statement,
+ * `CLUSTER`/`DISTRIBUTE`/`SORT` seguidas de BY, `VERSION` seguida de AS OF e `RETAIN` seguida
+ * de número (`VACUUM t RETAIN 168 HOURS`).
  */
 function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
   const tok = tokens[i];
@@ -286,6 +289,13 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
   const word = bareName(doc, tok);
   if (SPARK_EXTRA_KEYWORDS.has(word) || SPARK_CLAUSE_KEYWORDS.has(word)) return true;
   const prev = tokens[i - 1];
+  const next = tokens[i + 1];
+  if (SPARK_BY_CLAUSES.test(word)) return next !== undefined && bareName(doc, next) === "by";
+  if (word === "version") {
+    const after = tokens[i + 2];
+    return next !== undefined && after !== undefined && bareName(doc, next) === "as" && bareName(doc, after) === "of";
+  }
+  if (word === "retain") return next?.name === "Number";
   if (word === "matched") return isKeyword(doc, prev, /^(when|not)$/i);
   if (word === "location") return tokens[i + 1]?.name === "String";
   if (SPARK_FORMATS.test(word)) return isKeyword(doc, prev, /^(using|to)$/i);
