@@ -161,13 +161,9 @@ export const Cell = memo(function Cell({
               onBlur={() => {
                 const nb = store.getState();
                 if (nb.activeId === id && nb.mode === "edit") nb.setMode("command");
-                // Markdown volta a renderizar quando o foco sai da célula. Não renderiza se o
-                // blur veio de um clique dentro da própria célula (⋮, título, rótulo, padding,
-                // mesmo sem foco no botão), se o foco foi para o ⋮/título nem no blur da
-                // janela (Alt+Tab). Só lê o DOM/estado: a view pode já ter sido destruída.
-                // Não executa nada.
-                // A flag vale só para este blur: zerada logo após lida, para um blur posterior
-                // (dentro da janela do timer, que segue como fallback) não herdar o clique interno.
+                // Markdown renderiza ao perder o foco, exceto em clique dentro da célula, foco
+                // no ⋮/título ou blur da janela (Alt+Tab); só lê DOM/estado (view pode já ter morrido).
+                // Flag zerada logo após lida: um blur posterior não herda o clique interno.
                 const clickedInside = internalMouseDown.current;
                 internalMouseDown.current = false;
                 if (
