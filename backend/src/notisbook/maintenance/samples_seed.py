@@ -2,9 +2,10 @@
 
 Destino = `notebooks_root` salvo e utilizável, senão `<home>/notebooks` (mesma resolução do app). Sem
 `preferences.json` decide como o onboarding: adota `~/notebooks` (sem copiar) ou semeia a pasta padrão.
-Nunca sobrescreve. Com `--if-missing`, pasta existente (mesmo vazia) não recebe nada, e nada é criado antes
-dessa checagem. Não sobe app nem NotebookStore; sem lock.
-Exit: 0 copiou, nada a copiar, adotou legado ou pulou; 1 falha de cópia ou do marcador; 2 home impossível; 130 Ctrl+C.
+Nunca sobrescreve. Com `--if-missing`, pasta existente (mesmo vazia) não recebe nada, nada é criado antes
+dessa checagem e nada é impresso. Não sobe app nem NotebookStore; sem lock.
+Exit: 0 copiou, nada a copiar, adotou legado ou pulou (inclusive se só o marcador `samples_seeded` falhou: os exemplos
+já estão copiados e o aviso vai ao stderr); 1 falha de cópia; 2 home impossível; 130 Ctrl+C.
 """
 
 import os
@@ -20,9 +21,8 @@ def run(*, if_missing: bool = False) -> int:
     home = default_home()
     try:
         has_preferences = os.path.lexists(preferences_path(home))
-        folder, _ = saved_or_default_root(home)
+        folder, _ = saved_or_default_root(home, warn=False)
         if if_missing and os.path.lexists(folder):
-            print(f"Notisbook: notebooks folder {folder} already exists; no samples copied.")
             return 0
         try:
             home.mkdir(parents=True, exist_ok=True)
@@ -34,11 +34,18 @@ def run(*, if_missing: bool = False) -> int:
                 print("Notisbook: existing notebooks in ~/notebooks adopted as the notebooks folder; no samples copied.")
                 return 0
             copied, existing = seed_samples_into(folder)
-            mark_samples_seeded(home)
         except OSError as exc:
             print(f"Notisbook: could not copy the sample notebooks to {folder} ({exc.strerror or exc}).", file=sys.stderr)
             return 1
         print(f"Notisbook: {copied} sample notebook(s) copied to {folder} ({existing} already there).")
+        try:
+            mark_samples_seeded(home)
+        except OSError as exc:
+            print(
+                f"Notisbook: samples were copied, but the seeded marker could not be saved ({exc.strerror or exc}); "
+                "the samples stay in place.",
+                file=sys.stderr,
+            )
         return 0
     except KeyboardInterrupt:
         print("Notisbook: interrupted; the sample notebooks may not be fully copied.", file=sys.stderr)

@@ -87,18 +87,20 @@ def adopt_legacy_root(home: Path) -> bool:
     return _adopt_legacy_root(home)
 
 
-def saved_or_default_root(home: Path) -> tuple[Path, str]:
+def saved_or_default_root(home: Path, *, warn: bool = True) -> tuple[Path, str]:
     """Pasta de notebooks e sua origem (`"saved"` ou `"default"`), sem criar nada.
 
     Usa o `notebooks_root` salvo quando passa na validação da API (precisa existir); senão avisa no stderr
-    e cai em `default_root(home)`. Fonte única para o app e para `--seed-samples`.
+    e cai em `default_root(home)`. Fonte única para o app e para `--seed-samples`; este passa `warn=False`
+    para o aviso sair uma vez por partida (o app o emite).
     """
     saved = read_notebooks_root(home)
     if saved is not None:
         try:
             return validate_notebooks_root(saved, home), "saved"
         except RootRejected as exc:
-            print(f"Notisbook: saved notebooks folder {saved} is not usable ({exc.message}); using the default.", file=sys.stderr)
+            if warn:
+                print(f"Notisbook: saved notebooks folder {saved} is not usable ({exc.message}); using the default.", file=sys.stderr)
     return default_root(home).resolve(), "default"
 
 
