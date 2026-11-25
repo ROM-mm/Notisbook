@@ -131,32 +131,24 @@
   --sx-op: #555555;
   --sx-qual: #4d154d;
 
-  /* Python, claro */
-  --sx-py-text: #1a1a1a;
-  --sx-py-kw: #595959; /* keyword e comentário */
-  --sx-py-ctl: #9e3341; /* fluxo, ==, nome em def/class, decorator */
-  --sx-py-call: #7a5200; /* chamada, =, not/in */
-  --sx-py-str: #136536;
-  --sx-py-num: #155a69; /* número/constante */
-  --sx-py-op: #1a1a1a;
-  --sx-py-type: #1a1a1a;
-
-  /* Spark SQL (e DuckDB), claro */
-  --sx-sql-text: #2e2416;
-  --sx-sql-kw: #595959; /* keyword e comentário */
-  --sx-sql-fn: #7a5200;
-  --sx-sql-str: #136536;
-  --sx-sql-num: #8c4a0e; /* número/constante */
-  --sx-sql-op: #574832;
-  --sx-sql-type: #66522f;
-  --sx-sql-qual: #5e3e1a;
-  --sx-sql-table: #1c140a;
-
-  /* Papéis de identificador (variável, classe, módulo, atributo), comuns a Python e SQL, claro */
-  --sx-role-var: #5a3e9e; /* variável / coluna */
-  --sx-role-class: #8a3b78; /* classe / tipo */
-  --sx-role-mod: #6e6e6e; /* módulo / qualificador */
-  --sx-role-attr: #2f55b0; /* atributo / nome de tabela */
+  /* Código (Python, Spark SQL e DuckDB), claro: escala de cinza, a mesma paleta
+   * nas duas linguagens; diferenciação só por cor. */
+  --sx-code-kw: #767676; /* keyword, controle e decorator */
+  --sx-code-text: #2b2b2b; /* texto base, pontuação e operador */
+  --sx-code-mod: #2b2b2b; /* caminho de módulo em import/from */
+  --sx-code-class: #3c3c3c; /* classe importada ou referenciada */
+  --sx-code-class-call: #4d4d4d; /* classe chamada: `Classe(` */
+  --sx-code-var: #111111; /* variável */
+  --sx-code-attr: #111111; /* atributo: `.nome` fora de chamada */
+  --sx-code-fn: #4d4d4d; /* chamada de método/função, nome em def/class */
+  --sx-code-str: #6a6a6a; /* string */
+  --sx-code-num: #5e5e5e; /* número, True/False/None */
+  --sx-code-com: #949494; /* comentário */
+  --sx-code-type: #3c3c3c; /* tipo SQL */
+  --sx-code-qual: #111111; /* qualificador SQL, com o ponto: `bronze.` */
+  --sx-code-table: #2b2b2b; /* nome de tabela SQL */
+  --sx-code-col: #111111; /* coluna SQL e alias de coluna */
+  --sx-code-alias: #2b2b2b; /* alias de tabela SQL */
 
   /* Valores escuros da sintaxe, definidos uma única vez; os dois seletores
    * escuros abaixo apenas apontam os --sx-* para cá. */
@@ -170,30 +162,23 @@
   --sx-dark-dec: #e0a6ff;
   --sx-dark-op: #a8b0b8;
   --sx-dark-qual: #c39bd3;
-  /* Python, escuro (Subliminal; strings no verde de marca) */
-  --sx-dark-py-text: #d4d4d4;
-  --sx-dark-py-kw: #7f7f7f;
-  --sx-dark-py-ctl: #f1a5ab;
-  --sx-dark-py-call: #ffe2a9;
-  --sx-dark-py-str: #bbf7d0;
-  --sx-dark-py-num: #91c5d3;
-  --sx-dark-py-op: #d4d4d4;
-  --sx-dark-py-type: #d4d4d4;
-  /* Spark SQL (e DuckDB), escuro (monocromático quente) */
-  --sx-dark-sql-text: #e8dcc4;
-  --sx-dark-sql-kw: #7f7f7f;
-  --sx-dark-sql-fn: #ffe2a9;
-  --sx-dark-sql-str: #bbf7d0;
-  --sx-dark-sql-num: #ffd08a;
-  --sx-dark-sql-op: #cfc4ad;
-  --sx-dark-sql-type: #c9b48a;
-  --sx-dark-sql-qual: #d9c39a;
-  --sx-dark-sql-table: #f6ebd3;
-  /* Papéis de identificador (variável, classe, módulo, atributo), comuns a Python e SQL, escuro */
-  --sx-dark-role-var: #c9b8f0;
-  --sx-dark-role-class: #f4b6c2;
-  --sx-dark-role-mod: #a8a8a8;
-  --sx-dark-role-attr: #9eb9f7;
+  /* Código (Python, Spark SQL e DuckDB), escuro: mesmos papéis de --sx-code-* */
+  --sx-dark-code-kw: #808080;
+  --sx-dark-code-text: #ffffff;
+  --sx-dark-code-mod: #ffffff;
+  --sx-dark-code-class: #ffffff;
+  --sx-dark-code-class-call: #ffffff;
+  --sx-dark-code-var: #838383;
+  --sx-dark-code-attr: #838383;
+  --sx-dark-code-fn: #868686;
+  --sx-dark-code-str: #8e8e8e;
+  --sx-dark-code-num: #999999;
+  --sx-dark-code-com: #616161;
+  --sx-dark-code-type: #a0a0a0;
+  --sx-dark-code-qual: #838383;
+  --sx-dark-code-table: #ffffff;
+  --sx-dark-code-col: #ffffff;
+  --sx-dark-code-alias: #ffffff;
 }
 
 /* Escuro seguindo o sistema, exceto quando o usuário forçou o claro. */
@@ -260,27 +245,22 @@
     --sx-dec: var(--sx-dark-dec);
     --sx-op: var(--sx-dark-op);
     --sx-qual: var(--sx-dark-qual);
-    --sx-py-text: var(--sx-dark-py-text);
-    --sx-py-kw: var(--sx-dark-py-kw);
-    --sx-py-ctl: var(--sx-dark-py-ctl);
-    --sx-py-call: var(--sx-dark-py-call);
-    --sx-py-str: var(--sx-dark-py-str);
-    --sx-py-num: var(--sx-dark-py-num);
-    --sx-py-op: var(--sx-dark-py-op);
-    --sx-py-type: var(--sx-dark-py-type);
-    --sx-sql-text: var(--sx-dark-sql-text);
-    --sx-sql-kw: var(--sx-dark-sql-kw);
-    --sx-sql-fn: var(--sx-dark-sql-fn);
-    --sx-sql-str: var(--sx-dark-sql-str);
-    --sx-sql-num: var(--sx-dark-sql-num);
-    --sx-sql-op: var(--sx-dark-sql-op);
-    --sx-sql-type: var(--sx-dark-sql-type);
-    --sx-sql-qual: var(--sx-dark-sql-qual);
-    --sx-sql-table: var(--sx-dark-sql-table);
-    --sx-role-var: var(--sx-dark-role-var);
-    --sx-role-class: var(--sx-dark-role-class);
-    --sx-role-mod: var(--sx-dark-role-mod);
-    --sx-role-attr: var(--sx-dark-role-attr);
+    --sx-code-kw: var(--sx-dark-code-kw);
+    --sx-code-text: var(--sx-dark-code-text);
+    --sx-code-mod: var(--sx-dark-code-mod);
+    --sx-code-class: var(--sx-dark-code-class);
+    --sx-code-class-call: var(--sx-dark-code-class-call);
+    --sx-code-var: var(--sx-dark-code-var);
+    --sx-code-attr: var(--sx-dark-code-attr);
+    --sx-code-fn: var(--sx-dark-code-fn);
+    --sx-code-str: var(--sx-dark-code-str);
+    --sx-code-num: var(--sx-dark-code-num);
+    --sx-code-com: var(--sx-dark-code-com);
+    --sx-code-type: var(--sx-dark-code-type);
+    --sx-code-qual: var(--sx-dark-code-qual);
+    --sx-code-table: var(--sx-dark-code-table);
+    --sx-code-col: var(--sx-dark-code-col);
+    --sx-code-alias: var(--sx-dark-code-alias);
   }
 }
 
@@ -347,27 +327,22 @@
   --sx-dec: var(--sx-dark-dec);
   --sx-op: var(--sx-dark-op);
   --sx-qual: var(--sx-dark-qual);
-  --sx-py-text: var(--sx-dark-py-text);
-  --sx-py-kw: var(--sx-dark-py-kw);
-  --sx-py-ctl: var(--sx-dark-py-ctl);
-  --sx-py-call: var(--sx-dark-py-call);
-  --sx-py-str: var(--sx-dark-py-str);
-  --sx-py-num: var(--sx-dark-py-num);
-  --sx-py-op: var(--sx-dark-py-op);
-  --sx-py-type: var(--sx-dark-py-type);
-  --sx-sql-text: var(--sx-dark-sql-text);
-  --sx-sql-kw: var(--sx-dark-sql-kw);
-  --sx-sql-fn: var(--sx-dark-sql-fn);
-  --sx-sql-str: var(--sx-dark-sql-str);
-  --sx-sql-num: var(--sx-dark-sql-num);
-  --sx-sql-op: var(--sx-dark-sql-op);
-  --sx-sql-type: var(--sx-dark-sql-type);
-  --sx-sql-qual: var(--sx-dark-sql-qual);
-  --sx-sql-table: var(--sx-dark-sql-table);
-  --sx-role-var: var(--sx-dark-role-var);
-  --sx-role-class: var(--sx-dark-role-class);
-  --sx-role-mod: var(--sx-dark-role-mod);
-  --sx-role-attr: var(--sx-dark-role-attr);
+  --sx-code-kw: var(--sx-dark-code-kw);
+  --sx-code-text: var(--sx-dark-code-text);
+  --sx-code-mod: var(--sx-dark-code-mod);
+  --sx-code-class: var(--sx-dark-code-class);
+  --sx-code-class-call: var(--sx-dark-code-class-call);
+  --sx-code-var: var(--sx-dark-code-var);
+  --sx-code-attr: var(--sx-dark-code-attr);
+  --sx-code-fn: var(--sx-dark-code-fn);
+  --sx-code-str: var(--sx-dark-code-str);
+  --sx-code-num: var(--sx-dark-code-num);
+  --sx-code-com: var(--sx-dark-code-com);
+  --sx-code-type: var(--sx-dark-code-type);
+  --sx-code-qual: var(--sx-dark-code-qual);
+  --sx-code-table: var(--sx-dark-code-table);
+  --sx-code-col: var(--sx-dark-code-col);
+  --sx-code-alias: var(--sx-dark-code-alias);
 }
 
 /* Claro forçado pelo toggle (explícito para vencer a media query). */

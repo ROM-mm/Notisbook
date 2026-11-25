@@ -19,14 +19,19 @@ const theme = EditorView.theme({
   // O `*` vence o span de `special(string)` do QuotedIdentifier, aninhado ou não.
   // Qualificador SQL usa o papel de módulo; nome de tabela, o de atributo.
   ".cm-sql-qualifier, .cm-sql-qualifier *": { color: "var(--syntax-module)" },
-  // Nome de tabela: identificador logo após o qualificador (`schema.tabela`).
+  // Nome de tabela: segmento final de `schema.tabela` ou nome após FROM/JOIN/INTO/TABLE…
   ".cm-sql-table, .cm-sql-table *": { color: "var(--syntax-attribute)" },
+  // Alias de tabela (`FROM bronze.vendas v`) e seu uso como prefixo de coluna (`v.id`).
+  ".cm-sql-alias, .cm-sql-alias *": { color: "var(--syntax-alias)" },
   // Função SQL: identificador seguido de `(` (o dialeto Spark não declara builtins).
   ".cm-sql-function, .cm-sql-function *": { color: "var(--syntax-function)" },
   // Tipo do Spark fora da lista do lang-sql (BIGINT, STRING…): mesma cor de `typeName`.
   ".cm-sql-type, .cm-sql-type *": { color: "var(--syntax-class)" },
-  // Python (ver `pythonRoleHighlight`): classe por heurística e caminho de módulo em import.
+  // Palavra do Spark fora da lista do lang-sql (MERGE, MATCHED, DELTA…): cor de keyword.
+  ".cm-sql-keyword, .cm-sql-keyword *": { color: "var(--syntax-keyword)" },
+  // Python (ver `pythonRoleHighlight`): classe por heurística, classe chamada e caminho de módulo em import.
   ".cm-py-class, .cm-py-class *": { color: "var(--syntax-class)" },
+  ".cm-py-class-call, .cm-py-class-call *": { color: "var(--syntax-class-call)" },
   ".cm-py-module, .cm-py-module *": { color: "var(--syntax-module)" },
   "&.cm-focused": { outline: "none" },
   ".cm-scroller": {
@@ -81,9 +86,9 @@ const theme = EditorView.theme({
  * Ajustes do notebook sobre o Python (ver `pythonNotebookLanguage`): `return` = keyword
  * e o nome do decorator (`@F.udf`) inteiro = meta.
  * Papéis de identificador: `variableName` (Python) e `name` (identificador SQL) = variável; `propertyName`
- * fora de chamada = atributo; `typeName` (tipo SQL) = classe. Classe Python e módulo em
- * import vêm de decoração (`pythonRoleHighlight`); qualificador/tabela SQL, de
- * `sqlQualifierHighlight`.
+ * fora de chamada = atributo; `typeName` (tipo SQL) = classe. Classe Python (referência ou
+ * chamada) e módulo em import vêm de decoração (`pythonRoleHighlight`); qualificador,
+ * tabela, alias, função e palavras do Spark no SQL, de `sqlQualifierHighlight`.
  * Os modificadores do Lezer são normalizados, então a ordem function/definition não importa.
  */
 const highlight = HighlightStyle.define([
@@ -164,73 +169,252 @@ export const markdownEditorTheme: Extension = Prec.high(
 
 const qualifierMark = Decoration.mark({ class: "cm-sql-qualifier" });
 const tableMark = Decoration.mark({ class: "cm-sql-table" });
+const aliasMark = Decoration.mark({ class: "cm-sql-alias" });
 const functionMark = Decoration.mark({ class: "cm-sql-function" });
 const sqlTypeMark = Decoration.mark({ class: "cm-sql-type" });
+const sqlKeywordMark = Decoration.mark({ class: "cm-sql-keyword" });
 /**
  * Tipos do Spark que o StandardSQL do lang-sql não lista em `types` (lá eles viriam como
  * `Identifier`). Definir `types` no dialeto não basta: sem `keywords` o `SQLDialect.define`
  * ignora `types`, e a lista padrão de keywords não é exportada.
  */
 const SPARK_EXTRA_TYPES = new Set(["bigint", "tinyint", "string", "long", "short", "byte"]);
-const QUALIFIER_TAIL = /^\.[\w"`]/;
-/** Termina em `<nome>.`: o identificador seguinte é o último segmento de um nome qualificado. */
-const QUALIFIED_HEAD = /[\w"`]\.$/;
-const CALL_TAIL = /^\s*\(/;
+/**
+ * Palavras do Spark/Delta que o StandardSQL não lista em `keywords` (chegam como `Identifier`) e
+ * que não servem de nome de coluna/tabela na prática: sempre keyword.
+ */
+const SPARK_EXTRA_KEYWORDS = new Set(["merge", "overwrite", "partitioned", "tblproperties", "zorder"]);
+/**
+ * Palavras de cláusula do Spark que chegam como `Identifier`: sempre keyword, nunca relação,
+ * alias ou função (`PIVOT (`, `OVER (`, `TABLESAMPLE (`).
+ */
+const SPARK_CLAUSE_KEYWORDS = new Set([
+  "pivot",
+  "unpivot",
+  "qualify",
+  "window",
+  "semi",
+  "anti",
+  "lateral",
+  "tablesample",
+  "over",
+  "partition",
+]);
+/**
+ * Palavras do Spark/Delta que também são nomes comuns (`SELECT location, delta`): só viram
+ * keyword no contexto (ver `contextKeyword`); fora dele seguem o papel de identificador.
+ */
+const SPARK_FORMATS = /^(delta|parquet)$/i;
+/** Statements do Delta cujo nome seguinte é a tabela: `OPTIMIZE t`, `VACUUM t`. */
+const DELTA_STATEMENT = /^(optimize|vacuum)$/i;
+/** Palavras que fecham a lista de relações do FROM (depois delas, `,` não introduz relação). */
+const FROM_CLAUSE_END =
+  /^(where|group|having|order|limit|union|intersect|except|on|using|select|set|values|window|qualify|lateral|cluster|distribute|sort)$/i;
+/** Funções que o StandardSQL etiqueta como `Keyword` (COUNT…); só viram função seguidas de `(`. */
+const SQL_FUNCTION_KEYWORDS = new Set([
+  "count",
+  "sum",
+  "avg",
+  "min",
+  "max",
+  "cast",
+  "coalesce",
+  "nullif",
+  "extract",
+  "substring",
+  "trim",
+  "position",
+  "upper",
+  "lower",
+]);
 /** Nó Lezer, tipado via `syntaxTree` (`@lezer/common` não é dependência direta). */
 type SyntaxNode = ReturnType<ReturnType<typeof syntaxTree>["resolveInner"]>;
-/** Palavras que antecedem nome de tabela/view em DDL/DML (`CREATE TABLE t (`, `INSERT INTO t (`). */
-const TABLE_INTRODUCER = /^(table|into|view|exists)$/i;
+/**
+ * Palavras que antecedem nome de tabela/view (`FROM t`, `CREATE TABLE t (`, `INSERT INTO t (`).
+ * O nome seguinte é tabela, nunca função, mesmo seguido de `(`.
+ * `USING` fica de fora: só introduz relação no MERGE (ver `sqlStatementRoles`); no DDL vem o
+ * formato (`USING csv`) e no `JOIN ... USING (cols)` vêm colunas.
+ */
+const TABLE_INTRODUCER = /^(table|into|view|exists|from|join|update)$/i;
+/** Funções cujo `FROM` interno não é de tabela: `EXTRACT(YEAR FROM ts)`, `TRIM(BOTH ' ' FROM s)`. */
+const FROM_INSIDE_CALL = /^(extract|trim|substring)$/i;
+const SQL_NAME = new Set(["Identifier", "QuotedIdentifier", "CompositeIdentifier"]);
 
-/** Texto do irmão anterior na árvore Lezer, pulando comentários (nulo se não houver). */
-function prevTokenText(node: SyntaxNode, doc: Text): string | null {
-  let prev = node.prevSibling;
-  while (prev && (prev.name === "LineComment" || prev.name === "BlockComment")) prev = prev.prevSibling;
-  return prev ? doc.sliceString(prev.from, prev.to) : null;
+/** Tokens do statement em ordem, achatando parênteses; comentários ficam de fora. */
+function statementTokens(node: SyntaxNode, out: SyntaxNode[]): SyntaxNode[] {
+  for (let c = node.firstChild; c; c = c.nextSibling) {
+    if (c.name === "LineComment" || c.name === "BlockComment") continue;
+    if (c.name !== "CompositeIdentifier" && c.firstChild) statementTokens(c, out);
+    else out.push(c);
+  }
+  return out;
+}
+
+/** Nome sem aspas e em minúsculas, para comparar tabela/alias com o prefixo de `alias.coluna`. */
+function bareName(doc: Text, node: SyntaxNode): string {
+  return doc.sliceString(node.from, node.to).replace(/^[`"]|[`"]$/g, "").toLowerCase();
+}
+
+function isKeyword(doc: Text, node: SyntaxNode | undefined, pattern: RegExp): boolean {
+  return node?.name === "Keyword" && pattern.test(doc.sliceString(node.from, node.to));
+}
+
+function isPunct(doc: Text, node: SyntaxNode | undefined, text: string): boolean {
+  return node !== undefined && doc.sliceString(node.from, node.to) === text;
 }
 
 /**
- * SQL: o lang-sql etiqueta todo identificador como `name`, sem distinguir o
- * qualificador (`main.schema.`) do nome final. Marca os identificadores
- * seguidos de `.` + nome (qualificador), o segmento logo após o qualificador
- * (nome de tabela; `alias.coluna` também cai aqui, a gramática não distingue)
- * e o identificador não qualificado seguido de `(` (chamada de função).
- * Exceção: se o token anterior (Lezer, sem espaços/comentários) for TABLE,
- * INTO, VIEW ou EXISTS, é nome de tabela em DDL/DML e fica neutro.
- * Identificador não qualificado cujo texto é tipo do Spark ausente da lista do lang-sql
- * (BIGINT, STRING…) recebe a cor de tipo (papel de classe). Os demais identificadores
- * sem qualificador ficam com a tag `name` (papel de variável).
+ * `Identifier` do índice `i` que deve sair com a cor de keyword: palavras do Spark inequívocas e
+ * de cláusula sempre; as ambíguas só no contexto — `MATCHED` após WHEN/NOT, `LOCATION` seguido de
+ * string, `DELTA`/`PARQUET` após USING/TO (formato), `OPTIMIZE`/`VACUUM` abrindo o statement.
  */
+function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
+  const tok = tokens[i];
+  if (tok?.name !== "Identifier") return false;
+  const word = bareName(doc, tok);
+  if (SPARK_EXTRA_KEYWORDS.has(word) || SPARK_CLAUSE_KEYWORDS.has(word)) return true;
+  const prev = tokens[i - 1];
+  if (word === "matched") return isKeyword(doc, prev, /^(when|not)$/i);
+  if (word === "location") return tokens[i + 1]?.name === "String";
+  if (SPARK_FORMATS.test(word)) return isKeyword(doc, prev, /^(using|to)$/i);
+  return i === 0 && DELTA_STATEMENT.test(word);
+}
+
+/**
+ * Papéis SQL que o lang-sql não distingue (todo identificador é `name`), por statement:
+ * - relação: nome após FROM/JOIN/INTO/TABLE/VIEW/EXISTS/UPDATE, após USING só no MERGE, após
+ *   `,` na lista do FROM e após OPTIMIZE/VACUUM; o identificador seguinte (direto ou após AS) é
+ *   alias de tabela, e o que segue o `)` de uma subquery aberta após FROM/JOIN (ou USING no
+ *   MERGE) ou de uma função de tabela (`FROM read_parquet('x') r`) é alias dela; o nome da
+ *   função de tabela sai com a cor de função.
+ *   `FROM` dentro de EXTRACT/TRIM/SUBSTRING e `LATERAL VIEW` não introduzem relação; o nome após
+ *   `USING` fora do MERGE (formato do DDL: `USING csv`) sai com a cor de keyword.
+ * - `x.y…` (`CompositeIdentifier`): se `x` é tabela ou alias do statement, `x` = alias e
+ *   o resto fica como coluna; senão os segmentos até o último `.` (inclusive) = qualificador
+ *   e o último segmento = tabela.
+ * - identificador seguido de `(` (fora de relação) e keyword de função (COUNT…) seguida de
+ *   `(` = função; tipo do Spark fora da lista do lang-sql = tipo; palavra do Spark/Delta
+ *   fora da lista (MERGE, QUALIFY…) = keyword, as ambíguas (LOCATION, DELTA, MATCHED…) só no
+ *   contexto (`contextKeyword`).
+ * Os demais identificadores ficam com a tag `name` (papel de coluna).
+ */
+function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: (from: number, to: number, mark: Decoration) => void): void {
+  const tokens = statementTokens(statement, []);
+  const relation = new Set<number>();
+  const alias = new Set<number>();
+  const known = new Set<string>();
+  const ddlFormat = new Set<number>();
+  const isMerge = tokens[0] !== undefined && bareName(doc, tokens[0]) === "merge";
+  // `)` que fecha subquery (após FROM/JOIN, ou USING no MERGE) ou função de tabela
+  // (`read_parquet('x')`): o nome seguinte é alias dela.
+  const subqueryClose = new Set<number>();
+  // Função de tabela no FROM/JOIN: o nome sai com a cor de função, não de tabela.
+  const tableCall = new Set<number>();
+  // Parênteses abertos: `call` = abriu EXTRACT/TRIM/SUBSTRING; `subquery` = subquery ou função de
+  // tabela; `fromOpen` = estado da lista de relações do FROM do nível de fora, restaurado no `)`.
+  const parens: { call: boolean; subquery: boolean; fromOpen: boolean }[] = [];
+  // Lista de relações do FROM aberta no nível atual: `FROM a x, b y` — após `,` vem relação.
+  let fromOpen = false;
+  tokens.forEach((tok, i) => {
+    const prev = tokens[i - 1];
+    // EXTRACT/TRIM chegam como `Identifier` ou `Keyword` conforme o dialeto: compara só o texto.
+    if (tok.name === "(") {
+      const call = prev !== undefined && FROM_INSIDE_CALL.test(bareName(doc, prev));
+      // Relação seguida de `(` = função de tabela, exceto após TABLE/INTO/VIEW/EXISTS/UPDATE
+      // (`CREATE TABLE t (`, `INSERT INTO t (`), onde o `(` abre colunas.
+      const fnTable = relation.has(i - 1) && !isKeyword(doc, tokens[i - 2], /^(table|into|view|exists|update)$/i);
+      if (fnTable) {
+        relation.delete(i - 1);
+        tableCall.add(i - 1);
+        known.delete(bareName(doc, prev!.lastChild ?? prev!));
+      }
+      const subquery = isKeyword(doc, prev, /^(from|join)$/i) || (isMerge && isKeyword(doc, prev, /^using$/i)) || fnTable;
+      parens.push({ call, subquery, fromOpen });
+      fromOpen = false;
+    } else if (tok.name === ")") {
+      const closed = parens.pop();
+      if (closed?.subquery) subqueryClose.add(i);
+      fromOpen = closed?.fromOpen ?? false;
+    }
+    const inCall = parens[parens.length - 1]?.call === true;
+    if (tok.name === "Keyword" || tok.name === "Identifier") {
+      if (isKeyword(doc, tok, /^from$/i) && !inCall) fromOpen = true;
+      else if (FROM_CLAUSE_END.test(bareName(doc, tok))) fromOpen = false;
+    }
+    if (!SQL_NAME.has(tok.name) || contextKeyword(doc, tokens, i)) return;
+    if (isKeyword(doc, prev, /^using$/i) && !isMerge) {
+      ddlFormat.add(i);
+      return;
+    }
+    const fromInCall = inCall && isKeyword(doc, prev, /^from$/i);
+    // `LATERAL VIEW explode(...)`: o VIEW ali não introduz relação.
+    const lateralView = isKeyword(doc, prev, /^view$/i) && tokens[i - 2] !== undefined && bareName(doc, tokens[i - 2]!) === "lateral";
+    const introduced =
+      (isKeyword(doc, prev, TABLE_INTRODUCER) && !fromInCall && !lateralView) ||
+      isKeyword(doc, prev, /^using$/i) ||
+      (fromOpen && isPunct(doc, prev, ",")) ||
+      (i === 1 && prev !== undefined && DELTA_STATEMENT.test(bareName(doc, prev)));
+    if (introduced) {
+      relation.add(i);
+      known.add(bareName(doc, tok.lastChild ?? tok));
+      return;
+    }
+    if (tok.name === "CompositeIdentifier") return;
+    const afterAs = isKeyword(doc, prev, /^as$/i);
+    const prevRelation =
+      relation.has(i - 1) || subqueryClose.has(i - 1) || (afterAs && (relation.has(i - 2) || subqueryClose.has(i - 2)));
+    if (prevRelation) {
+      alias.add(i);
+      known.add(bareName(doc, tok));
+    }
+  });
+  tokens.forEach((tok, i) => {
+    const callNext = tokens[i + 1]?.name === "(";
+    if (tok.name === "Keyword") {
+      if (callNext && SQL_FUNCTION_KEYWORDS.has(bareName(doc, tok))) add(tok.from, tok.to, functionMark);
+      return;
+    }
+    if (tok.name === "CompositeIdentifier") {
+      const head = tok.firstChild;
+      const tail = tok.lastChild;
+      if (!head || !tail || head === tail) return;
+      if (known.has(bareName(doc, head))) {
+        add(head.from, head.to, aliasMark);
+        return;
+      }
+      // Inclui o `.` final: o qualificador (`bronze.`) inteiro tem a cor de módulo.
+      add(tok.from, tail.from, qualifierMark);
+      add(tail.from, tail.to, tableMark);
+      return;
+    }
+    if (tok.name !== "Identifier" && tok.name !== "QuotedIdentifier") return;
+    if (ddlFormat.has(i)) add(tok.from, tok.to, sqlKeywordMark);
+    else if (alias.has(i)) add(tok.from, tok.to, aliasMark);
+    else if (relation.has(i)) add(tok.from, tok.to, tableMark);
+    else if (tableCall.has(i)) add(tok.from, tok.to, functionMark);
+    else if (contextKeyword(doc, tokens, i)) add(tok.from, tok.to, sqlKeywordMark);
+    else if (tok.name === "Identifier" && SPARK_EXTRA_TYPES.has(bareName(doc, tok))) add(tok.from, tok.to, sqlTypeMark);
+    else if (tok.name === "Identifier" && callNext) add(tok.from, tok.to, functionMark);
+  });
+}
+
 function qualifierDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   const doc = view.state.doc;
+  let last = -1;
+  const add = (from: number, to: number, mark: Decoration) => {
+    if (from < last) return; // statement que atravessa dois intervalos visíveis: já emitido
+    last = to;
+    builder.add(from, to, mark);
+  };
   for (const { from, to } of view.visibleRanges) {
     syntaxTree(view.state).iterate({
       from,
       to,
       enter: (node) => {
-        if (node.name !== "Identifier" && node.name !== "QuotedIdentifier") return;
-        const next = doc.sliceString(node.to, Math.min(node.to + 2, doc.length));
-        if (QUALIFIER_TAIL.test(next)) {
-          // Inclui o `.` seguinte: o qualificador (`bronze.`) inteiro tem a cor de módulo.
-          builder.add(node.from, node.to + 1, qualifierMark);
-          return;
-        }
-        const prev = doc.sliceString(Math.max(node.from - 2, 0), node.from);
-        if (QUALIFIED_HEAD.test(prev)) {
-          builder.add(node.from, node.to, tableMark);
-          return;
-        }
-        if (node.name === "Identifier" && SPARK_EXTRA_TYPES.has(doc.sliceString(node.from, node.to).toLowerCase())) {
-          builder.add(node.from, node.to, sqlTypeMark);
-          return;
-        }
-        if (node.name === "Identifier") {
-          const after = doc.sliceString(node.to, Math.min(node.to + 32, doc.length));
-          if (!CALL_TAIL.test(after)) return;
-          const prevToken = prevTokenText(node.node, doc);
-          if (prevToken !== null && TABLE_INTRODUCER.test(prevToken)) return;
-          builder.add(node.from, node.to, functionMark);
-        }
+        if (node.name !== "Statement") return;
+        sqlStatementRoles(node.node, doc, add);
+        return false;
       },
     });
   }
@@ -254,14 +438,15 @@ export const sqlQualifierHighlight: Extension = ViewPlugin.fromClass(
 );
 
 const pyClassMark = Decoration.mark({ class: "cm-py-class" });
+const pyClassCallMark = Decoration.mark({ class: "cm-py-class-call" });
 const pyModuleMark = Decoration.mark({ class: "cm-py-module" });
 /** Heurística de classe: maiúscula inicial e ao menos uma minúscula (`DataFrame`; não `F` nem `MAX_ROWS`). */
 const PY_CLASS_NAME = /^_*[A-Z]\w*[a-z]\w*$/;
-/** Pais em que o `VariableName` já tem papel próprio: chamada, definição e decorator. */
-const PY_OWN_ROLE_PARENT = new Set(["CallExpression", "ClassDefinition", "FunctionDefinition", "Decorator"]);
+/** Pais em que o `VariableName` já tem papel próprio: definição e decorator. */
+const PY_OWN_ROLE_PARENT = new Set(["ClassDefinition", "FunctionDefinition", "Decorator"]);
 const PY_IMPORT_DOT = new Set([".", "...", "Ellipsis"]);
 
-type PyRole = "class" | "module";
+type PyRole = "class" | "classCall" | "module";
 type RoleSink = (from: number, to: number, role: PyRole) => void;
 
 /**
@@ -306,8 +491,8 @@ function importRoles(node: SyntaxNode, doc: Text, add: RoleSink): void {
 
 /**
  * Papéis Python que a árvore não expõe por tag: classe (heurística CamelCase, fora de
- * chamada/definição/decorator, onde chamada e definição mantêm a própria cor) e
- * caminho de módulo em `import`/`from`. Os demais papéis (variável, atributo, chamada)
+ * definição/decorator), classe chamada (`GlueContext(`, CamelCase como alvo direto da
+ * chamada; demais chamadas mantêm a cor de função) e caminho de módulo em `import`/`from`. Os demais papéis (variável, atributo, chamada)
  * vêm das tags no `HighlightStyle`.
  */
 function pythonRoles(state: EditorState, ranges: readonly { from: number; to: number }[], add: RoleSink): void {
@@ -330,7 +515,8 @@ function pythonRoles(state: EditorState, ranges: readonly { from: number; to: nu
         if (node.name !== "VariableName") return;
         const parent = node.node.parent;
         if (parent && PY_OWN_ROLE_PARENT.has(parent.name)) return;
-        if (PY_CLASS_NAME.test(doc.sliceString(node.from, node.to))) sink(node.from, node.to, "class");
+        if (!PY_CLASS_NAME.test(doc.sliceString(node.from, node.to))) return;
+        sink(node.from, node.to, parent?.name === "CallExpression" ? "classCall" : "class");
       },
     });
   }
@@ -339,7 +525,7 @@ function pythonRoles(state: EditorState, ranges: readonly { from: number; to: nu
 function pythonRoleDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   pythonRoles(view.state, view.visibleRanges, (from, to, role) =>
-    builder.add(from, to, role === "class" ? pyClassMark : pyModuleMark),
+    builder.add(from, to, role === "class" ? pyClassMark : role === "classCall" ? pyClassCallMark : pyModuleMark),
   );
   return builder.finish();
 }
