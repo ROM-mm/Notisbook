@@ -26,7 +26,6 @@ TYPE_EXTERNAL = "EXTERNAL"
 # Mesmos valores de `registry` e `iceberg_jdbc`; a regra de cada um está na docstring de `_drop_behavior`.
 DROP_DELETES_FILES = "deletes_files"
 DROP_REGISTRY_ONLY = "registry_only"
-DROP_KEEPS_OUTSIDE = "keeps_files_outside_managed"
 DROP_KEEPS_SHARED = "keeps_files_shared"
 # Onde está o schema real: o Delta guarda só um placeholder no Glue e o schema fica no `_delta_log`.
 SCHEMA_STORAGE_DESCRIPTOR = "storage_descriptor"
@@ -85,17 +84,18 @@ def _kind(glue_table_type: Any) -> str:
 
 
 def _drop_behavior(conn: sqlite3.Connection, fmt: str, kind: str, database: str, table: str, location: Any) -> str:
-    """O que o DROP faz com os arquivos na própria pasta gerenciada (`glue_repo.owns_folder`).
+    """O que o DROP do Hive do kernel faz com os arquivos da tabela.
 
-    A `MANAGED_TABLE` tem a pasta apagada pelo Hive do kernel mesmo em uso por outra tabela (`deletes_files`). O Iceberg
-    (EXTERNAL) só tem a pasta apagada se nenhuma outra a usa. Fora da própria pasta, a MANAGED é EXTERNAL de fato para o
-    Notisbook (`keeps_files_outside_managed`) e a externa só sai do registro.
+    Na própria pasta gerenciada (`glue_repo.owns_folder`): a `MANAGED_TABLE` tem a pasta apagada mesmo em uso por outra
+    tabela (`deletes_files`); o Iceberg (EXTERNAL) só se nenhuma outra a usa (`keeps_files_shared`). Fora dela, o Hive
+    também apaga a pasta de qualquer `MANAGED_TABLE` com location (a migração 8 rebaixa as legadas, então o ramo existe
+    só para dizer o que o Hive faria); sem location não há pasta (`registry_only`), como na externa.
     """
     managed = kind == TYPE_MANAGED
     iceberg = fmt == FORMAT_ICEBERG
     own_location = location if isinstance(location, str) else None
     if not glue_repo.owns_folder(database, table, own_location, managed=managed, iceberg=iceberg):
-        return DROP_KEEPS_OUTSIDE if managed else DROP_REGISTRY_ONLY
+        return DROP_DELETES_FILES if managed and _text(location) else DROP_REGISTRY_ONLY
     if not managed and folder_in_use(conn, locations.canonical(location).rstrip("/"), skip_tables=[(GLUE_CATALOG, database, table)]):
         return DROP_KEEPS_SHARED
     return DROP_DELETES_FILES
