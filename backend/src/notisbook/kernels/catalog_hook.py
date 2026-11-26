@@ -2438,6 +2438,10 @@ def patch(module):
         for method, factory in specs if isinstance(target, type) else ():
             if method in vars(target):
                 setattr(target, method, factory(unwrap(vars(target)[method])))
+    # `show()` patch of the renderer module: this finder may be the one that sees `awsglue.dynamicframe`.
+    hook = getattr(sys.modules.get("_notisbook_display"), "patch_loaded", None)
+    if hook is not None:
+        hook(module)
 
 
 class Finder(importlib.abc.MetaPathFinder):
