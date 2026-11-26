@@ -597,8 +597,28 @@ def update_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
 def delete_table(conn: sqlite3.Connection, database: str, table: str) -> None:
     """Remove a tabela e as partições (só linhas; arquivos do bucket ficam)."""
     db_key, table_key = _require_table(conn, database, table)
-    conn.execute("DELETE FROM glue_partitions WHERE database_name = ? AND table_name = ?", (db_key, table_key))
-    conn.execute("DELETE FROM glue_tables WHERE database_name = ? AND name = ?", (db_key, table_key))
+    delete_table_row(conn, db_key, table_key)
+
+
+def find_table_row(conn: sqlite3.Connection, database: str, table: str) -> tuple[str, str, str, str | None, int, float] | None:
+    """`(database, tabela, table_type, location, version_id, create_time)` sem distinção de caixa; `None` se não existe.
+
+    Só leitura, para a remoção pelo painel: `version_id` e `create_time` identificam a linha (a recriação volta a `version_id` 1).
+    """
+    if not _has_glue_tables(conn):
+        return None
+    row = conn.execute(
+        "SELECT database_name, name, table_type, location, version_id, create_time FROM glue_tables "
+        "WHERE lower(database_name) = lower(?) AND lower(name) = lower(?)",
+        (database, table),
+    ).fetchone()
+    return None if row is None else (row[0], row[1], row[2], row[3], row[4], row[5])
+
+
+def delete_table_row(conn: sqlite3.Connection, database: str, table: str) -> bool:
+    """Remove a tabela e as partições pela chave exata; `True` se a tabela existia. Dentro de transação."""
+    conn.execute("DELETE FROM glue_partitions WHERE database_name = ? AND table_name = ?", (database, table))
+    return conn.execute("DELETE FROM glue_tables WHERE database_name = ? AND name = ?", (database, table)).rowcount > 0
 
 
 def _partition_values(values: Any) -> list[str]:

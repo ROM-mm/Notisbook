@@ -252,19 +252,41 @@ async def _run_table_op(fn: Any, *args: Any) -> Any:
 
 @router.get("/tables/preview")
 async def preview_table(home: Home, catalog: Name, database: Name, table: Name) -> dict[str, Any]:
-    """Efeito da remoção da tabela do registro (`spark_catalog`) e o `etag` que o DELETE exige.
+    """Efeito da remoção da tabela do catálogo (`spark_catalog`, `glue` ou `iceberg`) e o `etag` que o DELETE exige.
 
-    400 catálogo/nome inválido, 404 inexistente, 503 db ocupado/indisponível.
+    400 catálogo/nome inválido, 404 inexistente, 409 schema JDBC Iceberg não suportado, 503 db ocupado/indisponível.
     """
     result: dict[str, Any] = await _run_table_op(tables.preview_table, home, catalog, database, table)
     return result
 
 
 @router.delete("/tables")
-async def remove_table(home: Home, catalog: Name, database: Name, table: Name, etag: Name) -> dict[str, Any]:
-    """Remove a linha da tabela do registro; MANAGED própria com pasta livre enfileira a pasta (o backend nunca apaga).
+async def remove_table(home: Home, kernels: Kernels, catalog: Name, database: Name, table: Name, etag: Name) -> dict[str, Any]:
+    """Remove a linha da tabela do catálogo; própria gerenciada com pasta livre enfileira a pasta (o backend nunca apaga).
 
-    400 catálogo/nome inválido, 404 inexistente, 409 `catalog_changed` (etag obsoleto), 503 db ocupado/indisponível.
+    400 catálogo/nome inválido, 404 inexistente, 409 `catalog_changed` (etag obsoleto), `kernel_busy` (só `glue` e
+    `iceberg`, que exigem kernels ociosos) ou schema JDBC Iceberg não suportado, 503 db ocupado/indisponível.
+    O `spark_catalog` não reserva kernels: as sessões abertas convergem pela `generation`.
     """
-    result: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
+    try:
+        tables.validate(catalog, database, table)
+    except tables.TableError as exc:
+        raise HTTPException(exc.status, exc.code) from exc
+    if catalog == registry.SPARK_CATALOG:
+        result: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
+        return result
+
+    async def reserved_remove() -> dict[str, Any]:
+        with kernels.reserve_idle():
+            removed: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
+        return removed
+
+    # Como na exclusão de schema: a tarefa dona da reserva sobrevive ao cancelamento do handler.
+    task = asyncio.create_task(reserved_remove())
+    _delete_tasks.add(task)
+    task.add_done_callback(_delete_done)
+    try:
+        result = await asyncio.shield(task)
+    except KernelsBusy as exc:
+        raise HTTPException(409, "kernel_busy") from exc
     return result
