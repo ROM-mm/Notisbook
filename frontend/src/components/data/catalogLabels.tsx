@@ -7,13 +7,19 @@ import { GlueIcon, IcebergIcon, SparkIcon, type TechIcon } from "../shell/techIc
 /** Nome real do catálogo de sessão do Spark (usado em chaves, API e requisições). */
 export const SPARK_CATALOG = "spark_catalog";
 
-/** Catálogo AWS Glue local (endpoint `/glue`): só leitura na UI, sem criar/excluir schema. */
+/**
+ * Catálogo AWS Glue local (endpoint `/glue`): a UI cria e exclui schemas e tira tabelas do registro
+ * ("Remove from catalog"), como no `spark_catalog`.
+ */
 export const GLUE_CATALOG = "glue";
+
+/** Nome real do catálogo Iceberg (usado em chaves, API e requisições). */
+export const ICEBERG_CATALOG = "iceberg";
 
 const CATALOG_LABELS: Record<string, string> = { [SPARK_CATALOG]: "spark" };
 const CATALOG_ICONS: Record<string, TechIcon> = {
   [SPARK_CATALOG]: SparkIcon,
-  iceberg: IcebergIcon,
+  [ICEBERG_CATALOG]: IcebergIcon,
   [GLUE_CATALOG]: GlueIcon,
 };
 

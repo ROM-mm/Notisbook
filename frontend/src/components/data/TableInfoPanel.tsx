@@ -29,14 +29,14 @@ import { formatSize } from "../files/format";
 import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { TableIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
-import { GLUE_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { GLUE_CATALOG, ICEBERG_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import own from "./TableInfoPanel.module.css";
 import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
 
 /** Catálogos cujas tabelas o painel remove do registro (os mesmos que o backend aceita). */
-const REMOVABLE_CATALOGS: ReadonlySet<string> = new Set([SPARK_CATALOG, GLUE_CATALOG, "iceberg"]);
+const REMOVABLE_CATALOGS: ReadonlySet<string> = new Set([SPARK_CATALOG, GLUE_CATALOG, ICEBERG_CATALOG]);
 
 const DELTA_LOG_NOTE =
   "Delta table: the schema lives in the Delta log, not in the catalog. Only partition columns are listed here.";

@@ -48,7 +48,7 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, GLUE_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, GLUE_CATALOG, ICEBERG_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
@@ -310,7 +310,7 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
               : ""}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
-          {catalog === "iceberg" && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
+          {catalog === ICEBERG_CATALOG && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
           {catalog === GLUE_CATALOG && preview.can_delete ? (
             <p>
               Here, a managed table whose folder is used by another table keeps its files. A DROP from a notebook
