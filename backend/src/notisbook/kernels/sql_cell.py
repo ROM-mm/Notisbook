@@ -262,7 +262,8 @@ def install_display():
         del builtins.display
 
 def show_width(truncate):
-    # Spark: True -> 20 chars, False/<=0 -> no cut (here the renderer cap), N -> N chars.
+    # Spark: True -> 20 chars, False/<=0 -> no cut (here the renderer cap), N -> N chars in total.
+    # Here N means N characters plus "…" (N+1), which diverges from Spark: its cut includes the marker.
     if truncate is True:
         return SHOW_TRUNCATE
     if truncate is False:
@@ -360,6 +361,8 @@ class ShowFinder(importlib.abc.MetaPathFinder):
         loader = getattr(spec, "loader", None)
         if loader is None or not hasattr(loader, "exec_module"):
             return spec
+        # Limitation: this wraps `exec_module` on the loader object `find_spec` returned, not on its class; a loader
+        # returned again for the same module is wrapped again, so `patch_loaded` may run twice (it unwraps first).
         original_exec = loader.exec_module
 
         def exec_module(module):
