@@ -153,6 +153,7 @@ export interface CatalogNamespaceSummary {
 export interface CatalogInfo {
   name: string;
   kind: CatalogKind;
+  /** Reservado: o backend sempre envia `null` hoje; o painel só exibe quando houver valor. */
   backing_catalog: string | null;
   status: CatalogInfoStatus;
   profile: string;
