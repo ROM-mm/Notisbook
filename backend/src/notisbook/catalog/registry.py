@@ -19,6 +19,7 @@ DEFAULT_DATABASE = "default"
 # Teto da varredura: tabelas por database e no total. Estourar o teto marca `"truncated": true`.
 MAX_TABLES = 500
 MAX_TOTAL_TABLES = 2000
+MAX_DELETE_ATTEMPTS = 5  # tentativas de exclusão pelo kernel; depois a linha fica na fila, sem ser entregue
 # Recusa por nome repetido: `<schema>.<t>` já existe no outro catálogo (Delta e Iceberg cairiam na mesma pasta do notislake).
 ERR_NAME_IN_OTHER_CATALOG = "name_in_other_catalog"
 
@@ -46,10 +47,10 @@ def create_namespace(conn: sqlite3.Connection, namespace: str) -> bool:
     if namespace_exists(conn, key):
         return False
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    # Sem `location`: o hook cria a pasta (`CREATE DATABASE IF NOT EXISTS`) ao hidratar a sessão.
+    # A location é a do schema no bucket reservado; o hook a usa ao hidratar a sessão (`CREATE DATABASE ... LOCATION`).
     conn.execute(
-        "INSERT INTO nb_namespaces (catalog_name, namespace, location, created_at) VALUES (?, ?, NULL, ?)",
-        (SPARK_CATALOG, key, stamp),
+        "INSERT INTO nb_namespaces (catalog_name, namespace, location, created_at) VALUES (?, ?, ?, ?)",
+        (SPARK_CATALOG, key, locations.schema_location(key, "s3"), stamp),
     )
     _bump_generation(conn)
     return True
@@ -72,6 +73,13 @@ def table_name_exists(conn: sqlite3.Connection, namespace: str, table: str) -> b
         (SPARK_CATALOG, namespace, table),
     ).fetchone()
     return row is not None
+
+
+def pending_locations(conn: sqlite3.Connection) -> list[str]:
+    """Pastas na fila de exclusão: uma tabela não pode ser criada sobre elas (`pending_cleanup`)."""
+    if not has_pending_table(conn):
+        return []
+    return [r[0] for r in conn.execute("SELECT location FROM nb_pending_deletions ORDER BY id")]
 
 
 def all_table_locations(conn: sqlite3.Connection) -> list[str]:
@@ -124,7 +132,7 @@ def _table_node(namespace: str, name: str, fmt: str, table_type: str, location: 
 
 
 def _display_names(conn: sqlite3.Connection) -> set[str]:
-    """Schemas exibidos: camadas sempre; os com tabela de qualquer formato; os registrados em `nb_namespaces`.
+    """Schemas exibidos: os com tabela de qualquer formato e os registrados em `nb_namespaces`.
 
     O `default` só aparece quando tem tabela; vazio, é omitido.
     """
@@ -132,12 +140,12 @@ def _display_names(conn: sqlite3.Connection) -> set[str]:
     registered = {
         r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,))
     } - {DEFAULT_DATABASE}
-    return {*locations.LAYERS, *with_tables, *registered}
+    return {*with_tables, *registered}
 
 
 def empty_display_names() -> list[str]:
-    """Schemas do `spark_catalog` sem `catalog.db`: só as camadas, na ordem de `locations.LAYERS`; sem `default`."""
-    return list(locations.LAYERS)
+    """Schemas do `spark_catalog` sem `catalog.db`: nenhum, pois um catalog.db novo é quem semeia os iniciais."""
+    return []
 
 
 def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[str, Any]], int]:
@@ -147,7 +155,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[
     A regra de exibição está em `_display_names`.
     """
     names = _display_names(conn)
-    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, locations.layer_rank(n), n))
+    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, n))
     used = 0
     databases: list[dict[str, Any]] = []
     for db in ordered:
@@ -182,7 +190,7 @@ def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
         per_namespace[namespace] = per_namespace.get(namespace, 0) + int(count)
         formats[fmt] = formats.get(fmt, 0) + int(count)
     names = _display_names(conn)
-    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, locations.layer_rank(n), n))
+    ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, n))
     return {
         "namespaces": [{"name": ns, "tables": per_namespace.get(ns, 0), "views": 0} for ns in ordered],
         "tables": sum(per_namespace.get(ns, 0) for ns in names),
@@ -250,7 +258,7 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
         "table": name,
         "format": fmt,
         "table_type": table_type,
-        # O DROP de uma MANAGED apaga a pasta s3a (`apply_plan` -> `deletions`) salvo se outra tabela a usa (`files_kept`).
+        # O DROP de uma MANAGED enfileira a pasta (`apply_plan` -> `nb_pending_deletions`) salvo se outra tabela a usa.
         "drop_behavior": "deletes_files" if table_type == "MANAGED" else "registry_only",
         "location": location,
         "available": is_available(location),
@@ -270,7 +278,8 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
 # As funções abaixo são injetadas no kernel por `inspect.getsource` (hook local e HTTP): só usam
 # `json`/`sqlite3` e não têm anotações, que exigiriam nomes ausentes no kernel.
 def read_snapshot(conn):
-    """`(generation, rows, namespaces)` do `spark_catalog`; `rows` por `(db, tabela)` com os campos que o hook usa."""
+    """`(generation, rows, namespaces)` do `spark_catalog`; `rows` por `(db, tabela)` com os campos que o hook usa
+    e `namespaces` como `{schema: location ou None}`."""
     row = conn.execute("SELECT value FROM nb_meta WHERE key = 'generation'").fetchone()
     gen = int(row[0]) if row else 0
     rows = {}
@@ -281,7 +290,8 @@ def read_snapshot(conn):
     ):
         rows[(db, name)] = {"fmt": fmt, "loc": loc, "type": typ, "cols": json.loads(cols),
                             "parts": json.loads(parts), "dv": dv, "hi": hi}
-    namespaces = {r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = 'spark_catalog'")}
+    namespaces = {r[0]: r[1] for r in conn.execute(
+        "SELECT namespace, location FROM nb_namespaces WHERE catalog_name = 'spark_catalog'")}
     return gen, rows, namespaces
 
 
@@ -291,22 +301,104 @@ def iceberg_folder(meta):
     return "/".join(parts[:-1] if parts and parts[-1] == "metadata" else parts)
 
 
-def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destination=None, protected_dbs=()):
+def has_pending_table(conn):
+    """A tabela `nb_pending_deletions` existe (o `catalog.db` já passou pela migração que a cria)."""
+    return conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'nb_pending_deletions'").fetchone() is not None
+
+
+def enqueue_deletion(conn, catalog, key, location, stamp):
+    """Põe na fila a pasta de uma tabela gerenciada dropada; idempotente por `location`. `False` sem a fila.
+
+    Só enfileira: quem apaga os arquivos é o kernel, que rechecka o uso antes (`pending_deletions`).
+    """
+    if not has_pending_table(conn):
+        return False
+    conn.execute(
+        "INSERT OR IGNORE INTO nb_pending_deletions (catalog, namespace, table_name, location, created_at) "
+        "VALUES (?, ?, ?, ?, ?)", (catalog, key[0], key[1], location, stamp))
+    return True
+
+
+def used_folders(conn):
+    """Pastas de tabela em uso (registro, Iceberg e glue), em minúsculas e terminadas em `/`."""
+    used = [r[0] for r in conn.execute("SELECT location FROM nb_tables WHERE catalog_name = 'spark_catalog'")]
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone():
+        for (meta,) in conn.execute(
+                "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
+            used.append(iceberg_folder(meta))
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone():
+        used += [loc for (loc,) in conn.execute("SELECT location FROM glue_tables WHERE location IS NOT NULL")]
+    return [u.rstrip("/").lower() + "/" for u in used if u]
+
+
+def pending_rows(conn):
+    """`[(id, namespace, tabela, location, reutilizada, attempts)]` da fila; só leitura."""
+    used = used_folders(conn)
+    rows = []
+    for row_id, namespace, name, location, attempts in conn.execute(
+            "SELECT id, namespace, table_name, location, attempts FROM nb_pending_deletions ORDER BY id").fetchall():
+        folder = location.rstrip("/").lower() + "/"
+        reused = any(u.startswith(folder) or folder.startswith(u) for u in used)
+        rows.append((row_id, namespace, name, location, reused, attempts))
+    return rows
+
+
+def pending_deletions(conn):
+    """`[(id, (schema, tabela), location)]` das exclusões que o kernel pode executar agora; só leitura.
+
+    Fica de fora a pasta em uso (igual, dentro ou acima da location de tabela do registro, do Iceberg ou do glue) e a
+    linha que já esgotou `MAX_DELETE_ATTEMPTS`. A remoção das linhas de pasta reutilizada é `purge_reused_deletions`.
+    """
+    if not has_pending_table(conn):
+        return []
+    return [(row_id, (namespace, name), location)
+            for row_id, namespace, name, location, reused, attempts in pending_rows(conn)
+            if not reused and attempts < MAX_DELETE_ATTEMPTS]
+
+
+def purge_reused_deletions(conn):
+    """Tira da fila as linhas de pasta que uma tabela voltou a usar (nada é apagado). Escreve: só em POST/transação."""
+    if not has_pending_table(conn):
+        return
+    for row_id, _namespace, _name, _location, reused, _attempts in pending_rows(conn):
+        if reused:
+            conn.execute("DELETE FROM nb_pending_deletions WHERE id = ?", (row_id,))
+
+
+def finish_deletions(conn, done, failed):
+    """Resultado da exclusão feita pelo kernel: `done` (ids) sai da fila; `failed` (`{id: texto}`) conta uma tentativa.
+
+    Aproveita a transação para tirar da fila as linhas de pasta reutilizada (`purge_reused_deletions`).
+    """
+    for row_id in done:
+        conn.execute("DELETE FROM nb_pending_deletions WHERE id = ?", (row_id,))
+    for row_id, error in failed.items():
+        conn.execute(
+            "UPDATE nb_pending_deletions SET attempts = attempts + 1, last_error = ? WHERE id = ?",
+            (str(error)[:200], row_id))
+    purge_reused_deletions(conn)
+
+
+def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destination=None, schema_location=None):
     """Aplica o plano do hook dentro da transação aberta pelo chamador; não toca em arquivos nem na generation.
 
     `plan`: `created` [(key, info)], `updated` [(key, rec_loc, rec_type, change)], `renamed` [(old, new, rec_loc, info)],
     `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (só remove a linha), `new_dbs`, `gone_dbs`.
     `rec_loc` é a trava: só mexe na linha que ainda aponta para ele. `type_from_row`: tipo do update vem da linha (HTTP).
-    `destination` (`locations.table_destination`) liga a regra do notislake: camada pelo schema, sem sobrepor outra tabela
-    (registro, Iceberg ou `glue`) e sem `<schema>.<t>` repetido no Iceberg ou no `glue`; recusas vão em `rejected`
-    `(key, code)`, sem gravar.
-    `protected_dbs` (camadas) nunca saem de `gone_dbs`. `deletions`/`files_kept`: MANAGED sem outro uso / ainda em uso.
+    `destination` (`locations.table_destination`) liga a regra de destino (reservado, sobreposição, exclusão pendente)
+    e o nome `<schema>.<t>` único entre os catálogos; recusas vão em `rejected` `(key, code)`, sem gravar.
+    `schema_location(ns)` dá a location de um schema novo (sem ela, NULL). A MANAGED dropada sem outro uso entra na
+    fila `nb_pending_deletions` e em `deletions`; `files_kept`: em uso ou fora da forma gerenciada.
     """
     out = {"changed": False, "adopted": [], "conflicts": [], "updated_ok": [], "renamed_ok": [],
            "dropped_ok": [], "deletions": [], "files_kept": [], "rejected": []}
     changed = False
     has_iceberg = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone()
     has_glue = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone()
+    pending_locs = []
+    if destination is not None and has_pending_table(conn):
+        pending_locs = [loc for (loc,) in conn.execute("SELECT location FROM nb_pending_deletions")]
 
     def bucket_of(loc):
         scheme, sep, rest = loc.partition("://")
@@ -353,13 +445,10 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             return None
         if new_name and (name_in_iceberg(key) or name_in_glue(key)):
             return "name_in_other_catalog"
-        bucket = bucket_of(loc)
-        if bucket is None:
+        if bucket_of(loc) is None:
             return None
-        if bucket != "notislake":
-            return "not_notislake"  # tabela do catálogo só no bucket notislake
         try:
-            destination(key[0], key[1], loc, known_locations(skip_key))
+            destination(key[0], key[1], loc, known_locations(skip_key), None, pending_locs)
         except ValueError as exc:  # `InvalidLocation`
             return getattr(exc, "code", "invalid_location")
         return None
@@ -454,7 +543,11 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             shared = conn.execute(
                 "SELECT count(*) FROM iceberg_tables WHERE substr(metadata_location, 1, length(?1) + 1) = ?1 || '/'",
                 (row[0].rstrip("/"),)).fetchone()[0]
-        out["files_kept" if shared else "deletions"].append(key if shared else (key, row[0]))
+        if shared or not managed_shape(row[0]):
+            out["files_kept"].append(key)
+        else:
+            enqueue_deletion(conn, "spark_catalog", key, row[0], stamp)
+            out["deletions"].append((key, row[0]))
     for key, rec_loc in plan.get("unregistered", ()):
         if key in out["dropped_ok"]:
             continue
@@ -467,12 +560,14 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
         spark_locs.pop(key, None)
         changed = True
     for ns in plan["new_dbs"]:
+        try:
+            ns_loc = schema_location(ns) if schema_location is not None else None
+        except ValueError:  # nome que não cabe como pasta: o schema fica sem location gravada
+            ns_loc = None
         changed |= conn.execute(
             "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "
-            "VALUES ('spark_catalog', ?, NULL, ?)", (ns, stamp)).rowcount > 0
+            "VALUES ('spark_catalog', ?, ?, ?)", (ns, ns_loc, stamp)).rowcount > 0
     for ns in plan["gone_dbs"]:
-        if ns in protected_dbs:
-            continue
         left = conn.execute(
             "SELECT count(*) FROM nb_tables WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).fetchone()[0]
         if not left:
@@ -480,6 +575,10 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
                 "DELETE FROM nb_namespaces WHERE catalog_name = 'spark_catalog' AND namespace = ?", (ns,)).rowcount > 0
     out["changed"] = changed
     return out
+
+
+def _stored_schema_location(namespace: str) -> str:
+    return locations.schema_location(namespace, "s3")
 
 
 def read_generation(conn: sqlite3.Connection) -> int:
@@ -490,9 +589,9 @@ def read_generation(conn: sqlite3.Connection) -> int:
 def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], managed_shape: Any) -> dict[str, Any]:
     """Aplica o plano numa `BEGIN IMMEDIATE`, sobe a generation se algo mudou e devolve o resultado.
 
-    O tipo dos updates vem da linha do registro; a regra de destino do notislake e as camadas protegidas entram
-    aqui (o hook local as passa a `apply_plan` por conta própria). `generation_before`/`generation` acompanham
-    o resultado; apagar pastas MANAGED (`deletions`) fica para o chamador, depois do COMMIT.
+    O tipo dos updates vem da linha do registro; a regra de destino e a location dos schemas novos entram aqui (o
+    hook local as passa a `apply_plan` por conta própria). `generation_before`/`generation` acompanham o resultado;
+    as pastas MANAGED dropadas vão para a fila `nb_pending_deletions` na mesma transação e o kernel as apaga.
     """
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     conn.execute("BEGIN IMMEDIATE")
@@ -500,7 +599,7 @@ def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], managed_shape: A
         before = read_generation(conn)
         result: dict[str, Any] = apply_plan(
             conn, plan, stamp, managed_shape, type_from_row=True,
-            destination=locations.table_destination, protected_dbs=locations.LAYERS)
+            destination=locations.table_destination, schema_location=_stored_schema_location)
         if result["changed"]:
             _bump_generation(conn)
         after = read_generation(conn)

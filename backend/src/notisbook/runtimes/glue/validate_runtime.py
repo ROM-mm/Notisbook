@@ -38,6 +38,8 @@ S3A_SENSITIVE_KEYS = (
     "fs.s3a.session.token",
     "fs.s3a.bucket.notislake.secret.key",
     "fs.s3a.bucket.notislake.access.key",
+    "fs.s3a.bucket.notisbook-managed.secret.key",
+    "fs.s3a.bucket.notisbook-managed.access.key",
 )
 REQUIRED_PACKAGES = ("ipykernel", "jupyter_client", "pyspark")
 OPTIONAL_PACKAGES = ("ipython", "pyzmq", "tornado", "traitlets")

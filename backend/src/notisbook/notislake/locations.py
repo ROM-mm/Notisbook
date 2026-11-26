@@ -1,12 +1,12 @@
-"""Locations `s3a://notislake/...`: camadas, forma MANAGED, regra de destino e sobreposição.
+"""Locations S3 do MinIO: bucket gerenciado reservado, regra única de destino das tabelas e sobreposição.
 
-Módulo autocontido (só stdlib) para ser importado por catálogo, REST e hook sem ciclos. Não
-consulta rede nem disco: toda decisão é sintática e a sobreposição recebe as locations já
-conhecidas como argumento. `s3://` é sinônimo de `s3a://` só na entrada (`canonical`); a forma interna é
-sempre `s3a`. Só os buckets de `KNOWN_BUCKETS` são acessíveis no escopo manual (no automático o hook só valida o
-nome, `valid_bucket_name`); tabela e schema do catálogo só existem no `notislake`. O schema decide a camada: a tabela MANAGED fica em
-`s3a://notislake/<camada>/<tabela>`, sem `spark`/`iceberg` nem `.db` no caminho. Os erros são
-`InvalidLocation` com `code` categórico; a mensagem nunca repete a entrada.
+Módulo autocontido (só stdlib) para ser importado por catálogo, REST e hook sem ciclos; o hook o recebe como
+texto. Não consulta rede nem disco: toda decisão é sintática e a sobreposição recebe as locations já conhecidas
+como argumento. `s3://` é sinônimo de `s3a://` só na entrada; a forma interna é sempre `s3a`.
+
+Gerenciada (sem LOCATION) fica em `s3a://notisbook-managed/<schema>/<tabela>`, bucket reservado do app. Externa
+(com LOCATION) fica em qualquer outro bucket, com a sobreposição checada sem distinção de caixa. O schema não
+define camada. Os erros são `InvalidLocation` com `code` categórico; a mensagem nunca repete a entrada.
 """
 
 from __future__ import annotations
@@ -16,16 +16,14 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 BUCKET = "notislake"
+MANAGED_BUCKET = "notisbook-managed"
 SCHEME = "s3a"
-LAYERS = ("bronze", "silver", "gold")
-LANDING = "landing"  # zona externa: não é camada de catálogo; paths sob ela são livres
-MIN_DEPTH = 2  # `<camada>/<dataset>`: a raiz do bucket e uma camada sozinha não são locations de tabela
-ROOT_URI = f"{SCHEME}://{BUCKET}"  # raiz do bucket: warehouse do Iceberg, que cria `<ns>/<t>` abaixo dela
+MANAGED_ROOT = f"{SCHEME}://{MANAGED_BUCKET}"
+MIN_DEPTH = 1  # `<pasta>`: a raiz do bucket sozinha não é location de tabela
 
-# Único ponto da lista de buckets acessíveis em leitura e escrita; buckets do desenvolvedor entram aqui.
-KNOWN_BUCKETS = (BUCKET,)
+# Buckets acessíveis no escopo manual (o automático só valida o nome, `valid_bucket_name`).
+KNOWN_BUCKETS = (BUCKET, MANAGED_BUCKET)
 
-_PREFIX = f"{SCHEME}://{BUCKET}/"
 _ALIAS_SCHEMES = ("s3", "s3a", "s3n")
 
 _BUCKET_MIN_LEN = 3
@@ -45,9 +43,10 @@ class InvalidLocation(ValueError):
 
 
 @dataclass(frozen=True)
-class NotislakeLocation:
-    """Location normalizada: `segments` (>= 2) são os componentes após o bucket, sem `/` final."""
+class Location:
+    """Location normalizada: `bucket` e `segments` (>= 1) após ele, sem `/` final."""
 
+    bucket: str
     segments: tuple[str, ...]
 
     @property
@@ -57,40 +56,16 @@ class NotislakeLocation:
 
     @property
     def uri(self) -> str:
-        return _PREFIX + self.key
+        return f"{SCHEME}://{self.bucket}/{self.key}"
 
 
-def _split(uri: str) -> tuple[str, ...]:
-    """Segmentos após o bucket, de profundidade >= 1; `not_notislake`, `too_shallow` ou `bad_segment`."""
-    if not isinstance(uri, str) or not uri.startswith(_PREFIX):
-        raise InvalidLocation("not_notislake")
-    rest = uri[len(_PREFIX) :].removesuffix("/")
-    if not rest:
-        raise InvalidLocation("too_shallow")
-    segments = tuple(rest.split("/"))
-    if any(part in ("", ".", "..") for part in segments):
-        raise InvalidLocation("bad_segment")
-    return segments
-
-
-def parse_notislake(uri: str) -> NotislakeLocation:
-    """Aceita só `s3a://notislake/<a>/<b>[/...]`; levanta `InvalidLocation` (código em `.code`).
-
-    Códigos: `not_notislake` (esquema ou bucket diferente), `too_shallow` (raiz ou profundidade 1),
-    `bad_segment` (`.`, `..` ou vazio, inclusive `//`). Uma `/` final é tolerada e descartada.
-    """
-    segments = _split(uri)
-    if len(segments) < MIN_DEPTH:
-        raise InvalidLocation("too_shallow")
-    return NotislakeLocation(segments)
-
-
-def targets_notislake(uri: str) -> bool:
-    """`uri` usa `s3`, `s3a` ou `s3n` e aponta para o bucket `notislake` (ou para dentro dele)."""
-    if not isinstance(uri, str):
-        return False
-    scheme, sep, rest = uri.partition("://")
-    return bool(sep) and scheme.lower() in _ALIAS_SCHEMES and rest.partition("/")[0] == BUCKET
+def canonical(uri: str) -> str:
+    """`s3://` vira `s3a://` (forma interna); qualquer outra entrada, inclusive `s3n://`, volta como veio."""
+    if isinstance(uri, str):
+        scheme, sep, rest = uri.partition("://")
+        if sep and scheme.lower() == "s3":
+            return f"{SCHEME}://{rest}"
+    return uri
 
 
 def valid_bucket_name(name: str) -> bool:
@@ -110,6 +85,28 @@ def valid_bucket_name(name: str) -> bool:
     )
 
 
+def parse_location(uri: str) -> Location:
+    """Aceita `s3a://<bucket>/<a>[/...]` (ou `s3://`); levanta `InvalidLocation` (código em `.code`).
+
+    Códigos: `not_s3` (esquema diferente de s3/s3a, `s3n` inclusive), `bad_bucket` (nome inválido), `too_shallow`
+    (raiz do bucket), `bad_segment` (`.`, `..` ou vazio, inclusive `//`). Uma `/` final é tolerada e descartada.
+    """
+    uri = canonical(uri)
+    prefix = f"{SCHEME}://"
+    if not isinstance(uri, str) or not uri.startswith(prefix):
+        raise InvalidLocation("not_s3")
+    bucket, _, rest = uri[len(prefix) :].partition("/")
+    if not valid_bucket_name(bucket):
+        raise InvalidLocation("bad_bucket")
+    rest = rest.removesuffix("/")
+    if not rest:
+        raise InvalidLocation("too_shallow")
+    segments = tuple(rest.split("/"))
+    if any(part in ("", ".", "..") for part in segments):
+        raise InvalidLocation("bad_segment")
+    return Location(bucket, segments)
+
+
 def bucket_of(uri: str) -> str | None:
     """Bucket de uma URI `s3`/`s3a`/`s3n` (qualquer nome, sem validar); `None` para outro esquema ou entrada."""
     if not isinstance(uri, str):
@@ -120,108 +117,88 @@ def bucket_of(uri: str) -> str | None:
     return rest.partition("/")[0]
 
 
+def targets_managed(uri: str) -> bool:
+    """`uri` usa `s3`, `s3a` ou `s3n` e aponta para o bucket reservado (ou para dentro dele)."""
+    return bucket_of(uri) == MANAGED_BUCKET
+
+
 def known_buckets() -> tuple[str, ...]:
-    """Buckets que leitura e escrita podem alcançar (hoje só o `notislake`)."""
+    """Buckets que leitura e escrita alcançam no escopo manual."""
     return KNOWN_BUCKETS
-
-
-def canonical(uri: str) -> str:
-    """`s3://` vira `s3a://` (forma interna); qualquer outra entrada, inclusive `s3n://`, volta como veio."""
-    if isinstance(uri, str):
-        scheme, sep, rest = uri.partition("://")
-        if sep and scheme.lower() == "s3":
-            return f"{SCHEME}://{rest}"
-    return uri
 
 
 def unknown_bucket(uri: str) -> str | None:
     """Bucket de uma URI `s3`/`s3a`/`s3n` que não está em `KNOWN_BUCKETS` (comparação exata); senão `None`."""
-    if not isinstance(uri, str):
-        return None
-    scheme, sep, rest = uri.partition("://")
-    if not sep or scheme.lower() not in _ALIAS_SCHEMES:
-        return None
-    bucket = rest.partition("/")[0]
-    return None if bucket in KNOWN_BUCKETS else bucket
+    bucket = bucket_of(uri)
+    return None if bucket is None or bucket in KNOWN_BUCKETS else bucket
 
 
-def layer_of_schema(schema: str) -> str | None:
-    """Camada que o schema nomeia (comparação sem caixa) ou `None` se não for uma das `LAYERS`."""
-    name = schema.strip().lower() if isinstance(schema, str) else ""
-    return name if name in LAYERS else None
+def _plain_segment(part: str) -> bool:
+    """Nome que entra no caminho como veio: não vazio, sem `.`/`..`, `/`, `\\` nem caractere de controle."""
+    return isinstance(part, str) and part not in ("", ".", "..") and not any(ch in "/\\" or ord(ch) < 32 for ch in part)
 
 
-def layer_rank(schema: str) -> int:
-    """Posição da camada em `LAYERS` (grafia exata); os demais schemas ficam depois de todas."""
-    return LAYERS.index(schema) if schema in LAYERS else len(LAYERS)
+def schema_location(schema: str, scheme: str = SCHEME) -> str:
+    """Location do schema no bucket reservado, `<scheme>://notisbook-managed/<schema>`; `bad_segment` se o nome não serve."""
+    if not _plain_segment(schema):
+        raise InvalidLocation("bad_segment")
+    return f"{scheme}://{MANAGED_BUCKET}/{schema}"
 
 
-def is_layer_case_variant(schema: str) -> bool:
-    """`schema` difere de uma camada só pela caixa (ex.: `Bronze`).
-
-    No Iceberg (JdbcCatalog e REST) o namespace mantém a caixa e vira pasta própria na raiz do bucket,
-    fora das camadas; por isso essa grafia é recusada lá. No `spark_catalog` o Hive normaliza a caixa.
-    """
-    layer = layer_of_schema(schema)
-    return layer is not None and schema != layer
-
-
-def layer_uri(layer: str) -> str:
-    """`s3a://notislake/<camada>`; `InvalidLocation("not_a_layer")` se `layer` não for uma camada."""
-    if layer not in LAYERS:
-        raise InvalidLocation("not_a_layer")
-    return f"{_PREFIX}{layer}"
-
-
-def layer_of_location(uri: str) -> str | None:
-    """Camada em que `uri` (válida, qualquer profundidade >= 1) está; `None` se inválida ou fora delas."""
+def schema_location_matches(schema: str, location: str) -> bool:
+    """`location` é a do schema no bucket reservado (`s3`/`s3a`, `/` final tolerada, caixa exata como em `managed_location`)."""
     try:
-        first = _split(uri)[0]
+        parsed = parse_location(location)
     except InvalidLocation:
-        return None
-    return first if first in LAYERS else None
+        return False
+    return parsed.bucket == MANAGED_BUCKET and len(parsed.segments) == 1 and parsed.segments[0] == schema
 
 
 def managed_location(schema: str, table: str) -> str:
-    """Forma MANAGED `s3a://notislake/<camada>/<tabela>`.
+    """Forma gerenciada `s3a://notisbook-managed/<schema>/<tabela>`; `bad_segment` se algum nome não serve.
 
-    Levanta `InvalidLocation`: `schema_not_layer` ou `bad_segment` (nome vazio, `.`, `..`,
-    com `/`, `\\` ou caractere de controle). O nome da tabela entra no caminho como veio.
+    Os nomes entram no caminho como vieram.
     """
-    layer = layer_of_schema(schema)
-    if layer is None:
-        raise InvalidLocation("schema_not_layer")
-    if (
-        not isinstance(table, str)
-        or table in ("", ".", "..")
-        or any(ch in "/\\" or ord(ch) < 32 for ch in table)
-    ):
+    if not _plain_segment(schema) or not _plain_segment(table):
         raise InvalidLocation("bad_segment")
-    return f"{_PREFIX}{layer}/{table}"
+    return f"{MANAGED_ROOT}/{schema}/{table}"
 
 
 def managed_table(uri: str) -> bool:
-    """`uri` tem exatamente a forma `s3a://notislake/<camada>/<tabela>` (caixa exata)."""
+    """`uri` tem exatamente a forma `s3a://notisbook-managed/<schema>/<tabela>` (caixa exata)."""
     try:
-        segments = parse_notislake(uri).segments
+        parsed = parse_location(uri)
     except InvalidLocation:
         return False
-    return len(segments) == MIN_DEPTH and segments[0] in LAYERS
+    return parsed.bucket == MANAGED_BUCKET and len(parsed.segments) == 2
+
+
+def _folded(location: Location) -> tuple[str, tuple[str, ...]]:
+    """Bucket e segmentos sem caixa: o MinIO roda em disco que não distingue `Silver` de `silver`."""
+    return location.bucket, tuple(part.casefold() for part in location.segments)
 
 
 def within(child: str, parent: str) -> bool:
-    """`child` é igual a `parent` ou está dentro dele; ambos precisam ser locations válidas."""
+    """`child` é igual a `parent` ou está dentro dele (sem distinção de caixa); ambos precisam ser locations válidas."""
     try:
-        c = parse_notislake(child).segments
-        p = parse_notislake(parent).segments
+        c_bucket, c = _folded(parse_location(child))
+        p_bucket, p = _folded(parse_location(parent))
     except InvalidLocation:
         return False
-    return c[: len(p)] == p
+    return c_bucket == p_bucket and c[: len(p)] == p
 
 
 def overlaps(a: str, b: str) -> bool:
     """`a` e `b` são iguais, um está dentro do outro (por segmento) ou são locations inválidas -> False."""
     return within(a, b) or within(b, a)
+
+
+def _normalized(uri: str) -> str | None:
+    """`uri` sem `/` final se for location válida; senão `None`."""
+    try:
+        return parse_location(uri).uri
+    except InvalidLocation:
+        return None
 
 
 def _overlaps_any(location: str, known: Iterable[str], skip: str | None = None) -> bool:
@@ -234,39 +211,32 @@ def _overlaps_any(location: str, known: Iterable[str], skip: str | None = None) 
     return False
 
 
-def _normalized(uri: str) -> str | None:
-    """`uri` sem `/` final se for location válida de tabela; senão `None`."""
-    try:
-        return parse_notislake(uri).uri
-    except InvalidLocation:
-        return None
-
-
 def table_destination(
     schema: str,
     table: str,
     location: str | None,
     known_locations: Iterable[str],
     own_location: str | None = None,
+    pending: Iterable[str] = (),
 ) -> str:
-    """Location efetiva de `schema.table` no notislake: MANAGED se `location` é `None`, senão a externa.
+    """Location efetiva de `schema.table`: gerenciada se `location` é `None`, senão a externa, em qualquer bucket.
 
-    Schema fora das camadas é recusado; a externa precisa estar na camada do schema e
-    não pode sobrepor outra tabela de `known_locations` (`own_location`, a própria, é ignorada).
-    Códigos: `schema_not_layer`, `not_notislake`, `too_shallow`, `bad_segment`, `outside_layer`,
-    `overlaps_table`.
+    No bucket reservado só vale a forma gerenciada da própria tabela; outra pasta dele é recusada. A externa não
+    pode sobrepor outra tabela de `known_locations` (`own_location`, a própria, é ignorada) e nenhuma destas
+    pode cair numa pasta com exclusão pendente em `pending`.
+    Códigos: `not_s3`, `bad_bucket`, `too_shallow`, `bad_segment`, `reserved_bucket`, `overlaps_table`, `pending_cleanup`.
     """
-    layer = layer_of_schema(schema)
-    if layer is None:
-        raise InvalidLocation("schema_not_layer")
+    managed = managed_location(schema, table)
     if location is None:
-        effective = managed_location(schema, table)
+        effective = managed
     else:
-        effective = parse_notislake(location).uri
-        if layer_of_location(effective) != layer:
-            raise InvalidLocation("outside_layer")
+        effective = parse_location(location).uri
+        if targets_managed(effective) and effective != managed:
+            raise InvalidLocation("reserved_bucket")
     if _overlaps_any(effective, known_locations, own_location):
         raise InvalidLocation("overlaps_table")
+    if _overlaps_any(effective, pending):
+        raise InvalidLocation("pending_cleanup")
     return effective
 
 
@@ -275,19 +245,17 @@ def check_path_write(
     known_locations: Iterable[str],
     own_location: str | None = None,
 ) -> str:
-    """Valida escrita por path sem tabela no notislake e devolve a location normalizada.
+    """Valida escrita por path sem tabela e devolve a location normalizada.
 
-    Exige profundidade >= 2 (`too_shallow`), dentro de uma camada (`outside_layer`) e sem sobrepor
-    tabela conhecida (`overlaps_table`). Paths sob `landing/` passam sem checagem. Exceção: `location`
-    igual à pasta de `own_location` (a própria tabela) é permitida; subpasta ou pasta-mãe dela continua recusada.
+    Recusa a raiz do bucket (`too_shallow`), o bucket reservado (`reserved_bucket`) e o que sobrepõe tabela conhecida
+    (`overlaps_table`). Exceção: `location` igual à pasta de `own_location` (a própria tabela) é permitida;
+    subpasta ou pasta-mãe dela continua recusada.
     """
-    effective = parse_notislake(location).uri
-    if _split(effective)[0] == LANDING:
-        return effective
-    if layer_of_location(effective) is None:
-        raise InvalidLocation("outside_layer")
+    effective = parse_location(location).uri
     if own_location is not None and _normalized(own_location) == effective:
         return effective
+    if targets_managed(effective):
+        raise InvalidLocation("reserved_bucket")
     if _overlaps_any(effective, known_locations):
         raise InvalidLocation("overlaps_table")
     return effective

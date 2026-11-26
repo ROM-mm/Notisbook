@@ -4,13 +4,14 @@ Guarda o payload do AWS Glue sem reinterpretá-lo (StorageDescriptor, Parameters
 o que o notebook gravou. As funções recebem uma conexão e NÃO abrem transação: escrita roda dentro de `writer(home)`
 (`BEGIN IMMEDIATE`, único escritor) e leitura em `reader(home)`. Os dicts de saída usam as chaves PascalCase do Glue;
 datas saem em segundos desde a época. Nomes de database/tabela são gravados em minúsculas, como o Glue faz.
-Regras: as camadas de `locations.LAYERS` e o `default` existem sempre e não se excluem; `<schema>.<tabela>` é único entre
-`nb_*`, `iceberg_*` e `glue_*`, e a location (`s3://notislake/...`, gravada como veio e checada em forma `s3a` sem `/`
-final) não se sobrepõe à de outra tabela de nenhum dos três. `MANAGED_TABLE` só em `s3://notislake/<camada>/<tabela>`
-(o DROP do cliente Hive apaga a pasta da tabela). O `LocationUri` de um database fica dentro de `s3://notislake/` e o
-DeleteDatabase é recusado se a pasta contém tabela ou outro database (a JVM apaga o `LocationUri` inteiro); o
-UpdateDatabase segue a mesma regra e não troca o `LocationUri` das camadas nem do `default`. Tabelas e partições saem
-com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags, `Retention`, listas e mapas).
+Regras: o `default` existe sempre e não se exclui; `<schema>.<tabela>` é único entre `nb_*`, `iceberg_*` e `glue_*`, e a
+location (gravada como veio e checada em forma `s3a` sem `/` final) não se sobrepõe à de outra tabela de nenhum dos
+três nem cai em pasta com exclusão pendente. `MANAGED_TABLE` só em `s3://notisbook-managed/<database>/<tabela>` (o
+DROP do cliente Hive apaga a pasta da tabela); externa em qualquer outro bucket. O `LocationUri` de um database, quando
+informado, é sempre `s3://notisbook-managed/<database>` (`schema_location_not_managed`); sem ele segue NULL. O
+DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).
+Tabelas e partições saem com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags,
+`Retention`, listas e mapas).
 Erros: `GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
 """
 
@@ -24,7 +25,7 @@ from typing import Any
 
 from ..notislake import locations
 from . import iceberg_jdbc
-from .registry import DEFAULT_DATABASE, ERR_NAME_IN_OTHER_CATALOG, table_name_exists
+from .registry import DEFAULT_DATABASE, ERR_NAME_IN_OTHER_CATALOG, pending_locations, table_name_exists
 from .schemas import NAME_RE
 from .store import catalog_db_path, connect, ensure_catalog_db, immediate
 
@@ -194,80 +195,37 @@ def get_database(conn: sqlite3.Connection, name: str) -> dict[str, Any]:
 
 
 def list_databases(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """Todos os databases: camadas primeiro (na ordem de `LAYERS`), depois os demais por nome."""
+    """Todos os databases, por nome."""
     rows = conn.execute("SELECT name, description, location_uri, parameters, create_time FROM glue_databases").fetchall()
-    rows.sort(key=lambda r: (locations.layer_rank(r[0]), r[0]))
+    rows.sort(key=lambda r: r[0])
     return [_database_dict(r) for r in rows]
 
 
-def _location_segments(uri: str) -> tuple[str, ...] | None:
-    """Segmentos de `uri` após o bucket `notislake` (`s3` ou `s3a`, qualquer profundidade >= 1); `None` se inválida."""
-    prefix = f"{locations.ROOT_URI}/"
-    canonical = _to_s3a(uri)
-    if not canonical.startswith(prefix):
-        return None
-    rest = canonical[len(prefix) :].removesuffix("/")
-    segments = tuple(rest.split("/"))
-    return None if any(part in ("", ".", "..") for part in segments) else segments
+def _folder_in_use(conn: sqlite3.Connection, location_uri: str) -> bool:
+    """Alguma tabela de qualquer catálogo (registro, Iceberg ou `glue`) está dentro da pasta `location_uri`.
 
-
-def _folded(uri: str) -> tuple[str, ...] | None:
-    """Segmentos de `uri` sem distinção de caixa: o bucket roda em disco case-insensitive (`SILVER` é `silver`)."""
-    segments = _location_segments(uri)
-    return None if segments is None else tuple(part.casefold() for part in segments)
-
-
-def _folder_in_use(conn: sqlite3.Connection, segments: tuple[str, ...], skip_database: str | None = None) -> bool:
-    """A pasta `segments` coincide com a de outro database ou tabela, contém uma delas ou está dentro de uma.
-
-    Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto o que está abaixo; e a
-    pasta dentro da de uma tabela seria apagada junto com ela. As camadas e o `default` não entram no sentido
-    inverso: abrigam os databases criados com LOCATION abaixo delas e não podem ser excluídos. A comparação ignora a
-    caixa dos segmentos. Partições ficam sempre dentro da pasta da tabela (`_check_partition_location`).
+    Excluir o database apagaria essa pasta (a JVM apaga o `LocationUri` inteiro), levando junto as tabelas.
     """
-    rows = conn.execute("SELECT name, location_uri FROM glue_databases").fetchall()
-    kept = [(name, loc) for name, loc in rows if loc is not None and name != skip_database]
-    containers = [loc for name, loc in kept if name not in locations.LAYERS and name != DEFAULT_DATABASE]
-    containers += [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
-    wanted = tuple(part.casefold() for part in segments)
-    for other in [loc for _, loc in kept] + containers:
-        inner = _folded(other)
-        if inner is not None and inner[: len(wanted)] == wanted:
-            return True
-    for other in containers:
-        outer = _folded(other)
-        if outer is not None and wanted[: len(outer)] == outer:
-            return True
-    return False
+    tables = [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn)]
+    return any(locations.within(_to_s3a(table), _to_s3a(location_uri)) for table in tables)
 
 
-def _checked_location_uri(
-    conn: sqlite3.Connection, location_uri: str | None, skip_database: str | None = None
-) -> str | None:
-    """`LocationUri` de Create/UpdateDatabase: vazio vira `None`; senão uma pasta de `s3://notislake/` fora da `landing/`.
+def _checked_location_uri(location_uri: str | None, database: str) -> str | None:
+    """`LocationUri` de Create/UpdateDatabase: vazio vira `None`; senão precisa ser `s3://notisbook-managed/<database>`.
 
-    A pasta não pode sobrepor outro database nem tabela (`_folder_in_use`). `skip_database` é o database que está
-    sendo atualizado: a pasta dele não conta como "em uso".
+    A gerenciada herda a location do database; outra pasta faria o DROP apagar arquivos que não são do app.
     """
     if not location_uri:
         return None
-    segments = _location_segments(location_uri)
-    if segments is None:
-        raise GlueInvalidInput("location_outside_notislake", "LocationUri must be a folder inside s3://notislake/.")
-    first = segments[0]
-    if first.casefold() == locations.LANDING:
-        raise GlueInvalidInput("location_in_landing", "LocationUri cannot be inside the landing zone.")
-    if first != first.casefold() and first.casefold() in (*locations.LAYERS, DEFAULT_DATABASE):
-        raise GlueInvalidInput("location_case_variant", "LocationUri cannot start with a case variant of a layer.")
-    if _folder_in_use(conn, segments, skip_database):
-        raise GlueInvalidInput("location_in_use", "LocationUri overlaps the location of another database or table.")
+    if not locations.schema_location_matches(database, location_uri):
+        raise GlueInvalidInput("schema_location_not_managed", "LocationUri must be s3://notisbook-managed/<database>.")
     return location_uri
 
 
 def create_database(conn: sqlite3.Connection, database_input: Any) -> dict[str, Any]:
-    """Cria o database a partir do DatabaseInput. Levanta `GlueAlreadyExists` (inclui as camadas), `GlueInvalidInput`.
+    """Cria o database a partir do DatabaseInput. Levanta `GlueAlreadyExists`, `GlueInvalidInput`.
 
-    `LocationUri` fora de `s3://notislake/`, em `landing/` ou que sobreponha outro database/tabela é recusado.
+    `LocationUri` diferente de `s3://notisbook-managed/<database>` é recusado; sem ele o campo fica NULL.
     """
     payload = _require_object(database_input)
     key = _name(payload.get("Name"))
@@ -276,7 +234,7 @@ def create_database(conn: sqlite3.Connection, database_input: Any) -> dict[str, 
     parameters = _dump(_string_map(payload, "Parameters"))
     if _database_row(conn, key) is not None:
         raise GlueAlreadyExists("database_exists", f"Database {key} already exists.")
-    location_uri = _checked_location_uri(conn, raw_location)
+    location_uri = _checked_location_uri(raw_location, key)
     conn.execute(
         "INSERT INTO glue_databases (name, description, location_uri, parameters, create_time) VALUES (?, ?, ?, ?, ?)",
         (key, description, location_uri, parameters, time.time()),
@@ -287,9 +245,9 @@ def create_database(conn: sqlite3.Connection, database_input: Any) -> dict[str, 
 def update_database(conn: sqlite3.Connection, name: Any, database_input: Any) -> None:
     """Substitui descrição, `LocationUri` e `Parameters` (como o UpdateDatabase); o nome não muda.
 
-    O `LocationUri` segue as regras do CreateDatabase, exceto quando é o mesmo já gravado (ALTER DATABASE ... SET
-    DBPROPERTIES o reenvia). Camadas e `default` mantêm o `LocationUri`: informá-lo diferente é recusado, omiti-lo o preserva.
-    Levanta `GlueEntityNotFound` e `GlueInvalidInput`.
+    O `LocationUri` segue a regra do CreateDatabase, exceto quando é o mesmo já gravado (ALTER DATABASE ... SET
+    DBPROPERTIES o reenvia). O `default` mantém o `LocationUri`: omiti-lo o preserva. Levanta `GlueEntityNotFound` e
+    `GlueInvalidInput`.
     """
     key = _require_database(conn, name)
     payload = _require_object(database_input)
@@ -299,13 +257,11 @@ def update_database(conn: sqlite3.Connection, name: Any, database_input: Any) ->
     raw_location = _optional_text(payload, "LocationUri")
     parameters = _dump(_string_map(payload, "Parameters"))
     current = conn.execute("SELECT location_uri FROM glue_databases WHERE name = ?", (key,)).fetchone()[0]
-    same = bool(raw_location) and current is not None and _location_segments(raw_location) == _location_segments(current)
-    if key in locations.LAYERS or key == DEFAULT_DATABASE:
-        if raw_location and not same:
-            raise GlueInvalidInput("protected_location", f"The LocationUri of database {key} cannot be changed.")
+    same = bool(raw_location) and current is not None and _to_s3a(raw_location).rstrip("/") == _to_s3a(current).rstrip("/")
+    if key == DEFAULT_DATABASE and not raw_location:
         location_uri = current
     else:
-        location_uri = current if same else _checked_location_uri(conn, raw_location, skip_database=key)
+        location_uri = current if same else _checked_location_uri(raw_location, key)
     conn.execute(
         "UPDATE glue_databases SET description = ?, location_uri = ?, parameters = ? WHERE name = ?",
         (description, location_uri, parameters, key),
@@ -315,18 +271,17 @@ def update_database(conn: sqlite3.Connection, name: Any, database_input: Any) ->
 def delete_database(conn: sqlite3.Connection, name: Any) -> None:
     """Remove o database vazio (só a linha; o backend não apaga no bucket).
 
-    Recusa (`GlueInvalidInput`) as camadas, o `default`, o database com tabelas e o que tem pasta que contém tabela ou
-    outro database: o DROP do cliente Hive/Spark apaga o `LocationUri` inteiro depois que o DeleteDatabase é aceito.
+    Recusa (`GlueInvalidInput`) o `default`, o database com tabelas e o que tem na pasta tabela de qualquer catálogo:
+    o DROP do cliente Hive/Spark apaga o `LocationUri` inteiro depois que o DeleteDatabase é aceito.
     """
     key = _require_database(conn, name)
-    if key in locations.LAYERS or key == DEFAULT_DATABASE:
+    if key == DEFAULT_DATABASE:
         raise GlueInvalidInput("protected_database", f"Database {key} cannot be deleted.")
     if conn.execute("SELECT 1 FROM glue_tables WHERE database_name = ? LIMIT 1", (key,)).fetchone() is not None:
         raise GlueInvalidInput("database_not_empty", f"Database {key} still has tables.")
     location_uri = conn.execute("SELECT location_uri FROM glue_databases WHERE name = ?", (key,)).fetchone()[0]
-    segments = _location_segments(location_uri) if location_uri else None
-    if segments is not None and _folder_in_use(conn, segments, skip_database=key):
-        raise GlueInvalidInput("location_in_use", f"The folder of database {key} contains other tables or databases.")
+    if location_uri and _folder_in_use(conn, location_uri):
+        raise GlueInvalidInput("schema_folder_in_use", f"The folder of database {key} contains tables of another catalog.")
     conn.execute("DELETE FROM glue_databases WHERE name = ?", (key,))
 
 
@@ -426,7 +381,7 @@ def table_name_exists_in_glue(conn: sqlite3.Connection, database: str, table: st
 
 
 def _check_iceberg(table_type: str, parameters: dict[str, str]) -> None:
-    """Tabela Iceberg (`table_type=ICEBERG`): EXTERNAL_TABLE com `metadata_location` dentro do notislake."""
+    """Tabela Iceberg (`table_type=ICEBERG`): EXTERNAL_TABLE com `metadata_location` numa location s3 válida."""
     if parameters.get(_ICEBERG_TYPE_PARAM, "").upper() != "ICEBERG":
         return
     if table_type != TABLE_TYPE_EXTERNAL:
@@ -435,7 +390,7 @@ def _check_iceberg(table_type: str, parameters: dict[str, str]) -> None:
     if not metadata:
         raise GlueInvalidInput("missing_metadata_location", "An Iceberg table needs metadata_location.")
     try:
-        locations.parse_notislake(_to_s3a(metadata))
+        locations.parse_location(_to_s3a(metadata))
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"metadata_location refused ({exc.code}).") from None
 
@@ -465,7 +420,7 @@ def _parse_table_input(table_input: Any) -> dict[str, Any]:
 
 
 def _to_s3a(uri: str) -> str:
-    """`s3://` vira `s3a://`; outros esquemas, `s3n://` inclusive, seguem e são recusados por `parse_notislake`."""
+    """`s3://` vira `s3a://`; outros esquemas, `s3n://` inclusive, seguem e são recusados por `parse_location`."""
     scheme, sep, rest = uri.partition("://")
     return f"{locations.SCHEME}://{rest}" if sep and scheme.lower() == "s3" else uri
 
@@ -482,11 +437,11 @@ def _descriptor_location(descriptor: dict[str, Any]) -> str | None:
 def _canonical_location(
     conn: sqlite3.Connection, database: str, table: str, descriptor: dict[str, Any], table_type: str
 ) -> str | None:
-    """Location canônica validada pela regra do notislake (camada do schema, sem sobreposição); `None` sem Location.
+    """Location canônica validada pela regra de destino (bucket reservado, sem sobreposição); `None` sem Location.
 
     Ignora a própria tabela na sobreposição, o que serve ao UpdateTable. `MANAGED_TABLE` exige Location e que ela
-    seja exatamente `s3://notislake/<camada>/<tabela>`: o DROP do cliente Hive apaga a pasta, então outro local
-    poderia apagar uma camada inteira ou os dados de outra tabela.
+    seja exatamente `s3://notisbook-managed/<database>/<tabela>`: o DROP do cliente Hive apaga a pasta, então outro
+    local poderia apagar os dados de outra tabela.
     """
     location = _descriptor_location(descriptor)
     managed = table_type == TABLE_TYPE_MANAGED
@@ -496,11 +451,11 @@ def _canonical_location(
         return None
     known = [*iceberg_jdbc.known_table_locations(conn), *table_locations(conn, skip=(database, table))]
     try:
-        canonical = locations.table_destination(database, table, location, known)
+        canonical = locations.table_destination(database, table, location, known, None, pending_locations(conn))
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"Table location refused ({exc.code}).") from None
     if managed and canonical != locations.managed_location(database, table):
-        raise GlueInvalidInput("managed_location_mismatch", "A managed table must be at s3://notislake/<layer>/<table>.")
+        raise GlueInvalidInput("managed_location_mismatch", "A managed table must be at s3://notisbook-managed/<database>/<table>.")
     return canonical
 
 
@@ -678,7 +633,7 @@ def _check_partition_location(descriptor: dict[str, Any], table_location: str | 
     if table_location is None:
         raise GlueInvalidInput("partition_needs_table_location", "A partition location needs a table with a Location.")
     try:
-        canonical = locations.parse_notislake(location).uri
+        canonical = locations.parse_location(location).uri
     except locations.InvalidLocation as exc:
         raise GlueInvalidInput(exc.code, f"Partition location refused ({exc.code}).") from None
     if not locations.within(canonical, table_location):
@@ -692,7 +647,7 @@ def batch_create_partitions(
 
     `Values` repetidos na mesma requisição são deduplicados (vale o primeiro; o GlueContext os repete). Partição que já
     existe vira item `AlreadyExistsException`, sem abortar as demais. Payload malformado, número de `Values` diferente
-    do de chaves de partição ou location fora do notislake/da tabela (ou tabela sem `Location`) levantam `GlueInvalidInput` antes de gravar.
+    do de chaves de partição ou location fora da tabela (ou tabela sem `Location`) levantam `GlueInvalidInput` antes de gravar.
     """
     db_key, table_key, key_count, table_location = _table_partition_context(conn, database, table)
     if not isinstance(partition_inputs, list):

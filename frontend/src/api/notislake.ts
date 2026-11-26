@@ -70,8 +70,12 @@ export interface NotislakeObjectPage {
   next_continuation_token: string | null;
 }
 
+/** Bucket reservado às tabelas gerenciadas: oculto no painel e recusado (403 `bucket_reserved`) nas rotas de bucket. */
+export const MANAGED_BUCKET = "notisbook-managed";
+
+/** `managed_bucket`: o bucket reservado existe no destino (no modo manual o operador precisa criá-lo). */
 export type NotislakeTestResult =
-  | { ok: true; source: NotislakeSource }
+  | { ok: true; source: NotislakeSource; managed_bucket: boolean }
   | { ok: false; source: NotislakeSource; code: string; message: string };
 
 export interface NotislakeObjectsQuery {
@@ -110,7 +114,10 @@ export function deleteNotislakeConfig(): Promise<void> {
   return request<void>(`${BASE}/config`, { method: "DELETE" });
 }
 
-/** Lista um nível por prefixo (`prefixes` = pastas); 503 `notislake_unavailable`, 409 `config_invalid`, 502/504/400 do destino. */
+/**
+ * Lista um nível por prefixo (`prefixes` = pastas); 403 `bucket_reserved`, 503 `notislake_unavailable`,
+ * 409 `config_invalid`, 502/504/400 do destino.
+ */
 export function listNotislakeObjects(
   { bucket, prefix, maxKeys, continuationToken }: NotislakeObjectsQuery = {},
   signal?: AbortSignal,
@@ -142,10 +149,13 @@ export type NotislakeManageErrorCode =
   | "bucket_exists"
   | "bucket_missing"
   | "bucket_not_empty"
+  | "bucket_reserved"
+  | "catalog_unavailable"
   | "content_changed"
   | "delete_in_progress"
   | "manual_mode_unsupported"
-  | "notislake_unavailable";
+  | "notislake_unavailable"
+  | "table_location_in_use";
 
 /** Retorno das exclusões: quantidade de objetos removidos (`0` em arquivo que já não existia). */
 export interface NotislakeDeleted {
@@ -156,7 +166,7 @@ export function listNotislakeBuckets(signal?: AbortSignal): Promise<NotislakeBuc
   return request<NotislakeBucketList>(`${BASE}/buckets`, { signal });
 }
 
-/** 201 com o nome; cria `landing/ bronze/ silver/ gold/`. 422 nome inválido; 409 `bucket_exists` ou `manual_mode_unsupported`. */
+/** 201 com o nome; cria `landing/ bronze/ silver/ gold/`. 422 nome inválido; 403 `bucket_reserved`; 409 `bucket_exists` ou `manual_mode_unsupported`. */
 export function createNotislakeBucket(name: string): Promise<{ name: string }> {
   return request<{ name: string }>(`${BASE}/buckets`, { method: "POST", body: { name } });
 }
@@ -169,7 +179,10 @@ export function getNotislakeSummary(bucket: string, prefix = "", signal?: AbortS
   });
 }
 
-/** Exclui todos os objetos e o bucket. 409 `content_changed` (com `object_count`), `bucket_not_empty`, `delete_in_progress`. */
+/**
+ * Exclui todos os objetos e o bucket. 403 `bucket_reserved`; 409 `content_changed` (com `object_count`), `bucket_not_empty`,
+ * `delete_in_progress`, `table_location_in_use`; 503 `catalog_unavailable` (catálogo ilegível: nada é apagado).
+ */
 export function deleteNotislakeBucket(bucket: string, expectedCount: number): Promise<NotislakeDeleted> {
   return request<NotislakeDeleted>(`${BASE}/buckets/${encodeURIComponent(bucket)}`, {
     method: "DELETE",
@@ -177,7 +190,10 @@ export function deleteNotislakeBucket(bucket: string, expectedCount: number): Pr
   });
 }
 
-/** `prefix` termina em `/`. 409 `content_changed` (com `object_count`) ou `delete_in_progress`. */
+/**
+ * `prefix` termina em `/`. 403 `bucket_reserved`; 409 `content_changed` (com `object_count`), `delete_in_progress` ou
+ * `table_location_in_use`; 503 `catalog_unavailable`.
+ */
 export function deleteNotislakeFolder(bucket: string, prefix: string, expectedCount: number): Promise<NotislakeDeleted> {
   return request<NotislakeDeleted>(`${BASE}/folders`, {
     method: "DELETE",
@@ -200,10 +216,13 @@ const MANAGE_MESSAGES: Record<NotislakeManageErrorCode, string> = {
   bucket_exists: "A bucket with this name already exists.",
   bucket_missing: "This bucket no longer exists.",
   bucket_not_empty: "The bucket still has objects (something wrote to it during the delete). Try again.",
+  bucket_reserved: "This bucket is reserved for managed tables and cannot be changed here.",
+  catalog_unavailable: "Could not read the catalog, so nothing was deleted. Try again.",
   content_changed: "The content changed since the confirmation. Review and confirm again.",
   delete_in_progress: "Another delete is in progress. Try again when it finishes.",
   manual_mode_unsupported: "Creating and deleting is only available with the local MinIO.",
   notislake_unavailable: "MinIO is not running.",
+  table_location_in_use: "A registered table uses this location. Drop the table first.",
 };
 
 /** Texto legível dos erros de criação/exclusão (o backend devolve mensagens internas). */

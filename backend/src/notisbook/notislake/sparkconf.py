@@ -1,7 +1,8 @@
 """Opções S3A a partir da conexão resolvida (módulo puro, sem I/O).
 
 Automático (MinIO local): chaves globais `fs.s3a.*` reais, de modo que qualquer bucket só alcance o MinIO local.
-Manual (S3 externo): só `fs.s3a.bucket.notislake.*`, sem afetar outros destinos S3. `scheme_options` mapeia `s3://`.
+Manual (S3 externo): só `fs.s3a.bucket.<bucket>.*` dos buckets conhecidos (`notislake` e o reservado
+`notisbook-managed`), sem afetar outros destinos S3. `scheme_options` mapeia `s3://`.
 O resultado de `s3a_options` carrega o segredo, então `repr`/`str` o mascaram; quem grava na sessão
 Spark usa `items()`. `closed_options` é a config fechada global (sem segredo) para processos sem o hook.
 """
@@ -13,15 +14,15 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 from ..config import RUNTIME_HOST
-from .bootstrap import BUCKET
+from .locations import KNOWN_BUCKETS
 from .settings_store import is_loopback_host
 
 if TYPE_CHECKING:
     from .objectstore import Connection
 
 _GLOBAL_PREFIX = "fs.s3a."
-_BUCKET_PREFIX = f"fs.s3a.bucket.{BUCKET}."
-_SECRET_KEYS = frozenset({f"{_GLOBAL_PREFIX}secret.key", f"{_BUCKET_PREFIX}secret.key"})
+_BUCKET_PREFIXES = tuple(f"fs.s3a.bucket.{bucket}." for bucket in KNOWN_BUCKETS)
+_SECRET_KEYS = frozenset({f"{_GLOBAL_PREFIX}secret.key", *(f"{prefix}secret.key" for prefix in _BUCKET_PREFIXES)})
 # Hadoop: a chave por bucket vence a global; `bucket.probe=0` evita checar a existência do bucket ao criar o FileSystem.
 _BUCKET_PROBE_KEY = "fs.s3a.bucket.probe"
 
@@ -91,25 +92,26 @@ def s3a_options(conn: Connection, *, docker: bool, automatic: bool) -> S3AOption
     """Opções S3A da conexão; com `docker=True` o endpoint loopback vira `host.lima.internal`.
 
     `automatic=True` grava chaves globais `fs.s3a.*` (mais `fs.s3a.bucket.probe=0`, para bucket criado depois
-    funcionar sem reiniciar); `False` grava só `fs.s3a.bucket.notislake.*`.
+    funcionar sem reiniciar); `False` grava só `fs.s3a.bucket.<bucket>.*` de cada bucket conhecido.
     """
     endpoint = _container_endpoint(conn.endpoint) if docker else conn.endpoint
-    prefix = _GLOBAL_PREFIX if automatic else _BUCKET_PREFIX
-    options = S3AOptions(
-        {
-            f"{prefix}endpoint": endpoint,
-            f"{prefix}endpoint.region": conn.region,
-            f"{prefix}access.key": conn.access_key,
-            f"{prefix}secret.key": conn.secret_key,
-            f"{prefix}path.style.access": "true",
-            f"{prefix}connection.ssl.enabled": str(urlsplit(endpoint).scheme == "https").lower(),
-            f"{prefix}aws.credentials.provider": _CREDENTIALS_PROVIDER,
-            f"{prefix}attempts.maximum": _RETRIES,
-            f"{prefix}retry.limit": _RETRIES,
-            f"{prefix}connection.establish.timeout": _CONNECT_TIMEOUT_MS,
-            f"{prefix}connection.timeout": _SOCKET_TIMEOUT_MS,
-        }
-    )
+    options = S3AOptions()
+    for prefix in (_GLOBAL_PREFIX,) if automatic else _BUCKET_PREFIXES:
+        options.update(
+            {
+                f"{prefix}endpoint": endpoint,
+                f"{prefix}endpoint.region": conn.region,
+                f"{prefix}access.key": conn.access_key,
+                f"{prefix}secret.key": conn.secret_key,
+                f"{prefix}path.style.access": "true",
+                f"{prefix}connection.ssl.enabled": str(urlsplit(endpoint).scheme == "https").lower(),
+                f"{prefix}aws.credentials.provider": _CREDENTIALS_PROVIDER,
+                f"{prefix}attempts.maximum": _RETRIES,
+                f"{prefix}retry.limit": _RETRIES,
+                f"{prefix}connection.establish.timeout": _CONNECT_TIMEOUT_MS,
+                f"{prefix}connection.timeout": _SOCKET_TIMEOUT_MS,
+            }
+        )
     if automatic:
         options[_BUCKET_PROBE_KEY] = "0"
     return options

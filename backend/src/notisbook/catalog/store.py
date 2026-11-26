@@ -70,6 +70,10 @@ _GLUE_DDL = (
   PRIMARY KEY (database_name, table_name, values_json))""",
 )
 
+# Schemas que um catalog.db novo recebe como schemas comuns (o dev pode apagá-los; não voltam).
+INITIAL_SCHEMAS = (DEFAULT_DATABASE, "bronze", "silver", "gold")
+_INITIAL_SQL = "(" + ", ".join(f"'{name}'" for name in INITIAL_SCHEMAS) + ")"
+
 # Migrações do registro `nb_*`: índice i leva `user_version` de i para i+1.
 _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
     (
@@ -134,59 +138,50 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
     (
         "UPDATE nb_namespaces SET display_catalog = 'spark_catalog' WHERE display_catalog = 'hudi'",
     ),
+    # Tabelas gerenciadas e schemas no bucket reservado: fila de exclusões e ajuste dos metadados legados (que
+    # apontavam para `notislake/<camada>`, onde o DROP de um schema apagaria também as tabelas externas).
+    (
+        """CREATE TABLE IF NOT EXISTS nb_pending_deletions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  catalog    TEXT NOT NULL,
+  namespace  TEXT NOT NULL,
+  table_name TEXT NOT NULL,
+  location   TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  attempts   INTEGER NOT NULL DEFAULT 0,
+  last_error TEXT)""",
+        f"UPDATE nb_namespaces SET location = 's3://{locations.MANAGED_BUCKET}/' || namespace WHERE location IS NULL",
+        f"""UPDATE glue_databases SET location_uri = 's3://{locations.MANAGED_BUCKET}/' || name
+  WHERE name IN {_INITIAL_SQL}
+  AND (location_uri IS NULL OR rtrim(location_uri, '/') IN ('s3://{locations.BUCKET}/' || name, 's3a://{locations.BUCKET}/' || name))""",
+        "UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'",
+    ),
 )
 
 
-def _seed_layers(conn: sqlite3.Connection) -> None:
-    """Garante as camadas do notislake nos dois catálogos; idempotente (`INSERT OR IGNORE` pela chave primária).
+def _seed_initial_schemas(conn: sqlite3.Connection) -> None:
+    """Semeia `default`, `bronze`, `silver` e `gold` nos registros `nb_*` e `glue`, em `s3://notisbook-managed/<nome>`.
 
-    Só sobe a `generation` quando insere linha, para as sessões abertas reconciliarem. Dentro de transação.
+    Só roda quando o catalog.db acaba de ser criado: um schema apagado depois não volta. Idempotente pela chave
+    primária. Dentro de transação.
     """
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    created = datetime.now(timezone.utc).timestamp()
     inserted = 0
-    for layer in locations.LAYERS:
+    for name in INITIAL_SCHEMAS:
+        location = locations.schema_location(name, "s3")
         inserted += conn.execute(
             "INSERT OR IGNORE INTO nb_namespaces (catalog_name, namespace, location, created_at) "
-            "VALUES ('spark_catalog', ?, NULL, ?)",
-            (layer, stamp),
+            "VALUES ('spark_catalog', ?, ?, ?)",
+            (name, location, stamp),
         ).rowcount
-        # Mesma linha que o `JdbcCatalog.createNamespace(ns, {})` grava.
-        inserted += conn.execute(
-            "INSERT OR IGNORE INTO iceberg_namespace_properties (catalog_name, namespace, property_key, property_value) "
-            "VALUES ('iceberg', ?, 'exists', 'true')",
-            (layer,),
-        ).rowcount
-    if inserted:
-        conn.execute("UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'")
-
-
-def glue_layer_location(layer: str) -> str:
-    """`LocationUri` da camada no `glue`: `s3://notislake/<camada>` (a forma `s3` que o cliente Glue envia)."""
-    return f"s3://{locations.BUCKET}/{layer}"
-
-
-# Pasta própria fora das camadas e de `landing`. A raiz do bucket seria o equivalente do warehouse do Spark, mas um
-# DROP aceito apagaria o lake inteiro; `default` nunca recebe tabela (só camadas têm MANAGED) e não pode ser excluído.
-GLUE_DEFAULT_LOCATION = f"s3://{locations.BUCKET}/{DEFAULT_DATABASE}"
-
-
-def _seed_glue_layers(conn: sqlite3.Connection) -> None:
-    """Garante camadas e `default` como databases do `glue`, com `LocationUri` (idempotente).
-
-    O Spark cria o `default` com o warehouse se ele faltar, e `CREATE TABLE <camada>.x` sem LOCATION precisa do
-    `LocationUri` da camada. Databases semeados antes sem `LocationUri` o recebem aqui; um já definido não é alterado.
-    Não mexe na `generation`: o `glue` não é lido pelo hook.
-    """
-    stamp = datetime.now(timezone.utc).timestamp()
-    seeds = [(layer, glue_layer_location(layer)) for layer in locations.LAYERS]
-    seeds.append((DEFAULT_DATABASE, GLUE_DEFAULT_LOCATION))
-    for name, location in seeds:
         conn.execute(
             "INSERT OR IGNORE INTO glue_databases (name, description, location_uri, parameters, create_time) "
             "VALUES (?, NULL, ?, '{}', ?)",
-            (name, location, stamp),
+            (name, location, created),
         )
-        conn.execute("UPDATE glue_databases SET location_uri = ? WHERE name = ? AND location_uri IS NULL", (location, name))
+    if inserted:
+        conn.execute("UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'")
 
 
 def catalog_db_path(home: Path) -> Path:
@@ -217,7 +212,7 @@ def immediate(conn: sqlite3.Connection) -> Iterator[None]:
 
 
 def ensure_catalog_db(home: Path) -> None:
-    """Cria/migra o `catalog.db` e semeia as camadas; idempotente e seguro com partidas concorrentes. Levanta `sqlite3.Error`."""
+    """Cria/migra o `catalog.db` e, só se for novo, semeia os schemas iniciais; idempotente e seguro com partidas concorrentes. Levanta `sqlite3.Error`."""
     conn = connect(home)
     try:
         conn.execute("PRAGMA journal_mode=WAL")
@@ -226,12 +221,14 @@ def ensure_catalog_db(home: Path) -> None:
             for statement in (*_ICEBERG_DDL, *_GLUE_DDL):
                 conn.execute(statement)
             version = conn.execute("PRAGMA user_version").fetchone()[0]
+            has_registry = conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'nb_namespaces'").fetchone()
+            fresh = version == 0 and has_registry is None
             for target, statements in enumerate(_NB_MIGRATIONS[version:], start=version + 1):
                 for statement in statements:
                     conn.execute(statement)
                 conn.execute(f"PRAGMA user_version={target}")
-            _seed_layers(conn)
-            _seed_glue_layers(conn)
+            if fresh:
+                _seed_initial_schemas(conn)
             conn.execute("COMMIT")
         except BaseException:
             conn.execute("ROLLBACK")

@@ -64,26 +64,22 @@ function TableFormatIcon({ format, size }: { format: string; size: number }) {
   return icon ? <BrandIcon icon={icon} size={size} /> : <TableIcon size={size} />;
 }
 
-/** Frase do DROP a partir de `drop_behavior` (semântica decidida pelo backend por formato). */
+/** Frase do DROP a partir de `drop_behavior`: gerenciada enfileira a exclusão dos arquivos, externa os preserva. */
 function dropSentence(info: TableInfo): ReactNode {
   const where = info.location ? <code className={styles.mono}>{info.location}</code> : null;
   switch (info.drop_behavior) {
     case "deletes_files":
       return (
-        <>Managed table: the catalog owns the data. DROP TABLE deletes the files{where ? <> at {where}</> : null}, unless another table shares that location.</>
+        <>
+          Managed table: the catalog owns the data. DROP TABLE removes the registration and queues the files
+          {where ? <> at {where}</> : null} for deletion.
+        </>
       );
     case "registry_only":
       return (
         <>
           External table: the catalog only points to the files. DROP TABLE removes the registration; files stay
           {where ? <> at {where}</> : " in place"}.
-        </>
-      );
-    case "registry_only_unless_purge":
-      return (
-        <>
-          {info.table_type === "MANAGED" ? "Managed" : "External"} Iceberg table: DROP TABLE removes the registration
-          only; files are deleted only with DROP TABLE … PURGE.
         </>
       );
     default:

@@ -263,7 +263,7 @@ def catalog_uri(home: Path) -> str:
 
 
 def safety_warehouse_uri(home: Path) -> str:
-    """Warehouse local do `spark_catalog`: escrita que escapa da regra do notislake cai no disco, não no bucket."""
+    """Warehouse local do `spark_catalog`: escrita que escapa da regra de destino cai no disco, não no bucket."""
     return f"file:{home / SAFETY_WAREHOUSE_DIR}"
 
 
@@ -310,7 +310,7 @@ def catalog_conf(home: Path) -> list[tuple[str, str]]:
     Catalog info panel. `spark.sql.warehouse.dir` is listed for display; the file gets it from
     `render_s3a_defaults`. Raises UnsupportedHome when `home` cannot go into the JDBC URL.
     """
-    from ..notislake.locations import ROOT_URI
+    from ..notislake.locations import MANAGED_ROOT
 
     return [
         ("spark.sql.warehouse.dir", safety_warehouse_uri(home)),
@@ -318,7 +318,8 @@ def catalog_conf(home: Path) -> list[tuple[str, str]]:
         (f"{CATALOG_PREFIX}iceberg", "org.apache.iceberg.spark.SparkCatalog"),
         (f"{CATALOG_PREFIX}iceberg.type", "jdbc"),
         (f"{CATALOG_PREFIX}iceberg.uri", catalog_uri(home)),
-        (f"{CATALOG_PREFIX}iceberg.warehouse", ROOT_URI),
+        # Reserved bucket: a table without LOCATION lands in `<warehouse>/<namespace>/<table>`.
+        (f"{CATALOG_PREFIX}iceberg.warehouse", MANAGED_ROOT),
         # Tables live in the shared bucket: Iceberg must not garbage-collect files on its own.
         (f"{CATALOG_PREFIX}iceberg.table-default.gc.enabled", "false"),
         (f"{CATALOG_PREFIX}iceberg.jdbc.schema-version", "V1"),

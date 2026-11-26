@@ -1,20 +1,17 @@
 """Hidden kernel module `_notisbook_catalog`: keeps the SparkSession in sync with `catalog.db`.
 
-Installed by the same silent execute as the renderer. A `sys.meta_path` finder patches `getOrCreate`,
-`stop`, `SparkSession.sql`, `DataFrameWriter(V2)` and `Catalog.createTable` (no pyspark import here). After a cell
-(`post_run_cell`) it reconciles creations, changes, renames and drops with the `nb_*` registry; before one
-(`pre_run_cell`) it picks up other kernels' writes. Only Delta/Parquet/Hudi tables of `spark_catalog` are
-registered; Iceberg lives in its own catalog. Each session creates the four layers with `LOCATION s3a://notislake/<layer>`.
-Before a write the destination rules run in Python and raise `Refused` (pt-BR text, nothing written): the
-layer by schema, no overlap between tables, no repeated `<schema>.<t>`, no drop or move of a layer, path rules. Only a destination proven invalid is refused; a parser or registry failure lets the call go on, and the
-post-write validation (`location_problem`, `apply_plan`) stays the second net. Writes outside Python are not covered.
-`s3://notislake/...` is a synonym of `s3a://` on input (`LOCATIONS.canonical`). Manual S3 (scope `notislake`): a bucket outside
-`LOCATIONS.KNOWN_BUCKETS` is refused before any read or write (`check_bucket`: readers, SparkContext, SQL text, Glue sources).
-Automatic MinIO (scope `any`): any valid bucket name is allowed by path; tables and schemas stay in `notislake` (`check_on_lake`).
-s3a probes use the session's Hadoop FileSystem under a timeout and a 30 s breaker (`s3a_call`); the kernel deletes
-only the `managed_table` folder the registry authorized. With `transport: "http"` (Docker) the registry goes through the backend API.
-Glue runtime (`catalogImplementation=hive`): the catalog is the backend's `/glue`; the hook keeps S3A, the Glue credential and the checks only.
-Config reaches the kernel as JSON literals; hook errors never reach the cell (kept in `STATE["errors"]`, warned once).
+Installed by the same silent execute as the renderer. A `sys.meta_path` finder patches `getOrCreate`, `stop`,
+`SparkSession.sql`, `DataFrameWriter(V2)` and `Catalog.createTable`. After a cell (`post_run_cell`) it reconciles
+Delta/Parquet/Hudi tables of `spark_catalog` with the `nb_*` registry; before one it picks up other kernels' writes.
+Managed tables and schemas live in the reserved bucket `s3a://notisbook-managed/<schema>[/<table>]`; external ones
+(explicit LOCATION/path) in any other bucket. `CREATE SCHEMA` without LOCATION is rewritten to the reserved bucket and
+rechecked with `parsePlan`; no schema is ever created implicitly. Before a write the destination rules run in Python
+and raise `Refused` (pt-BR text, nothing written); a parser or registry failure lets the call go on and the post-write
+validation (`location_problem`, `apply_plan`) stays the second net. DROP of a managed table queues its folder in
+`nb_pending_deletions`; only this kernel deletes it (`drain_deletions`), rechecking use. `s3://` is a synonym of `s3a://`.
+Manual S3: buckets outside `LOCATIONS.KNOWN_BUCKETS` are refused (`check_bucket`). With `transport: "http"` (Docker)
+the registry goes through the backend API; the Glue runtime keeps its catalog in the backend's `/glue`.
+Config reaches the kernel as JSON literals; hook errors never reach the cell (kept in `STATE["errors"]`).
 """
 
 import hashlib
@@ -22,7 +19,19 @@ import inspect
 import json
 from collections.abc import Mapping
 
-from ..catalog.registry import apply_plan, iceberg_folder, read_snapshot
+from ..catalog.registry import (
+    MAX_DELETE_ATTEMPTS,
+    apply_plan,
+    enqueue_deletion,
+    finish_deletions,
+    has_pending_table,
+    iceberg_folder,
+    pending_deletions,
+    pending_rows,
+    purge_reused_deletions,
+    read_snapshot,
+    used_folders,
+)
 from ..notislake import locations as notislake_locations
 from ..notislake.sparkconf import closed_options, scheme_options
 
@@ -51,14 +60,12 @@ SUPPORTED = ("delta", "parquet", "hudi")
 # Tipo esperado do catálogo `iceberg`: o Docker fala REST com o backend; o local, JDBC direto no `catalog.db`.
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
-S3A_PREFIX = "fs.s3a.bucket.notislake."
 S3A_BUCKET_PREFIX = "fs.s3a.bucket."  # per-bucket keys: Hadoop lets them win over the global ones
 S3A_BUCKET_PROBE = "fs.s3a.bucket.probe"  # a global key that merely shares the prefix
 # `any` (automatic MinIO): global real options, every bucket reaches the local MinIO; `notislake` (manual): per-bucket options of that bucket only.
 S3A_SCOPE = CONFIG.get("s3a_scope") or "notislake"
 S3_SCHEME = CONFIG.get("s3_scheme") or {}  # `sparkconf.scheme_options()`: maps `s3://` to S3A (PySpark local has no mapping)
 S3A_CLOSED = CONFIG["s3a_closed"]  # `sparkconf.closed_options()`, the single source of the closed bucket config
-S3A_CLEARED = ("fs.s3a.access.key", "fs.s3a.secret.key", S3A_PREFIX + "access.key", S3A_PREFIX + "secret.key")  # a failed setup may leave the real credential behind
 S3A_SCHEME = "s3a://"
 S3A_PROBE_TIMEOUT = 5.0  # one JVM call; with MinIO down only the first probe waits (the breaker then opens), so the hooks stay under 15 s
 S3A_DELETE_BUDGET = 15.0  # ONE bound for every folder delete of a cell (not per table): N dropped tables never add N waits
@@ -73,18 +80,26 @@ BUCKET_RE = re.compile(r"\bs3[an]?://[^/\s'\"`)]*", re.I)
 REJECTED = {
     "location_outside_mounts": "a location está fora das pastas compartilhadas com o runtime",
     "location_not_local": "a location não é uma pasta local",
-    "managed_location_rejected": "a location gerenciada não tem a forma s3a://notislake/<camada>/<tabela>",
-    "location_not_notislake": "a location s3a não é s3a://notislake/<camada>/<dataset>",
-    "schema_not_layer": "o schema não é uma camada (bronze, silver ou gold) e o notislake só recebe tabelas de camada",
-    "not_notislake": "a location não é s3://notislake/<camada>/<dataset> nem s3a://notislake/<camada>/<dataset> (s3n:// não é aceito)",
-    "too_shallow": "a location precisa ter ao menos <camada>/<dataset>",
-    "bad_segment": "a location ou o nome da tabela tem um segmento inválido ('.', '..', vazio ou com barra)",
-    "outside_layer": "a location está fora da camada do schema da tabela",
+    "managed_location_rejected": "a location gerenciada não tem a forma s3a://notisbook-managed/<schema>/<tabela>",
+    "location_not_s3": "a location s3a não é s3a://<bucket>/<pasta>",
+    "not_s3": "a location não é s3://<bucket>/<pasta> nem s3a://<bucket>/<pasta> (s3n:// não é aceito)",
+    "bad_bucket": "o nome do bucket da location não segue as regras de nome de bucket do S3",
+    "too_shallow": "a location precisa ter ao menos uma pasta dentro do bucket",
+    "bad_segment": "a location, o schema ou o nome da tabela tem um segmento inválido ('.', '..', vazio ou com barra)",
+    "reserved_bucket": "o bucket notisbook-managed é reservado ao Notisbook; tabela externa vai em outro bucket e a gerenciada não leva location",
     "overlaps_table": "a location sobrepõe a pasta de outra tabela",
+    "managed_rename": "tabela gerenciada não pode ser renomeada: a pasta fica em notisbook-managed/<schema>/<tabela>; crie a nova e copie os dados",
+    "pending_cleanup": "a pasta da tabela anterior ainda aguarda exclusão por um kernel Spark/Glue; rode uma célula nele e tente de novo",
+    "schema_location_not_managed": "a location do schema precisa ser s3a://notisbook-managed/<schema>",
+    "catalog_unreadable": "não foi possível ler o registro de tabelas para confirmar que a pasta do schema está livre; tente de novo",
+    "schema_folder_in_use": "ainda há tabela de algum catálogo na pasta do schema; remova as tabelas antes",
+    "namespace_case_collision": "já existe um schema que difere do nome só pela caixa de letras; o armazenamento não as distingue",
+    "namespace_missing": "o schema não existe; crie-o antes com CREATE SCHEMA",
+    "default_unplaced": "o schema default não pôde ser movido para o bucket reservado nesta versão do Spark; crie um schema e use-o",
+    "schema_location_missing": "o schema do catálogo glue não tem location; crie-o com CREATE NAMESPACE sem LOCATION (o Notisbook completa) ou informe LOCATION 's3a://notisbook-managed/<schema>'",
+    "ambiguous_schema_statement": "não foi possível completar o CREATE SCHEMA com a location gerenciada; informe LOCATION 's3a://notisbook-managed/<schema>' explicitamente",
     "name_in_other_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo Iceberg",
     "item_limits": "o nome, o schema ou a descrição excedem os limites permitidos",
-    "layer_protected": "as camadas bronze, silver e gold não podem ser removidas nem mudar de location; "
-                       "uma camada só é criada com a location dela (LOCATION 's3a://notislake/<camada>')",
     "name_in_spark_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog)",
     "name_in_glue_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo glue",
     "name_in_non_glue_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog) ou no Iceberg",
@@ -92,8 +107,8 @@ REJECTED = {
 }
 # Escrita por path (sem tabela): o texto fala em caminho, não em schema da tabela.
 REJECTED_PATH = {
-    "outside_layer": "o caminho não está dentro de uma camada (bronze, silver ou gold) nem de landing",
-    "too_shallow": "o caminho precisa ter ao menos <camada>/<dataset>; a raiz do bucket e a de uma camada não recebem gravação",
+    "too_shallow": "o caminho precisa ter ao menos uma pasta; a raiz do bucket não recebe gravação",
+    "reserved_bucket": "o bucket notisbook-managed é reservado ao Notisbook e só recebe a gravação das tabelas gerenciadas",
     "overlaps_table": "o caminho está dentro de, ou por cima de, outra tabela do catálogo",
 }
 ICEBERG_CATALOG = "iceberg"
@@ -130,6 +145,10 @@ def _load_locations():
 
 
 LOCATIONS = _load_locations()
+# Manual scope: per-bucket options of the known buckets only.
+S3A_PREFIXES = tuple("fs.s3a.bucket.%s." % bucket for bucket in LOCATIONS.KNOWN_BUCKETS)
+# A failed setup may leave the real credential behind.
+S3A_CLEARED = ("fs.s3a.access.key", "fs.s3a.secret.key", *(prefix + name for prefix in S3A_PREFIXES for name in ("access.key", "secret.key")))
 
 
 def warn(key, message):
@@ -199,19 +218,19 @@ def is_s3a(location):
     return isinstance(location, str) and location.startswith(S3A_SCHEME)
 
 
-def notislake_uri(location):
-    """Canonical `s3a://notislake/<a>/<b>[/...]` of a valid location, else None."""
+def s3_uri(location):
+    """Canonical `s3a://<bucket>/<a>[/...]` of a valid location, else None."""
     try:
-        return LOCATIONS.parse_notislake(location).uri
+        return LOCATIONS.parse_location(location).uri
     except LOCATIONS.InvalidLocation:
         return None
 
 
 def norm_loc(location):
     # Same form the backend's Iceberg reader returns (`Path.as_uri()`): one location format in the API.
-    location = LOCATIONS.canonical(location)  # `s3://notislake/...` is registered in its internal `s3a://` form
+    location = LOCATIONS.canonical(location)  # `s3://...` is registered in its internal `s3a://` form
     if is_s3a(location):
-        return notislake_uri(location) or location
+        return s3_uri(location) or location
     path = local_path(location)
     return Path(path).as_uri() if path else location
 
@@ -219,19 +238,17 @@ def norm_loc(location):
 def location_problem(key, location):
     """Code of `REJECTED` when the table `key` cannot live at `location`, else None.
 
-    Only what is decidable here: layer by schema, shape and (http) shared folders. Overlap with other tables
+    Only what is decidable here: shape, reserved bucket and (http) shared folders. Overlap with other tables
     and the name repeated in Iceberg are decided by the registry (`apply_plan`, which sees both catalogs).
     """
     if is_s3a(location):
-        if not LOCATIONS.targets_notislake(location):
-            return "location_not_notislake"
         try:
             LOCATIONS.table_destination(key[0], key[1], location, ())
         except LOCATIONS.InvalidLocation as exc:
             return exc.code
         return None
-    if LOCATIONS.targets_notislake(location):
-        return "not_notislake"
+    if LOCATIONS.bucket_of(location) is not None:
+        return "not_s3"
     if not ROOTS:
         return None
     path = local_path(location)
@@ -261,7 +278,7 @@ class S3AUnavailable(Exception):
 def s3a_trip(session):
     STATE["s3a_open_until"] = time.monotonic() + S3A_PAUSE
     # Fixed text: Hadoop messages may echo the endpoint or the key.
-    warn(("s3a-down", session_key(session)), "s3a://notislake/ did not answer; its tables are not checked for %d s." % S3A_PAUSE)
+    warn(("s3a-down", session_key(session)), "s3a:// did not answer; its tables are not checked for %d s." % S3A_PAUSE)
 
 
 def s3a_call(session, fn, timeout=S3A_PROBE_TIMEOUT, bulk=False):
@@ -278,7 +295,7 @@ def s3a_call(session, fn, timeout=S3A_PROBE_TIMEOUT, bulk=False):
     status = s3a_status(session)
     if status != "ok":
         if status != "failed":  # a failed setup already warned
-            warn(("s3a-unset", session_key(session)), "S3A is not configured in this session; s3a://notislake/ tables are not checked.")
+            warn(("s3a-unset", session_key(session)), "S3A is not configured in this session; s3a:// tables are not checked.")
         raise S3AUnavailable()
     if time.monotonic() < STATE.get("s3a_open_until", 0.0):
         raise S3AUnavailable()
@@ -324,7 +341,7 @@ def retry_when_reachable(session):
 
 def s3a_names(session, location, sub=""):
     """Entry names of `<location>/<sub>` in the bucket; None when the folder does not exist."""
-    base = notislake_uri(location) if session is not None else None
+    base = s3_uri(location) if session is not None else None
     if base is None:
         raise S3AUnavailable()
     target = base + "/" + sub if sub else base
@@ -338,7 +355,7 @@ def s3a_names(session, location, sub=""):
 
 
 def s3a_exists(session, location, sub=""):
-    base = notislake_uri(location) if session is not None else None
+    base = s3_uri(location) if session is not None else None
     if base is None:
         raise S3AUnavailable()
     target = base + "/" + sub if sub else base
@@ -425,22 +442,21 @@ __REGISTRY_HELPERS__
 
 
 def delete_managed_s3a(session, items):
-    """Delete the bucket folders of dropped MANAGED tables under ONE time budget; returns `{key: error text or None}`.
+    """Delete the bucket folders of queued MANAGED tables under ONE time budget; returns `{id: error text or None}`.
 
-    `items` is `[(key, location)]`, each the folder the registry row authorized (`apply_plan` already checked there
-    is no other use); here it must also have the `managed_table` shape, so never the warehouse, a `*.db` folder or a
-    prefix of it. One thread deletes them in order within `S3A_DELETE_BUDGET`. When the budget runs out the thread is
-    cancelled before its next folder (a table recreated with the same name must not lose its new files); only the
-    delete already running can still land. Folders without a result are reported as kept. Texts are fixed: Hadoop
-    messages may echo the endpoint.
+    `items` is `[(id, location)]`, each a queue row the registry just rechecked (`pending_deletions`: no table uses the
+    folder); here it must also have the `managed_table` shape, so never the bucket, a schema folder or a prefix of it.
+    One thread deletes them in order within `S3A_DELETE_BUDGET`. When the budget runs out the thread is cancelled
+    before its next folder (a table recreated with the same name must not lose its new files); only the delete already
+    running can still land. Folders without a result are reported as kept. Texts are fixed: Hadoop messages may echo the endpoint.
     """
     outcome, todo, done = {}, [], {}
-    for key, location in items:
-        uri = notislake_uri(location)
+    for row_id, location in items:
+        uri = s3_uri(location)
         if session is None or uri is None or not LOCATIONS.managed_table(uri):
-            outcome[key] = "location is not a managed table folder"
+            outcome[row_id] = "location is not a managed table folder"
         else:
-            todo.append((key, uri))
+            todo.append((row_id, uri))
     if not todo:
         return outcome
 
@@ -448,23 +464,23 @@ def delete_managed_s3a(session, items):
 
     def remove_all(open_path):
         deadline = time.monotonic() + S3A_DELETE_BUDGET
-        for key, uri in todo:
+        for row_id, uri in todo:
             if cancelled.is_set() or time.monotonic() >= deadline:
                 return
             try:
                 path, fs = open_path(uri)
                 if fs.exists(path):
                     fs.delete(path, True)
-                done[key] = None if not fs.exists(path) else "the bucket still lists the folder"
+                done[row_id] = None if not fs.exists(path) else "the bucket still lists the folder"
             except Exception:
-                done[key] = "the delete failed; the files may remain"
+                done[row_id] = "the delete failed; the files may remain"
     try:
         s3a_call(session, remove_all, S3A_DELETE_BUDGET, bulk=True)
     except S3AUnavailable:
         cancelled.set()
     finished = dict(done)
-    for key, _uri in todo:
-        outcome[key] = finished[key] if key in finished else "s3a://notislake/ did not finish in time or is not configured; the files may remain"
+    for row_id, _uri in todo:
+        outcome[row_id] = finished[row_id] if row_id in finished else "s3a:// did not finish in time or is not configured; the files may remain"
     return outcome
 
 
@@ -547,7 +563,8 @@ def read_registry():
         data = http_call("GET", "/registry")
         rows = {(t["db"], t["name"]): {k: t[k] for k in ("fmt", "loc", "type", "cols", "parts", "dv", "hi")}
                 for t in data["tables"] if t["fmt"] in SUPPORTED}
-        return int(data["generation"]), rows, set(data["namespaces"])
+        located = data.get("namespace_locations") or {}
+        return int(data["generation"]), rows, {ns: located.get(ns) for ns in data["namespaces"]}
     conn = connect()
     try:
         return read_snapshot(conn)
@@ -581,6 +598,51 @@ def write_txn(fn):
     if changed and before == STATE.get("gen"):
         STATE["gen"] = after  # our own write, nothing of others' unseen
     return changed
+
+
+def fetch_pending():
+    """`[(id, location)]` of the queued folders that may still be deleted (the registry already rechecked their use)."""
+    if TRANSPORT == "http":
+        items = http_call("GET", "/pending-deletions").get("items") or []
+        return [(int(i["id"]), str(i["loc"])) for i in items if isinstance(i, dict) and "id" in i and "loc" in i]
+    out = []
+
+    def fn(conn):
+        purge_reused_deletions(conn)
+        out.extend((row_id, loc) for row_id, _key, loc in pending_deletions(conn))
+        return False
+    write_txn(fn)
+    return out
+
+
+def report_deletions(outcome):
+    """Tell the registry which queued folders are gone (`error` None) and which failed (one more attempt)."""
+    done = [row_id for row_id, error in outcome.items() if not error]
+    failed = {row_id: error for row_id, error in outcome.items() if error}
+    if TRANSPORT == "http":
+        http_call("POST", "/pending-deletions/result",
+                  {"done": done, "failed": [{"id": row_id, "error": error} for row_id, error in failed.items()]})
+        return
+    write_txn(lambda conn: finish_deletions(conn, done, failed) and False)
+
+
+def drain_deletions(session):
+    """Delete the bucket folders queued by DROPs of managed tables, then report each result.
+
+    Idempotent: a folder already gone counts as done; a failure (MinIO down, timeout) keeps the row for the next cell,
+    one more attempt counted. The registry drops from the queue any folder a table uses again, so a recreated table never
+    loses files. Only this kernel deletes files.
+    """
+    items = fetch_pending()
+    if not items:
+        STATE["drain_again"] = False
+        return
+    outcome = delete_managed_s3a(session, items)
+    report_deletions(outcome)
+    STATE["drain_again"] = any(outcome.values())
+    for row_id, error in outcome.items():
+        if error:
+            warn(("delete", session_key(session), row_id), "kept the files of a dropped managed table (%s); the delete is retried." % error)
 
 
 def quote_ident(part):
@@ -721,15 +783,53 @@ def s3a_reachable(session, location):
     return True
 
 
+def with_table_schemas(namespaces, rows):
+    """`{schema: location}` of the registered schemas plus those only known through a table (location None)."""
+    merged = dict(namespaces)
+    for key in rows:
+        merged.setdefault(key[0], None)
+    return merged
+
+
+def schema_sql_location(ns, recorded):
+    """The `LOCATION` a registry schema is created with: the recorded one when it is the managed form, else the managed form."""
+    if recorded and LOCATIONS.schema_location_matches(ns, recorded):
+        return LOCATIONS.canonical(recorded).rstrip("/")
+    return LOCATIONS.schema_location(ns)
+
+
+def make_schema_folders(session, wanted):
+    """Create the bucket folders of `wanted` (`[(ns, uri)]`) in one bounded s3a call; False when the bucket is unreachable.
+
+    `CREATE DATABASE` makes its folder with an unbounded Hadoop call, so the bounded one runs first.
+    """
+    def make(open_path):
+        for _ns, uri in wanted:
+            path, fs = open_path(uri)
+            fs.mkdirs(path)
+    try:
+        s3a_call(session, make)
+    except S3AUnavailable:
+        retry_when_reachable(session)
+        return False
+    return True
+
+
 def hydrate(session, skey, rows, namespaces, listing=None):
-    """Create in the session the registry tables it lacks; returns the registry keys it skipped."""
+    """Create in the session the registry schemas and tables it lacks; returns the registry keys it skipped.
+
+    `namespaces` is `{schema: recorded location or None}`; a schema is created with its LOCATION in the reserved bucket.
+    """
     known = STATE.setdefault("known", {}).setdefault(skey, {})
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     dbs, current, _ = listing or list_catalog(session)
-    for ns in sorted(namespaces - {DEFAULT_DB} - set(LOCATIONS.LAYERS)):  # layers: only `ensure_layers`, which sets their LOCATION
+    for ns in sorted(set(namespaces) - {DEFAULT_DB}):
         if ns not in dbs:
             try:
-                session.sql("CREATE DATABASE IF NOT EXISTS " + ns_ident(ns))
+                uri = schema_sql_location(ns, namespaces[ns])
+                if not make_schema_folders(session, [(ns, uri)]):
+                    continue
+                session.sql("CREATE DATABASE IF NOT EXISTS %s LOCATION '%s'" % (ns_ident(ns), uri))
             except Exception:
                 continue
         known_dbs.add(ns)
@@ -777,7 +877,7 @@ def refresh_hydrated(session, skey, keys):
             changes.append((key, change))
     if changes or leaving:
         STATE.setdefault("ignored", {}).setdefault(skey, set()).update(leaving)
-        apply_changes(skey, [], changes, [], leaving, set(), set(), keep_files=set(leaving), session=session)
+        apply_changes(skey, [], changes, [], leaving, set(), set(), keep_files=set(leaving))
 
 
 def set_iceberg_token(session):
@@ -840,13 +940,13 @@ def renew_s3a_fs(session, hadoop_conf):
     `FileSystem.get` returns one cached instance per scheme+authority+user whatever the conf of the caller, so the
     first one created wins: the old one (made before the credential) is closed, the new one is created now and held
     in STATE, and a later clone of the SparkSession without the credential finds it in the cache instead of filling it.
-    Hadoop has no public listing of its cache: the buckets are `notislake` plus those `check_bucket` prepared.
+    Hadoop has no public listing of its cache: the buckets are the known ones plus those `check_bucket` prepared.
     """
     jvm = session.sparkContext._jvm
     skey = session_key(session)
     for key, value in S3_SCHEME.items():
         hadoop_conf.set(key, value)
-    buckets = ["notislake", *sorted(STATE.get("s3a_buckets", {}).get(skey, ()))]
+    buckets = [*LOCATIONS.KNOWN_BUCKETS, *sorted(STATE.get("s3a_buckets", {}).get(skey, ()))]
     held = []
     for root in bucket_roots(buckets):  # Hadoop caches `s3` and `s3a` apart: both need the new credentials
         uri = jvm.java.net.URI.create(root)
@@ -863,7 +963,7 @@ def prepare_bucket_fs(session, bucket):
     """
     skey = session_key(session)
     seen = STATE.setdefault("s3a_buckets", {}).setdefault(skey, set())
-    if bucket in seen or bucket == "notislake" or s3a_status(session) != "ok":
+    if bucket in seen or bucket in LOCATIONS.KNOWN_BUCKETS or s3a_status(session) != "ok":
         return
     seen.add(bucket)
     try:
@@ -879,7 +979,7 @@ def prepare_bucket_fs(session, bucket):
 def set_s3a(session):
     """Write the S3A options in the Hadoop conf, once per SparkContext.
 
-    Scope `notislake`: `fs.s3a.bucket.notislake.*` only. Scope `any`: global `fs.s3a.*` (plus `fs.s3a.bucket.probe`),
+    Scope `notislake`: `fs.s3a.bucket.<known bucket>.*` only. Scope `any`: global `fs.s3a.*` (plus `fs.s3a.bucket.probe`),
     after unsetting every per-bucket key. Runs after the original `getOrCreate`: through the builder `.config()` the secret
     would become a `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystems are renewed
     and kept (`renew_s3a_fs`) so the new credentials apply. The warning is fixed text: Hadoop messages may echo the key.
@@ -917,48 +1017,37 @@ def set_s3a(session):
 
 
 def s3a_key_allowed(key):
-    """`any`: global `fs.s3a.*` (never a per-bucket key, but `fs.s3a.bucket.probe`); `notislake`: only `fs.s3a.bucket.notislake.*`."""
+    """`any`: global `fs.s3a.*` (never a per-bucket key, but `fs.s3a.bucket.probe`); `notislake`: only the known buckets' keys."""
     if S3A_SCOPE == "any":
         return key == S3A_BUCKET_PROBE or (key.startswith("fs.s3a.") and not key.startswith(S3A_BUCKET_PREFIX))
-    return key.startswith(S3A_PREFIX)
+    return key.startswith(S3A_PREFIXES)
 
 
-def layer_location(session, layer):
-    rows = session.sql("DESCRIBE NAMESPACE EXTENDED " + ns_ident(layer)).collect()
+def namespace_location(session, ns):
+    rows = session.sql("DESCRIBE NAMESPACE EXTENDED " + ns_ident(ns)).collect()
     return next((r[1] for r in rows if str(r[0]).lower() == "location"), None)
 
 
-def ensure_layers(session, skey, dbs=None):
-    """Make `spark_catalog` hold the four layers with `LOCATION s3a://notislake/<layer>`; `dbs` is a listing already at hand.
+def ensure_default_location(session, skey):
+    """Point the built-in `default` schema of `spark_catalog` at `s3a://notisbook-managed/default`, every session.
 
-    A missing layer gets its bucket folder first (one bounded s3a call: `CREATE DATABASE` makes it unbounded),
-    then `CREATE DATABASE IF NOT EXISTS`. A layer that already exists keeps its location and is never dropped
-    or altered (a drop would delete files, and v1 `SET LOCATION` is unsupported): it is warned once, since
-    its MANAGED tables would then miss the notislake. Raises S3AUnavailable (a later pass retries) when the bucket is unreachable.
+    The session catalog is in memory, so the location is reapplied with `ALTER NAMESPACE ... SET LOCATION` at each
+    attach. It is only metadata (no bucket call). Where Spark refuses it (v1 catalog without support) the outcome is
+    recorded and `check_table` refuses a managed table in `default` with a pointer to `CREATE SCHEMA`.
     """
-    if dbs is None:
-        dbs = [row[0] for row in session.sql("SHOW NAMESPACES IN " + CATALOG).collect()]
-    missing = [layer for layer in LOCATIONS.LAYERS if layer not in dbs]
-    if missing:
-        def make_folders(open_path):
-            for layer in missing:
-                path, fs = open_path(LOCATIONS.layer_uri(layer))
-                fs.mkdirs(path)
-        try:
-            s3a_call(session, make_folders)
-        except S3AUnavailable:
-            retry_when_reachable(session)
-            raise
-        for layer in missing:
-            session.sql("CREATE DATABASE IF NOT EXISTS %s LOCATION '%s'" % (ns_ident(layer), LOCATIONS.layer_uri(layer)))
-    checked = STATE.setdefault("layers_checked", {}).setdefault(skey, set())
-    for layer in LOCATIONS.LAYERS:
-        if layer in checked:
-            continue
-        location = layer_location(session, layer)
-        checked.add(layer)  # only after the DESCRIBE answered: a failure leaves the layer to be checked again
-        if (location or "").rstrip("/") != LOCATIONS.layer_uri(layer):
-            warn(("layer", skey, layer), "a camada %s já existia nesta sessão com outra location; as tabelas gerenciadas dela não vão para s3a://notislake/%s." % (layer, layer))
+    target = LOCATIONS.schema_location(DEFAULT_DB)
+    placed = STATE.setdefault("default_placed", {})
+    if LOCATIONS.schema_location_matches(DEFAULT_DB, namespace_location(session, DEFAULT_DB) or ""):
+        placed[skey] = True
+        return
+    try:
+        session.sql("ALTER NAMESPACE %s SET LOCATION '%s'" % (ns_ident(DEFAULT_DB), target))
+    except Exception as exc:
+        note_error("default-location", exc)
+    ok = LOCATIONS.schema_location_matches(DEFAULT_DB, namespace_location(session, DEFAULT_DB) or "")
+    placed[skey] = ok
+    if not ok:
+        warn(("default", skey), "o schema default não pôde ser movido para s3a://notisbook-managed/default; tabelas gerenciadas em default serão recusadas.")
 
 
 def quiet_spark_logs(session):
@@ -1023,9 +1112,9 @@ def attach(session):
         return
     if conf_get(session, "spark.sql.catalog.iceberg") and conf_get(session, "spark.sql.catalog.iceberg.type") != ICEBERG_TYPE:
         warn(("outdated", skey), OUTDATED % session.version)
-    guarded("layers", ensure_layers, session, skey)
+    guarded("default-location", ensure_default_location, session, skey)
     gen, rows, namespaces = read_registry()
-    refresh = hydrate(session, skey, rows, namespaces | {k[0] for k in rows})
+    refresh = hydrate(session, skey, rows, with_table_schemas(namespaces, rows))
     STATE["gen"] = None if STATE.pop("resync", False) else gen
     STATE["attached"].add(skey)
     guarded("refresh", refresh_hydrated, session, skey, refresh)
@@ -1089,9 +1178,6 @@ def sync_registry(session, skey):
     gen, rows, namespaces = read_registry()
     # Without a reliable spark_catalog listing nothing is dropped or hydrated in this cell.
     listing = list_catalog(session)
-    if any(layer not in listing[0] for layer in LOCATIONS.LAYERS):
-        guarded("layers", ensure_layers, session, skey, listing[0])
-        listing = list_catalog(session)
     known = STATE["known"].setdefault(skey, {})
     for key, rec in list(known.items()):
         if key in rows:
@@ -1103,11 +1189,11 @@ def sync_registry(session, skey):
             except Exception:
                 pass
             known.pop(key)
-    all_ns = namespaces | {k[0] for k in rows}
+    all_ns = with_table_schemas(namespaces, rows)
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     tombstones = STATE.setdefault("tombstones", {}).setdefault(skey, set())
-    tombstones &= known_dbs - all_ns
-    for ns in sorted(known_dbs - all_ns - tombstones):
+    tombstones &= known_dbs - set(all_ns)
+    for ns in sorted(known_dbs - set(all_ns) - tombstones):
         drop_removed_db(session, ns, listing[0], known_dbs, tombstones)
     refresh = hydrate(session, skey, rows, all_ns, listing)
     STATE["gen"] = None if STATE.pop("resync", False) else gen
@@ -1230,19 +1316,19 @@ def commit_plan(plan, stamp):
     result = {}
 
     def fn(conn):
-        result.update(apply_plan(conn, plan, stamp, managed_shape,
-                                 destination=LOCATIONS.table_destination, protected_dbs=LOCATIONS.LAYERS))
+        result.update(apply_plan(conn, plan, stamp, managed_shape, destination=LOCATIONS.table_destination,
+                                 schema_location=lambda ns: LOCATIONS.schema_location(ns, "s3")))
         return result["changed"]
 
     write_txn(fn)
     return result
 
 
-def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, keep_files=frozenset(), session=None):
+def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, keep_files=frozenset()):
     """Write the plan in one transaction, then update `known`, delete files and warn.
 
     `keep_files`: dropped keys that only leave the registry (the table still exists); sent as `unregistered`, so no transport deletes their files.
-    `session` deletes the folders of the dropped s3a MANAGED tables, all of them under one `S3A_DELETE_BUDGET`.
+    The folders of dropped MANAGED tables are queued by the registry (`apply_plan`); `drain_deletions` removes them.
     """
     known = STATE["known"][skey]
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
@@ -1277,16 +1363,14 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
         known.pop(key, None)
     known_dbs |= set(new_dbs)
     known_dbs -= set(gone_dbs)
-    pending = [(key, loc) for key, loc in result["deletions"] if key not in keep_files]
-    for key, error in (delete_managed_s3a(session, pending) if pending else {}).items():
-        if error:
-            warn(("delete", skey, key), "kept the files of dropped table %s.%s (%s)." % (*key, error))
+    if result["deletions"]:
+        STATE["drain_again"] = True  # the folders are queued; `drain_deletions` removes them after this cell
     for key in result.get("files_kept", ()):
         warn(("delete", skey, key), "kept the files of dropped table %s.%s (another registered table uses that folder, or the catalog API could not remove them)." % key)
 
 
 def managed_shape(location):
-    """Only `s3a://notislake/<layer>/<t>` is MANAGED; no local path is."""
+    """Only `s3a://notisbook-managed/<schema>/<t>` is MANAGED; no local path is."""
     return is_s3a(location) and LOCATIONS.managed_table(location)
 
 
@@ -1347,11 +1431,11 @@ def reconcile(session, raw_cell):
     renamed = match_renames(vanished, created, known, raw_cell)
     tombstones = STATE.setdefault("tombstones", {}).setdefault(skey, set())
     tombstones &= set(dbs)
-    new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in LOCATIONS.LAYERS and d not in known_dbs and d not in tombstones}
-    gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed and d not in LOCATIONS.LAYERS}
+    new_dbs = {d for d in dbs if d != DEFAULT_DB and d not in known_dbs and d not in tombstones}
+    gone_dbs = {d for d in known_dbs if d not in dbs and d not in failed}
     plan = (list(created.items()), updated, renamed, vanished + leaving, new_dbs, gone_dbs)
     if any(plan):
-        apply_changes(skey, *plan, keep_files=set(leaving), session=session)
+        apply_changes(skey, *plan, keep_files=set(leaving))
 
 
 class Refused(ValueError):
@@ -1384,18 +1468,6 @@ def check_bucket(location):
     session = current_session()
     if session is not None:
         prepare_bucket_fs(session, bucket)
-
-
-def check_on_lake(what, location):
-    """Scope `any`: refuse a table or schema `location` in an s3/s3a/s3n bucket other than `notislake`; local paths are left to Spark.
-
-    The manual scope already refuses every other bucket in `check_bucket`.
-    """
-    if S3A_SCOPE != "any":
-        return
-    bucket = LOCATIONS.bucket_of(location)
-    if bucket is not None and bucket != LOCATIONS.BUCKET:
-        raise Refused(refuse_text(what, "not_notislake"))
 
 
 def check_buckets(*values):
@@ -1476,13 +1548,14 @@ def resolve_table(session, parts):
         catalog, schema, table = parts[0].lower(), ".".join(parts[1:-1]), parts[-1]
     else:
         catalog, schema, table = current_catalog(session), ".".join(parts[:-1]), parts[-1]
-    if catalog == CATALOG:
-        return None if "." in schema else (catalog, schema.lower(), table.lower())  # the session catalog folds case
-    return (catalog, schema, table) if catalog == ICEBERG_CATALOG or (catalog == GLUE_CATALOG and glue_mode(session)) else None
+    if catalog == CATALOG or (catalog == GLUE_CATALOG and glue_mode(session)):
+        # spark_catalog folds case and Glue stores lowercase names; the destination rules compare exact case
+        return None if "." in schema else (catalog, schema.lower(), table.lower())
+    return (catalog, schema, table) if catalog == ICEBERG_CATALOG else None
 
 
 def resolve_namespace(session, parts):
-    """(catalog, namespace) of a namespace in `spark_catalog` (one level) or `iceberg` (nested as a dotted join), else None."""
+    """(catalog, namespace) of a namespace in `spark_catalog` or the Glue runtime's `glue_catalog` (one level), or `iceberg` (nested as a dotted join), else None."""
     parts = list(parts)
     if len(parts) >= 2 and catalog_registered(session, parts[0]):
         catalog, ns = parts[0].lower(), ".".join(parts[1:])
@@ -1490,14 +1563,18 @@ def resolve_namespace(session, parts):
         catalog, ns = current_catalog(session), ".".join(parts)
     else:
         return None
-    if catalog == CATALOG:
-        return None if "." in ns else (catalog, ns)
+    if catalog == CATALOG or (catalog == GLUE_CATALOG and glue_mode(session)):
+        return None if "." in ns else (catalog, ns.lower())  # same folding as resolve_table
     return (catalog, ns) if catalog == ICEBERG_CATALOG else None
+
+
+def has_table(conn, name):
+    return conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None
 
 
 def iceberg_rows(conn):
     """[((namespace, table), folder or None)] of the JDBC catalog `iceberg` (folder = parent of `metadata/`)."""
-    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone() is None:
+    if not has_table(conn, "iceberg_tables"):
         return []
     out = []
     for ns, name, meta in conn.execute(
@@ -1506,30 +1583,54 @@ def iceberg_rows(conn):
     return out
 
 
+def iceberg_namespaces(conn):
+    """Namespaces of `iceberg`: the ones with properties plus those only known through a table."""
+    names = set()
+    if has_table(conn, "iceberg_namespace_properties"):
+        names |= {r[0] for r in conn.execute("SELECT namespace FROM iceberg_namespace_properties WHERE catalog_name = 'iceberg'")}
+    if has_table(conn, "iceberg_tables"):
+        names |= {r[0] for r in conn.execute("SELECT table_namespace FROM iceberg_tables WHERE catalog_name = 'iceberg'")}
+    return names
+
+
 def glue_rows(conn):
     """[((database, table), canonical s3a location or None)] of the `glue` catalog; empty before the backend created its tables."""
-    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone() is None:
+    if not has_table(conn, "glue_tables"):
         return []
     return [((db, name), loc or None) for db, name, loc in conn.execute("SELECT database_name, name, location FROM glue_tables")]
 
 
 def read_known():
-    """Tables of the three catalogs, `{"spark": {(db, t): loc}, "iceberg": {(ns, t): loc or None}, "glue": {(db, t): loc or None}}`, keys in lower case."""
+    """Tables of the three catalogs, schemas and queued folders.
+
+    `{"spark": {(db, t): loc}, "iceberg": {(ns, t): loc or None}, "glue": {(db, t): loc or None}, "ns": {catalog: {schema}},
+    "pending": [folder]}`; table keys in lower case, schemas as stored.
+    """
     if TRANSPORT == "http":
         data = http_call("GET", "/registry")
         spark = [((t["db"], t["name"]), t.get("loc")) for t in data["tables"]]
         lake = [((t["db"], t["name"]), t.get("loc")) for t in data.get("iceberg") or ()]
         glue = [((t["db"], t["name"]), t.get("loc")) for t in data.get("glue") or ()]
+        names = {"spark": set(data["namespaces"]), "iceberg": set(data.get("iceberg_namespaces") or ()),
+                 "glue": set(data.get("glue_namespaces") or ())}
+        pending = list(data.get("pending") or ())
     else:
         conn = connect()
         try:
             spark = [(key, row["loc"]) for key, row in read_snapshot(conn)[1].items()]
             lake = iceberg_rows(conn)
             glue = glue_rows(conn)
+            names = {"spark": set(read_snapshot(conn)[2]), "iceberg": iceberg_namespaces(conn),
+                     "glue": {r[0] for r in conn.execute("SELECT name FROM glue_databases")} if has_table(conn, "glue_databases") else set()}
+            pending = ([r[0] for r in conn.execute("SELECT location FROM nb_pending_deletions")]
+                       if has_table(conn, "nb_pending_deletions") else [])
         finally:
             conn.close()
-    return {name: {(k[0].lower(), k[1].lower()): loc for k, loc in items}
+    view = {name: {(k[0].lower(), k[1].lower()): loc for k, loc in items}
             for name, items in (("spark", spark), ("iceberg", lake), ("glue", glue))}
+    view["ns"] = {**names, "spark": names["spark"] | {k[0] for k, _loc in spark}}
+    view["pending"] = pending
+    return view
 
 
 def known_view(session):
@@ -1541,9 +1642,9 @@ def known_view(session):
         return None
     skey = session_key(session)
     for catalog, key in list(STATE.get("dropped", {}).get(skey, ())):
-        view["spark" if catalog == CATALOG else "iceberg"].pop(key, None)  # o registro só muda no post_run_cell
+        view[{CATALOG: "spark", GLUE_CATALOG: "glue"}.get(catalog, "iceberg")].pop(key, None)  # o registro só muda no post_run_cell
     for (catalog, key), loc in list(STATE.get("intent", {}).get(skey, {}).items()):
-        view["spark" if catalog == CATALOG else "iceberg"][key] = loc
+        view[{CATALOG: "spark", GLUE_CATALOG: "glue"}.get(catalog, "iceberg")][key] = loc
     return view
 
 
@@ -1551,8 +1652,13 @@ def lake_locations(view, skip=None):
     """Folders of every known table of the catalogs, except the one named `skip` = (catalog, key)."""
     if view is None:
         return []
-    return [loc for name, rows in view.items() for key, loc in rows.items()
-            if loc and skip != (CATALOG if name == "spark" else ICEBERG_CATALOG, key)]
+    return [loc for name in ("spark", "iceberg", "glue") for key, loc in view[name].items()
+            if loc and skip != ({"spark": CATALOG, "glue": GLUE_CATALOG}.get(name, ICEBERG_CATALOG), key)]
+
+
+def pending_locations(view):
+    """Folders still queued for deletion; a table cannot be created over them."""
+    return [] if view is None else list(view["pending"])
 
 
 def add_pending(entry):
@@ -1565,42 +1671,76 @@ def add_pending(entry):
 def check_table(session, catalog, schema, table, location):
     """Raise Refused when creating `schema.table` (location None: the managed folder) breaks the destination rules.
 
-    The same name in the other catalog is refused for any location; the layer rules only apply to what lands in the notislake:
-    an explicit s3/s3a/s3n location there, a managed table of a layer, or any managed `iceberg` table (its
-    warehouse is the bucket root). Other destinations (local disk, other buckets) are left to Spark.
-    Without a location, a table already registered keeps its own folder and is not checked as a new destination.
+    The same name in the other catalog is refused for any location. An explicit location never points into the
+    reserved bucket, may not overlap another table and may not sit on a folder with a pending deletion; a managed
+    table lands in `s3a://notisbook-managed/<schema>/<table>`. `iceberg` never gets an implicit namespace (the JdbcCatalog
+    would create one). Local paths are left to Spark. A table already registered keeps its own folder.
     """
     key, label = (schema.lower(), table.lower()), "criar a tabela %s.%s" % (schema, table)
-    check_on_lake(label, location)  # before `check_bucket`: no FileSystem is prepared for a refused table
     check_bucket(location)
     if glue_mode(session):
-        return check_glue_table(session, schema, table, location, label)
+        return check_glue_table(session, schema, table, location, label, catalog=catalog)
     location = LOCATIONS.canonical(location)
+    if location is not None and LOCATIONS.targets_managed(location):
+        raise Refused(refuse_text(label, "reserved_bucket"))
     view = known_view(session)
     mine, other = ("spark", "iceberg") if catalog == CATALOG else ("iceberg", "spark")
     if view is not None and key not in view[mine] and key in view[other]:
         raise Refused(refuse_text(label, "name_in_other_catalog" if catalog == CATALOG else "name_in_spark_catalog"))
     if view is not None and key in view["glue"]:
         raise Refused(refuse_text(label, "name_in_glue_catalog"))
-    on_lake = location is not None and LOCATIONS.targets_notislake(location)
-    if catalog == ICEBERG_CATALOG and (location is None or on_lake) and LOCATIONS.is_layer_case_variant(schema):
-        raise Refused(refuse_text(label, "schema_not_layer"))  # o JdbcCatalog gravaria em `<raiz>/Bronze/`, fora das camadas
-    if not on_lake and (location is not None or (catalog == CATALOG and LOCATIONS.layer_of_schema(schema) is None)):
+    if catalog == ICEBERG_CATALOG and view is not None and not iceberg_namespace_known(view, schema):
+        raise Refused(refuse_text(label, "namespace_missing"))
+    if catalog == CATALOG and location is None and schema.lower() == DEFAULT_DB and STATE.get("default_placed", {}).get(session_key(session)) is False:
+        raise Refused(refuse_text(label, "default_unplaced"))
+    if location is not None and LOCATIONS.bucket_of(location) is None:
         return
     if location is None and view is not None and key in view[mine]:
         return  # a write to a registered table (append, IF NOT EXISTS, replace) keeps its folder: no destination to compute nor to record
     try:
-        effective = LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, key)))
+        effective = LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, key)), None, pending_locations(view))
     except LOCATIONS.InvalidLocation as exc:
         raise Refused(refuse_text(label, exc.code)) from None
     add_pending((session_key(session), "intent", catalog, key, effective))
 
 
+def iceberg_namespace_known(view, schema):
+    """`schema` (exact case) is an `iceberg` namespace or the parent of one."""
+    names = view["ns"]["iceberg"]
+    return schema in names or any(name.startswith(schema + ".") for name in names)
+
+
 def note_drop(session, parts):
-    """DROP TABLE: once it succeeds, the table leaves this cell's view of the destinations."""
+    """DROP TABLE: once it succeeds, the table leaves this cell's view of the destinations and, if managed, is queued for deletion.
+
+    The Docker `iceberg` REST catalog queues in the backend. The local JDBC catalog is queued here from the registry
+    folder; `glue_catalog` from the Location Spark reports BEFORE the drop (the table is gone afterwards).
+    """
     target = resolve_table(session, parts)
-    if target is not None:
-        add_pending((session_key(session), "drop", target[0], (target[1], target[2]), None))
+    if target is None:
+        return
+    catalog, schema, table = target
+    skey = session_key(session)
+    add_pending((skey, "drop", catalog, (schema, table), None))
+    folder = None
+    if catalog == ICEBERG_CATALOG and TRANSPORT != "http":
+        view = known_view(session)
+        folder = None if view is None else view["iceberg"].get((schema.lower(), table.lower()))
+    elif catalog == GLUE_CATALOG and glue_mode(session):
+        folder = glue_table_location(session, schema, table)
+    if folder and LOCATIONS.managed_table(folder) and s3_uri(folder) == LOCATIONS.managed_location(schema, table):
+        add_pending((skey, "enqueue", catalog, (schema, table), s3_uri(folder)))
+
+
+def glue_table_location(session, schema, table):
+    """Location of a `glue_catalog` table as `s3a://` (Spark may report `s3://`), or None; the hook's own query, so it skips the checks."""
+    try:
+        with Bypass():
+            rows = session.sql("DESCRIBE TABLE EXTENDED %s.%s.%s" % (GLUE_CATALOG, quote_ident(schema), quote_ident(table))).collect()
+    except Exception:
+        return None
+    value = next((r[1] for r in rows if str(r[0]).lower() == "location"), None)
+    return s3_uri(value) if value else None
 
 
 def commit_pending(pending):
@@ -1610,12 +1750,23 @@ def commit_pending(pending):
         if kind == "drop":
             STATE.setdefault("dropped", {}).setdefault(skey, set()).add((catalog, key))
             intent.pop((catalog, key), None)
+        elif kind == "enqueue":
+            guarded("enqueue", enqueue_managed_drop, catalog, key, loc)
         else:
             intent[(catalog, key)] = loc
 
 
+def enqueue_managed_drop(catalog, key, loc):
+    """Queue the folder of a managed table whose DROP just succeeded (local JDBC and `glue_catalog`); the drain checks the use again."""
+    if TRANSPORT == "http":
+        http_call("POST", "/pending-deletions", {"catalog": catalog, "db": key[0], "name": key[1], "loc": loc})
+    else:
+        write_txn(lambda conn: enqueue_deletion(conn, catalog, key, loc, now()) and False)
+    STATE["drain_again"] = True
+
+
 def check_path(session, path):
-    """Raise Refused for a path write into the notislake that the path rules forbid (a table's own folder is allowed).
+    """Raise Refused for a path write that the path rules forbid: the reserved bucket and what overlaps a table (the own folder of a Spark table is allowed; an Iceberg folder is only an overlap, `metadata/` lives in it).
 
     In glue mode the folder of a `glue` table is a table's own folder too; elsewhere a glue folder is only an overlap.
     """
@@ -1623,14 +1774,14 @@ def check_path(session, path):
         return
     check_bucket(path)
     path = LOCATIONS.canonical(path)
-    if not LOCATIONS.targets_notislake(path):
+    if LOCATIONS.bucket_of(path) is None:
         return
     view = known_view(session)
     own = None
     if view is not None:
-        wanted = notislake_uri(path)
+        wanted = s3_uri(path)
         owned = [*view["spark"].values(), *(view["glue"].values() if glue_mode(session) else ())]
-        own = next((loc for loc in owned if wanted and notislake_uri(loc or "") == wanted), None)
+        own = next((loc for loc in owned if wanted and s3_uri(loc or "") == wanted), None)
     try:
         LOCATIONS.check_path_write(path, lake_locations(view), own)
     except LOCATIONS.InvalidLocation as exc:
@@ -1643,13 +1794,24 @@ def glue_session():
     return session if checks_on(session) else None
 
 
-def check_glue_table(session, schema, table, location, label, missing_ok=False):
+def glue_namespace_has_location(session, schema):
+    """False only when `glue_catalog.<schema>` was read and reports no location; None when it could not be read (hook's own query)."""
+    try:
+        with Bypass():
+            rows = session.sql("DESCRIBE NAMESPACE EXTENDED %s.%s" % (GLUE_CATALOG, quote_ident(schema))).collect()
+    except Exception:
+        return None
+    return any(str(r[0]).lower() == "location" and r[1] for r in rows)
+
+
+def check_glue_table(session, schema, table, location, label, missing_ok=False, catalog=None):
     """Raise Refused before `schema.table` is written in the glue catalog when its name or destination is invalid.
 
     Spark writes the files before `CreateTable` reaches the endpoint, so a name used by another catalog or a destination
-    the endpoint would refuse (managed table outside `s3://notislake/<layer>/<table>`, folder of another table, other
-    bucket) is refused here, with nothing written. A table already in `glue` keeps its own folder. `missing_ok` leaves a
-    missing table to Glue, which fails the write itself. One registry read, no call to the glue endpoint.
+    the endpoint would refuse (reserved bucket, folder of another table, pending deletion) is refused here, with nothing written. A table already in `glue` keeps its own folder. `missing_ok` leaves a
+    missing table to Glue, which fails the write itself. A new managed `glue_catalog` table in a database without
+    LocationUri is refused too: Iceberg would write under `<warehouse>/<schema>.db`, which the endpoint refuses afterwards.
+    One registry read, no call to the glue endpoint.
     """
     view = known_view(session)
     if view is None:
@@ -1659,8 +1821,10 @@ def check_glue_table(session, schema, table, location, label, missing_ok=False):
         raise Refused(refuse_text(label, "name_in_non_glue_catalog"))
     if location is None and (key in view["glue"] or missing_ok):
         return
+    if location is None and catalog == GLUE_CATALOG and glue_namespace_has_location(session, schema) is False:
+        raise Refused(refuse_text(label, "schema_location_missing"))
     try:
-        LOCATIONS.table_destination(schema, table, LOCATIONS.canonical(location), lake_locations(view), view["glue"].get(key))
+        LOCATIONS.table_destination(schema, table, LOCATIONS.canonical(location), lake_locations(view), view["glue"].get(key), pending_locations(view))
     except LOCATIONS.InvalidLocation as exc:
         raise Refused(refuse_text(label, exc.code)) from None
 
@@ -1713,60 +1877,106 @@ def record_catalog_info(sink, args, kwargs):
         record_of(sink)["catalog"] = (database, table)
 
 
-def layer_exists(session, layer):
-    """True when `spark_catalog` already lists the layer (the hook's own query, so it skips the checks)."""
-    with Bypass():
-        rows = session.sql("SHOW NAMESPACES IN " + CATALOG).collect()
-    return layer in {str(row[0]).lower() for row in rows}
+def check_namespace(kind, session, parts, location=None):
+    """Schema rules: its LOCATION is always `s3a://notisbook-managed/<schema>`; a schema whose folder holds tables is not dropped.
 
-
-def check_namespace(kind, session, parts, location=None, if_not_exists=False):
-    """Layers are never dropped nor moved; a schema that is not a layer never points into the notislake.
-
-    `CREATE ... IF NOT EXISTS <layer>` without LOCATION is a no-op on an existing layer and is not refused.
+    Creating a schema that differs from another one only by case is refused (the bucket folder would be shared).
+    Dropping a `spark_catalog` schema deletes its folder, so it is refused while any catalog has a table in it.
     """
-    check_on_lake("criar ou mudar a location do schema", location)
     check_bucket(location)
     target = resolve_namespace(session, parts)
     if target is None:
         return
-    ns = target[1]
-    iceberg = target[0] == ICEBERG_CATALOG
-    layer = (ns if ns in LOCATIONS.LAYERS else None) if iceberg else LOCATIONS.layer_of_schema(ns)  # Iceberg keeps the case
-    if kind == "create" and iceberg and LOCATIONS.is_layer_case_variant(ns):
-        raise Refused(refuse_text("criar o schema " + ns, "schema_not_layer"))
-    label = {"drop": "remover o schema", "create": "criar o schema", "set": "mudar a location do schema"}[kind] + " " + ns
-    if layer:
-        # A layer made in `spark_catalog` without its LOCATION would be born in the local warehouse.
-        unplaced = kind == "create" and not iceberg and location is None and not (if_not_exists and layer_exists(session, layer))
-        moved = unplaced or (location is not None and location.rstrip("/") != LOCATIONS.layer_uri(layer))
-        if kind == "drop" or kind == "set" or moved:
-            raise Refused(refuse_text(label, "layer_protected"))
-    elif kind != "drop" and location and LOCATIONS.targets_notislake(location):
-        raise Refused(refuse_text(label, "schema_not_layer"))
+    catalog, ns = target
+    label = {"drop": "remover o schema", "create": "criar o schema", "set": "mudar a location do schema"}[kind] + " " + ns[:60]
+    if kind == "drop":
+        if catalog == CATALOG:
+            check_schema_folder_free(session, ns, label)
+        return
+    if location is not None and not LOCATIONS.schema_location_matches(ns, location):
+        raise Refused(refuse_text(label, "schema_location_not_managed"))
+    if kind == "create":
+        check_case_collision(session, catalog, ns, label)
+
+
+def check_schema_folder_free(session, ns, label):
+    """Refuse the drop while a table sits in the schema folder; fail closed, since Spark deletes that folder recursively."""
+    view = known_view(session)
+    if view is None:
+        raise Refused(refuse_text(label, "catalog_unreadable"))
+    try:
+        folder = LOCATIONS.schema_location(ns)
+    except LOCATIONS.InvalidLocation:
+        return
+    if any(LOCATIONS.within(loc, folder) for loc in lake_locations(view)):
+        raise Refused(refuse_text(label, "schema_folder_in_use"))
+
+
+def check_case_collision(session, catalog, ns, label):
+    """Refuse a schema that matches an existing one of any catalog only by case (`Foo` next to `foo`)."""
+    view = known_view(session)
+    if view is None:
+        return
+    name = ns  # already folded by resolve_namespace for spark_catalog/glue_catalog; iceberg keeps exact case
+    for names in view["ns"].values():
+        if any(other != name and other.casefold() == name.casefold() for other in names):
+            raise Refused(refuse_text(label, "namespace_case_collision"))
+
+
+def rewrite_create_namespace(session, args, kwargs, plan):
+    """For a `CREATE SCHEMA/NAMESPACE` of `spark_catalog` (or `glue_catalog` in the Glue runtime) without LOCATION: the call arguments completed with the managed one, else None.
+
+    The clause goes at the end of the raw statement (the grammar takes the clauses in any order) and the result is
+    parsed again: it must be the same `CreateNamespace` with exactly the managed LOCATION, otherwise the statement is
+    refused as ambiguous (a trailing comment, say) instead of being guessed at.
+    """
+    items = [plan.productElement(i) for i in range(plan.productArity())]
+    named = {}
+    for item in items:
+        named.setdefault(jtype(item), item)
+    target = resolve_namespace(session, jseq(named["UnresolvedNamespace"].multipartIdentifier()))
+    if target is None or target[0] not in (CATALOG, GLUE_CATALOG) or jopt(items[2].get("location")) is not None:
+        return None
+    ns = target[1].lower()
+    label = "criar o schema " + ns[:60]
+    try:
+        wanted = LOCATIONS.schema_location(ns)
+    except LOCATIONS.InvalidLocation as exc:
+        raise Refused(refuse_text(label, exc.code)) from None
+    raw = args[0] if args else kwargs.get("sqlQuery")
+    text = raw.rstrip().rstrip(";").rstrip() + " LOCATION '%s'" % wanted
+    new_args, new_kwargs = ((text, *args[1:]), kwargs) if args else (args, {**kwargs, "sqlQuery": text})
+    try:
+        again = session._jsparkSession.sessionState().sqlParser().parsePlan(sql_text(new_args, new_kwargs))
+        found = [again.productElement(i) for i in range(again.productArity())]
+        done = jtype(again) == "CreateNamespace" and jopt(found[2].get("location")) == wanted
+    except Exception:
+        done = False
+    if not done:
+        raise Refused(refuse_text(label, "ambiguous_schema_statement"))
+    return new_args, new_kwargs
 
 
 def check_table_location(session, parts, location):
-    """ALTER TABLE ... SET LOCATION: a destination in the notislake must pass the same rules as a new table."""
-    check_on_lake("mudar a location da tabela", location)
+    """ALTER TABLE ... SET LOCATION: an explicit destination must pass the same rules as a new table."""
     check_bucket(location)
     location = LOCATIONS.canonical(location)
     target = resolve_table(session, parts)
-    if target is None or not LOCATIONS.targets_notislake(location):
+    if target is None or LOCATIONS.bucket_of(location) is None:
         return
     catalog, schema, table = target
-    view = known_view(session)
     label = "mudar a location de %s.%s" % (schema, table)
-    if catalog == ICEBERG_CATALOG and LOCATIONS.is_layer_case_variant(schema):
-        raise Refused(refuse_text(label, "schema_not_layer"))  # o JdbcCatalog gravaria em `<raiz>/Bronze/`, fora das camadas
+    if LOCATIONS.targets_managed(location):
+        raise Refused(refuse_text(label, "reserved_bucket"))
+    view = known_view(session)
     try:
-        LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, (schema.lower(), table.lower()))))
+        LOCATIONS.table_destination(schema, table, location, lake_locations(view, (catalog, (schema.lower(), table.lower()))), None, pending_locations(view))
     except LOCATIONS.InvalidLocation as exc:
         raise Refused(refuse_text(label, exc.code)) from None
 
 
 def check_rename(session, parts, new_name):
-    """ALTER TABLE ... RENAME TO on `iceberg`: the folder stays, so the new name must still fit its layer and be free in `spark_catalog`.
+    """ALTER TABLE ... RENAME TO on `iceberg`: a managed table is refused; for an external one the folder stays, so the new name must be free elsewhere.
 
     Local `iceberg` (JDBC) writes `catalog.db` directly, with no REST in between. A `spark_catalog` rename is left
     to `apply_plan` (the session catalog does not move a table across schemas).
@@ -1780,14 +1990,14 @@ def check_rename(session, parts, new_name):
         return
     new_schema, new_table = ".".join(new_name[:-1]) or target[1], new_name[-1]  # a bare name stays in the table's namespace
     label = "renomear a tabela %s.%s" % (target[1], target[2])
-    if LOCATIONS.is_layer_case_variant(new_schema):
-        raise Refused(refuse_text(label, "schema_not_layer"))
+    current = view["iceberg"][old_key]
+    if current and LOCATIONS.targets_managed(current):  # a pasta `<schema>/<tabela>` não acompanha o nome: ficaria órfã
+        raise Refused(refuse_text(label, "managed_rename"))
     if (new_schema.lower(), new_table.lower()) in view["spark"]:
         raise Refused(refuse_text(label, "name_in_spark_catalog"))
     if (new_schema.lower(), new_table.lower()) in view["glue"]:
         raise Refused(refuse_text(label, "name_in_glue_catalog"))
-    current = view["iceberg"][old_key]
-    if current and LOCATIONS.targets_notislake(current):
+    if current and not LOCATIONS.targets_managed(current) and LOCATIONS.bucket_of(current) is not None:
         try:
             LOCATIONS.table_destination(new_schema, new_table, current, lake_locations(view, (ICEBERG_CATALOG, old_key)))
         except LOCATIONS.InvalidLocation as exc:
@@ -1822,8 +2032,11 @@ def identifier_parts(tid):
     return [str(v) for v in (jopt(tid.catalog()), jopt(tid.database()), tid.table()) if v is not None]
 
 
-def check_plan(session, plan):
-    """Run the destination rules on the parsed statement (node shapes verified on Spark 3.5.4 and 3.5.9)."""
+def check_plan(session, plan, args=(), kwargs=None):
+    """Run the destination rules on the parsed statement (node shapes verified on Spark 3.5.4 and 3.5.9).
+
+    Returns the call arguments `(args, kwargs)` rewritten by `rewrite_create_namespace`, else None.
+    """
     kind = jtype(plan)
     items = [plan.productElement(i) for i in range(plan.productArity())]
     named = {}
@@ -1846,20 +2059,36 @@ def check_plan(session, plan):
         location = jopt(named["CatalogStorageFormat"].locationUri())
         if location is not None:
             check_path(session, str(location))
-    elif glue_mode(session):
-        return  # layers, drops, renames and locations of existing tables are the endpoint's to refuse
+    elif kind == "CreateNamespace":
+        parts = jseq(named["UnresolvedNamespace"].multipartIdentifier())
+        try:
+            rewritten = rewrite_create_namespace(session, args, kwargs or {}, plan)
+            check_namespace("create", session, parts, None if rewritten else jopt(items[2].get("location")))
+        except Refused:
+            raise
+        except Exception:
+            # `precheck` lets unexpected errors through; without the rewrite the schema would be born in the local warehouse.
+            raise Refused(refuse_text("criar o schema", "ambiguous_schema_statement")) from None
+        return rewritten
+    elif glue_mode(session) and kind != "DropTable":
+        return None  # drops of schemas, renames and locations of existing tables are the endpoint's to refuse
     elif kind == "RenameTable" and items[2] is False and "UnresolvedTableOrView" in named:
         check_rename(session, jseq(named["UnresolvedTableOrView"].multipartIdentifier()), jseq(items[1]))
     elif kind == "DropTable" and "UnresolvedIdentifier" in named:
         note_drop(session, jseq(named["UnresolvedIdentifier"].nameParts()))
     elif kind == "DropNamespace":
-        check_namespace("drop", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()))
-    elif kind == "CreateNamespace":
-        check_namespace("create", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), jopt(items[2].get("location")), items[1] is True)
+        try:
+            check_namespace("drop", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()))
+        except Refused:
+            raise
+        except Exception:
+            # `precheck` lets unexpected errors through; a schema drop must not, because Spark deletes the folder.
+            raise Refused(refuse_text("remover o schema", "catalog_unreadable")) from None
     elif kind == "SetNamespaceLocation":
         check_namespace("set", session, jseq(named["UnresolvedNamespace"].multipartIdentifier()), items[1])
     elif kind == "SetTableLocation":
         check_table_location(session, jseq(named["UnresolvedTable"].multipartIdentifier()), next(i for i in items if isinstance(i, str)))
+    return None
 
 
 def checks_on(session):
@@ -1880,7 +2109,7 @@ def precheck(fn, *args):
     in an opaque way; only a destination proven invalid is refused.
     """
     try:
-        fn(*args)
+        return fn(*args)
     except Refused:
         raise
     except Exception as exc:
@@ -1888,6 +2117,7 @@ def precheck(fn, *args):
         errors.append("precheck %s: %s" % (fn.__name__, type(exc).__name__))
         del errors[:-MAX_ERRORS]
         warn(("precheck", fn.__name__), "a checagem prévia do destino não pôde ser feita; a gravação segue e a validação posterior continua valendo.")
+        return None
 
 
 def sql_text(args, kwargs):
@@ -1907,17 +2137,18 @@ def sql_text(args, kwargs):
 
 
 def before_sql(session, args, kwargs):
+    """Checks of a `SparkSession.sql` call; returns the rewritten `(args, kwargs)` for a `CREATE SCHEMA`, else None."""
     text = sql_text(args, kwargs)
     if text is None or not checks_on(session):
-        return
+        return None
     check_buckets(*(match.group(0) for match in BUCKET_RE.finditer(text)))  # reads and writes alike: any statement
     if not STATEMENT_RE.search(text):
-        return
+        return None
     try:
         plan = session._jsparkSession.sessionState().sqlParser().parsePlan(text)
     except Exception:
-        return  # Spark reports its own syntax error
-    check_plan(session, plan)
+        return None  # Spark reports its own syntax error
+    return check_plan(session, plan, args, kwargs)
 
 
 def writer_session(writer):
@@ -2002,10 +2233,12 @@ def wrap_checked(original, before):
         except Exception:
             stack = None
         try:
-            precheck(before, self, args, kwargs)
+            rewritten = precheck(before, self, args, kwargs)
         finally:
             if stack:
                 stack.pop()
+        if isinstance(rewritten, tuple) and len(rewritten) == 2:
+            args, kwargs = rewritten  # a statement the hook completed (CREATE SCHEMA with its managed LOCATION)
         result = original(self, *args, **kwargs)
         guarded("commit_pending", commit_pending, pending)  # only a statement that returned without error counts for the next checks
         return result
@@ -2118,7 +2351,7 @@ def wrap_stop(original):
                 STATE.get("attached", set()).discard(session_key(self))
                 STATE.get("glue_mode", set()).discard(session_key(self))
                 STATE.get("s3a_done", set()).discard(session_key(self))
-                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "layers_checked", "intent", "dropped"):
+                for table in ("known", "known_dbs", "ignored", "tombstones", "s3a_status", "s3a_fs", "default_placed", "intent", "dropped"):
                     STATE.get(table, {}).pop(session_key(self), None)
         if session_alive(self):
             guarded("stop", before_stop)
@@ -2485,20 +2718,45 @@ def cell_session(attach_if_needed):
     return session, skey
 
 
+def glue_cell_session():
+    """The attached glue-mode session, else None: it has no registry to reconcile, but its queued deletions still drain."""
+    session = current_session()
+    return session if session is not None and glue_mode(session) else None
+
+
 def _pre():
     session, skey = cell_session(True)
     if session is not None:
         sync_registry(session, skey)
+    else:
+        session = glue_cell_session()
+    if session is None:
+        return
+    opened = STATE.setdefault("drained_open", set())
+    key = session_key(session)
+    if STATE.get("drain_again") or key not in opened:
+        opened.add(key)  # first cell: also drains folders queued by another session/kernel (the queue read is cheap)
+        guarded("drain", drain_deletions, session)
 
 
 def _post(result):
     session, skey = cell_session(True)
-    if session is not None:
-        for table in ("intent", "dropped"):
-            STATE.get(table, {}).pop(skey, None)  # the cell is over: its creations and drops are in the session catalog now
-        info = getattr(result, "info", None)
-        raw_cell = getattr(info, "raw_cell", None)
-        reconcile(session, raw_cell)
+    if session is None:
+        glue = glue_cell_session()
+        if glue is not None:
+            for table in ("intent", "dropped"):
+                STATE.get(table, {}).pop(session_key(glue), None)
+            if STATE.get("drain_again"):
+                guarded("drain", drain_deletions, glue)
+        return
+    dropped_now = bool(STATE.get("dropped", {}).get(skey))
+    for table in ("intent", "dropped"):
+        STATE.get(table, {}).pop(skey, None)  # the cell is over: its creations and drops are in the session catalog now
+    info = getattr(result, "info", None)
+    raw_cell = getattr(info, "raw_cell", None)
+    reconcile(session, raw_cell)
+    if dropped_now or STATE.get("drain_again"):
+        guarded("drain", drain_deletions, session)
 
 
 def on_pre(info=None):
@@ -2551,7 +2809,12 @@ mod.register()
 
 def _render(config: dict[str, object]) -> str:
     locations_source = inspect.getsource(notislake_locations)
-    helpers = "\n\n\n".join(inspect.getsource(fn).rstrip() for fn in (read_snapshot, iceberg_folder, apply_plan))
+    helpers = "\n\n\n".join(
+        [f"MAX_DELETE_ATTEMPTS = {MAX_DELETE_ATTEMPTS}"]
+        + [inspect.getsource(fn).rstrip()
+           for fn in (read_snapshot, iceberg_folder, has_pending_table, enqueue_deletion, used_folders, pending_rows,
+                      pending_deletions, purge_reused_deletions, finish_deletions, apply_plan)]
+    )
     config = {**config, "s3a_closed": closed_options(), "s3_scheme": scheme_options()}
     source = (
         _KERNEL_TEMPLATE.replace("__REGISTRY_HELPERS__", helpers)

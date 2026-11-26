@@ -29,7 +29,7 @@ import psutil
 
 from ..config import default_home
 from . import binary
-from .bootstrap import READY_TIMEOUT_S, BootstrapError, ensure_layout, wait_ready
+from .bootstrap import READY_TIMEOUT_S, BootstrapError, ensure_layout, ensure_managed_bucket, wait_ready
 from .credentials import Credentials, CredentialsError, load_or_create
 from .ports import LOOPBACK, is_free, pick_free_ports
 
@@ -483,6 +483,7 @@ class NotislakeSupervisor:
                     if first_init:
                         self._ensure_layout(ports[0])
                         self._write_layout_marker(_LAYOUT_DONE)
+                    self._ensure_managed_bucket(ports[0])  # every boot: the reserved bucket must exist even on old installs
                     ok = True
                     return proc, ports
                 self._explain_not_ready(proc, ports)
@@ -531,6 +532,13 @@ class NotislakeSupervisor:
         assert self._credentials is not None
         try:
             ensure_layout(api_port, self._credentials)
+        except BootstrapError as exc:
+            raise StartError("layout", str(exc)) from None
+
+    def _ensure_managed_bucket(self, api_port: int) -> None:
+        assert self._credentials is not None
+        try:
+            ensure_managed_bucket(api_port, self._credentials)
         except BootstrapError as exc:
             raise StartError("layout", str(exc)) from None
 

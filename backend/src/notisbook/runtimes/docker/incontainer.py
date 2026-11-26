@@ -28,11 +28,11 @@ TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
 RUN_OPTIONS = {"--cwd", "--s3a-closed", "--glue-uri"}
-# Raiz do bucket; espelha `notislake.locations.ROOT_URI` (o incontainer não importa `notisbook.*`). É o warehouse do
-# `glue_catalog`, que cria `<banco>/<tabela>` abaixo dela (ou usa o LocationUri do banco, quando existe).
-GLUE_ROOT_URI = "s3a://notislake"
-# Warehouse do Spark SQL no runtime Glue: o Glue do app recusa LocationUri em `file:` ou na raiz do bucket, então fica
-# na pasta do banco `default`, que o backend semeia com a mesma localização.
+# Raiz do bucket reservado; espelha `notislake.locations.MANAGED_ROOT` (o incontainer não importa `notisbook.*`). É o
+# warehouse do `glue_catalog`, que cria `<banco>/<tabela>` abaixo dela (ou usa o LocationUri do banco, quando existe).
+GLUE_ROOT_URI = "s3a://notisbook-managed"
+# Warehouse do Spark SQL no runtime Glue: o Glue do app só aceita LocationUri `<raiz>/<banco>`, então fica na pasta do
+# banco `default`, que o backend semeia com a mesma localização.
 GLUE_WAREHOUSE_URI = f"{GLUE_ROOT_URI}/default"
 # Id de catálogo fixo: com ele o cliente Hive do Glue não consulta o STS (que iria à AWS) para descobrir a conta.
 GLUE_CATALOG_ID = "123456789012"

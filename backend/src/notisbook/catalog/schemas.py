@@ -1,10 +1,10 @@
 """Criar, pré-visualizar e excluir schemas (spark_catalog e iceberg) sem SparkSession.
 
 Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das linhas -> COMMIT. Não existe
-warehouse local: as tabelas MANAGED vivem no bucket (`s3a`) e o backend nunca apaga por prefixo, então a
-cascata só remove linhas e devolve os arquivos mantidos em `files_kept` (`s3a_kept`; `outside_warehouse` para
-uma linha MANAGED legada com location local). `folder_kept` é sempre falso: não há pasta de schema a remover.
-As 3 camadas do notislake (`locations.LAYERS`) existem nos dois catálogos e não são excluíveis (`cannot_drop_layer`).
+warehouse local: as tabelas MANAGED vivem no bucket reservado (`s3a`) e o backend nunca apaga arquivos, então a
+cascata só remove linhas e enfileira as pastas MANAGED em `nb_pending_deletions` (`files_queued`; o kernel as apaga).
+`files_kept` traz o que fica: uma linha MANAGED legada com location local (`outside_warehouse`). `folder_kept` é sempre
+falso: não há pasta de schema a remover. Só o `default` do `spark_catalog` não é excluível (`cannot_drop_default`).
 Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 """
 
@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ _STATUS = {
     "schema_exists": 409,
     "catalog_changed": 409,
     "cannot_drop_default": 409,
-    "cannot_drop_layer": 409,
+    "namespace_case_collision": 409,
     "has_child_namespaces": 409,
     "unsupported_iceberg_catalog_schema": 409,
 }
@@ -106,6 +107,8 @@ def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
             if catalog == registry.SPARK_CATALOG:
                 created = registry.create_namespace(conn, name)
             else:
+                if not iceberg_jdbc.namespace_exists(conn, name) and iceberg_jdbc.namespace_exists(conn, name, ignore_case=True):
+                    raise SchemaError("namespace_case_collision")  # a pasta no bucket não distingue a caixa
                 created = iceberg_jdbc.create_namespace(conn, name)
             if not created:
                 raise SchemaError("schema_exists")
@@ -125,19 +128,20 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
             raise SchemaError("schema_not_found")
         rows = registry.namespace_tables(conn, key)
     managed = sum(1 for r in rows if r[2] == "MANAGED")
-    kept = sum(1 for r in rows if r[2] == "MANAGED" and locations.managed_table(r[1]))
+    queued = sum(1 for r in rows if r[2] == "MANAGED" and locations.managed_table(r[1]))
     is_default = key == registry.DEFAULT_DATABASE
-    is_layer = locations.layer_of_schema(key) is not None
-    # `tables` conta todos os formatos. O backend não apaga arquivos: `managed` (apagadas) é sempre 0 e as pastas
-    # MANAGED s3a ficam no bucket (`managed_kept`); `external` segue sendo as linhas que não são MANAGED.
+    # `tables` conta todos os formatos. O backend não apaga arquivos: `managed` (apagadas por ele) é sempre 0, as pastas
+    # MANAGED do bucket reservado vão para a fila de exclusão (`managed_queued`) e a MANAGED legada local fica
+    # (`managed_kept`); `external` segue sendo as linhas que não são MANAGED.
     return {
         "tables": len(rows),
         "views": 0,
         "managed": 0,
-        "managed_kept": kept,
+        "managed_queued": queued,
+        "managed_kept": managed - queued,
         "external": len(rows) - managed,
-        "can_delete": not (is_default or is_layer),
-        "reason": "cannot_drop_default" if is_default else "cannot_drop_layer" if is_layer else None,
+        "can_delete": not is_default,
+        "reason": "cannot_drop_default" if is_default else None,
         "etag": _spark_etag(rows),
     }
 
@@ -153,17 +157,17 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
         raise SchemaError("schema_not_found")
     entries = iceberg_jdbc.namespace_entries(conn, schema, has_type)
     tables = [e for e in entries if e[1] != "VIEW"]
-    kept = sum(1 for n, _, loc in tables if iceberg_jdbc.is_managed_s3a(loc, schema, n))
+    queued = sum(1 for n, _, loc in tables if iceberg_jdbc.is_managed_s3a(loc, schema, n))
     children = iceberg_jdbc.has_child_namespaces(conn, schema)
-    is_layer = schema in locations.LAYERS  # no Iceberg a caixa conta: `Bronze` legado não é camada
     return {
         "tables": len(tables),
         "views": len(entries) - len(tables),
         "managed": 0,  # o backend não apaga arquivos do bucket
-        "managed_kept": kept,
-        "external": len(tables) - kept,
-        "can_delete": not (children or is_layer),
-        "reason": "cannot_drop_layer" if is_layer else "has_child_namespaces" if children else None,
+        "managed_queued": queued,
+        "managed_kept": 0,
+        "external": len(tables) - queued,
+        "can_delete": not children,
+        "reason": "has_child_namespaces" if children else None,
         "etag": _iceberg_etag(entries),
     }
 
@@ -185,8 +189,6 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
     key = schema.lower()
     if key == registry.DEFAULT_DATABASE:
         raise SchemaError("cannot_drop_default")
-    if locations.layer_of_schema(key) is not None:
-        raise SchemaError("cannot_drop_layer")
     conn = _open_existing_for_delete(home)
     try:
         with _immediate(conn):
@@ -196,26 +198,39 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
             if _spark_etag(rows) != etag:
                 raise SchemaError("catalog_changed")
             registry.drop_namespace(conn, key)
+            queued = _queue_managed(conn, registry.SPARK_CATALOG, key, [(t, loc) for t, loc, kind in rows if kind == "MANAGED"])
     finally:
         conn.close()
 
-    kept: list[dict[str, str]] = []
-    for table, location, table_type in rows:
-        if table_type == "MANAGED":
-            reason = "s3a_kept" if locations.managed_table(location) else "outside_warehouse"
-            kept.append({"table": table, "reason": reason})
+    kept = [
+        {"table": table, "reason": "outside_warehouse"}
+        for table, location, table_type in rows
+        if table_type == "MANAGED" and table not in queued
+    ]
     return {
         "dropped_tables": len(rows),
         "dropped_views": 0,
         "files_deleted": [],
+        "files_queued": queued,
         "files_kept": kept,
         "folder_kept": False,
     }
 
 
+def _queue_managed(conn: sqlite3.Connection, catalog: str, schema: str, tables: list[tuple[str, str]]) -> list[str]:
+    """Enfileira (na transação da exclusão) a pasta de cada tabela MANAGED do bucket reservado; devolve os nomes.
+
+    O backend não apaga arquivos: o kernel consome a fila, depois de rechecar que nenhuma tabela usa a pasta.
+    """
+    stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    queued = []
+    for table, location in tables:
+        if locations.managed_table(location) and registry.enqueue_deletion(conn, catalog, (schema, table), location, stamp):
+            queued.append(table)
+    return queued
+
+
 def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
-    if schema in locations.LAYERS:
-        raise SchemaError("cannot_drop_layer")
     conn = _open_existing_for_delete(home)
     try:
         try:
@@ -231,20 +246,22 @@ def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
             if _iceberg_etag(entries) != etag:
                 raise SchemaError("catalog_changed")
             iceberg_jdbc.drop_namespace_rows(conn, schema)
+            tables = [e for e in entries if e[1] != "VIEW"]
+            managed = [
+                (name, prefix)
+                for name, _, loc in tables
+                if iceberg_jdbc.is_managed_s3a(loc, schema, name) and (prefix := iceberg_jdbc.table_prefix(loc))
+            ]
+            queued = _queue_managed(conn, iceberg_jdbc.ICEBERG_CATALOG, schema, managed)
     finally:
         conn.close()
 
-    tables = [e for e in entries if e[1] != "VIEW"]
-    kept = [
-        {"table": name, "reason": "s3a_kept"}  # o backend não apaga por prefixo no bucket
-        for name, _, loc in tables
-        if iceberg_jdbc.is_managed_s3a(loc, schema, name)
-    ]
     return {
         "dropped_tables": len(tables),
         "dropped_views": len(entries) - len(tables),
         "files_deleted": [],
-        "files_kept": kept,
+        "files_queued": queued,
+        "files_kept": [],
         "folder_kept": False,
     }
 

@@ -26,7 +26,6 @@ TYPE_EXTERNAL = "EXTERNAL"
 # Mesmos valores de `registry` e `iceberg_jdbc`: MANAGED apaga entrada e arquivos; EXTERNAL e Iceberg só a entrada (Iceberg apaga com PURGE).
 DROP_DELETES_FILES = "deletes_files"
 DROP_REGISTRY_ONLY = "registry_only"
-DROP_REGISTRY_ONLY_UNLESS_PURGE = "registry_only_unless_purge"
 # Onde está o schema real: o Delta guarda só um placeholder no Glue e o schema fica no `_delta_log`.
 SCHEMA_STORAGE_DESCRIPTOR = "storage_descriptor"
 SCHEMA_SPARK_PROPERTIES = "spark_properties"
@@ -83,9 +82,20 @@ def _kind(glue_table_type: Any) -> str:
     return TYPE_MANAGED if glue_table_type == "MANAGED_TABLE" else TYPE_EXTERNAL
 
 
-def _drop_behavior(fmt: str, kind: str) -> str:
+def _managed_folder(location: Any, database: str, table: str) -> bool:
+    """A `Location` é exatamente `s3://notisbook-managed/<database>/<tabela>`: a pasta gerenciada da própria tabela."""
+    if not isinstance(location, str):
+        return False
+    try:
+        return locations.canonical(location).rstrip("/") == locations.managed_location(database, table)
+    except locations.InvalidLocation:
+        return False
+
+
+def _drop_behavior(fmt: str, kind: str, managed_folder: bool = False) -> str:
+    """A Iceberg (sempre EXTERNAL_TABLE) e a MANAGED_TABLE na pasta gerenciada têm os arquivos apagados no DROP; a externa não."""
     if fmt == FORMAT_ICEBERG:
-        return DROP_REGISTRY_ONLY_UNLESS_PURGE
+        return DROP_DELETES_FILES if managed_folder else DROP_REGISTRY_ONLY
     return DROP_DELETES_FILES if kind == TYPE_MANAGED else DROP_REGISTRY_ONLY
 
 
@@ -117,14 +127,13 @@ def _node(database: str, row: tuple[Any, ...]) -> dict[str, Any]:
 
 
 def _database_names(conn: sqlite3.Connection) -> list[str]:
-    """Databases com as camadas primeiro (ordem de `LAYERS`) e os demais por nome."""
-    names = [r[0] for r in conn.execute("SELECT name FROM glue_databases")]
-    return sorted(names, key=lambda n: (locations.layer_rank(n), n))
+    """Databases por nome."""
+    return sorted(r[0] for r in conn.execute("SELECT name FROM glue_databases"))
 
 
 def empty_databases() -> list[dict[str, Any]]:
-    """Nó sem `catalog.db`: só as camadas, que sempre existem no `glue`."""
-    return [{"name": ns, "tables": []} for ns in locations.LAYERS]
+    """Nó sem `catalog.db`: nenhum database, pois um catalog.db novo é quem semeia os iniciais."""
+    return []
 
 
 def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[str, Any]], int]:
@@ -155,8 +164,7 @@ def error_entry(code: str = ERR_UNREADABLE) -> dict[str, Any]:
 
 
 def _empty_summary() -> dict[str, Any]:
-    layers = [{"name": ns, "tables": 0, "views": 0} for ns in locations.LAYERS]
-    return {"namespaces": layers, "tables": 0, "views": 0, "formats": {}}
+    return {"namespaces": [], "tables": 0, "views": 0, "formats": {}}
 
 
 def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -196,7 +204,7 @@ def build_catalog_info(conn: sqlite3.Connection | None) -> dict[str, Any]:
         "profile": "local",
         "implementation": "AWS Glue Data Catalog (local endpoint)",
         "type": "glue",
-        "warehouse": f"s3://{locations.BUCKET}",
+        "warehouse": f"s3://{locations.MANAGED_BUCKET}",
         "uri": None,
         "file_io": None,
         "counts": {"namespaces": len(namespaces), "tables": summary["tables"], "views": 0},
@@ -345,7 +353,7 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
         "table": raw["Name"],
         "format": fmt,
         "table_type": kind,
-        "drop_behavior": _drop_behavior(fmt, kind),
+        "drop_behavior": _drop_behavior(fmt, kind, _managed_folder(descriptor.get("Location"), raw["DatabaseName"], raw["Name"])),
         "location": _shown_location(descriptor.get("Location")),
         "available": None,
         "description": raw.get("Description"),

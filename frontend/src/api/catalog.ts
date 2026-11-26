@@ -53,8 +53,11 @@ export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
 }
 
 export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg" | "csv" | "json" | "orc" | "avro" | "unknown";
-/** Semântica do DROP decidida pelo backend por formato e tipo (MANAGED/EXTERNAL), igual em todos os catálogos. */
-export type DropBehavior = "deletes_files" | "registry_only" | "registry_only_unless_purge";
+/**
+ * Semântica do DROP decidida pelo backend, igual em todos os catálogos: `deletes_files` (gerenciada; os arquivos entram na
+ * fila de exclusão executada pelo kernel) ou `registry_only` (externa; os arquivos ficam).
+ */
+export type DropBehavior = "deletes_files" | "registry_only";
 /**
  * Origem de `columns` numa tabela do `glue`: `storage_descriptor` (Columns do Glue), `spark_properties`
  * (schema gravado pelo Spark nos parâmetros) ou `delta_log` (schema no `_delta_log`; `columns` traz só as partições).
@@ -177,7 +180,8 @@ export interface SchemaRef {
 }
 
 /**
- * 400 `invalid_catalog`/`invalid_name`/`reserved_name`, 409 `schema_exists`, 503 `catalog_busy`/`catalog_unavailable`.
+ * 400 `invalid_catalog`/`invalid_name`/`reserved_name`, 409 `schema_exists`/`namespace_case_collision`,
+ * 503 `catalog_busy`/`catalog_unavailable`.
  */
 export function createSchema(catalog: string, name: string): Promise<SchemaRef> {
   return request<SchemaRef>("/api/catalog/schemas", { method: "POST", body: { catalog, name } });
@@ -189,7 +193,9 @@ export interface SchemaPreview {
   views: number;
   /** Sempre 0: o backend não apaga pastas de tabelas gerenciadas. */
   managed: number;
-  /** Pastas MANAGED s3a que permanecem no bucket notislake após a exclusão do schema. */
+  /** Gerenciadas no bucket reservado cujas pastas entram na fila de exclusão (o kernel as apaga). */
+  managed_queued: number;
+  /** Só a MANAGED legada com location local: a pasta permanece após a exclusão do schema. */
   managed_kept: number;
   external: number;
   can_delete: boolean;
@@ -208,11 +214,13 @@ export interface SchemaDeletion {
   dropped_tables: number;
   dropped_views: number;
   files_deleted: string[];
+  /** Tabelas cujas pastas entraram na fila de exclusão (o kernel as apaga). */
+  files_queued: string[];
   files_kept: { table: string; reason: string }[];
   folder_kept: boolean;
 }
 
-/** 409 `catalog_changed`/`cannot_drop_default`/`cannot_drop_layer`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
+/** 409 `catalog_changed`/`cannot_drop_default`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
 export function deleteSchema(catalog: string, schema: string, etag: string): Promise<SchemaDeletion> {
   return request<SchemaDeletion>("/api/catalog/schemas", { method: "DELETE", query: { catalog, schema, etag } });
 }
@@ -226,10 +234,10 @@ const SCHEMA_ERRORS: Record<string, string> = {
   catalog_unavailable: "Catalog database unavailable. Try again.",
   schema_not_found: "The schema no longer exists.",
   cannot_drop_default: "The default schema cannot be deleted.",
-  cannot_drop_layer: "Layer schemas (bronze, silver, gold) cannot be deleted.",
   has_child_namespaces: "The schema has nested namespaces and cannot be deleted.",
   kernel_busy: "A kernel is using the catalog. Try again when it is idle.",
   catalog_changed: "The schema changed. Review and confirm again.",
+  namespace_case_collision: "A schema whose name differs only in letter case already exists.",
 };
 
 /** Código `detail` (string) de um erro de `/api/catalog/schemas`, ou null. */

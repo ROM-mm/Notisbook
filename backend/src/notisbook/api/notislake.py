@@ -7,6 +7,7 @@ resposta ecoa valor de entrada. Falha do destino S3 vira 502/504/400, nunca 401/
 
 import logging
 import re
+import sqlite3
 import threading
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -20,11 +21,12 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from pydantic import BaseModel
 
+from ..catalog import glue_repo, iceberg_jdbc
 from ..config import Settings
 from ..notislake import objectstore, settings_store
 from ..notislake.bootstrap import BUCKET, PREFIXES
 from ..notislake.objectstore import Connection, ObjectStoreError, Unavailable
-from ..notislake.locations import valid_bucket_name
+from ..notislake.locations import MANAGED_BUCKET, bucket_of, canonical, overlaps, valid_bucket_name
 from ..notislake.ports import LOOPBACK
 from ..notislake.settings_store import ConfigInvalid, ManualConfig
 from ..notislake.supervisor import LocalConnection, NotislakeSupervisor
@@ -292,6 +294,46 @@ def _check_bucket(bucket: str, location: str = "query", field: str = "bucket") -
     return bucket
 
 
+def _reserved(bucket: str) -> HTTPException:
+    return _error(403, "bucket_reserved", "O bucket notisbook-managed é reservado ao Notisbook e não pode ser alterado pelo painel.")
+
+
+def _check_not_reserved(bucket: str) -> str:
+    """O bucket das tabelas gerenciadas não aparece nem é tocado pelo painel (proteção contra acidente, não segurança)."""
+    if bucket == MANAGED_BUCKET:
+        raise _reserved(bucket)
+    return bucket
+
+
+def _registered_locations(home: Path) -> list[str]:
+    """Locations s3 de toda tabela registrada (`nb_*`, Iceberg e `glue`); sem `catalog.db` não há tabela."""
+    with glue_repo.reader(home) as conn:
+        if conn is None:
+            return []
+        try:
+            return [*iceberg_jdbc.known_table_locations(conn), *glue_repo.table_locations(conn)]
+        except iceberg_jdbc.UnsupportedIcebergSchema:
+            raise sqlite3.DatabaseError("unsupported iceberg schema") from None
+
+
+def _check_tables_free(request: Request, bucket: str, prefix: str) -> None:
+    """409 `table_location_in_use` se a pasta (`prefix` vazio = bucket inteiro) contém, é ou está dentro da pasta de uma tabela.
+
+    Falha fechada: se o catálogo não pôde ser lido, 503 `catalog_unavailable` e nada é apagado.
+    """
+    try:
+        registered = _registered_locations(_home(request))
+    except sqlite3.Error:
+        raise _error(503, "catalog_unavailable", "Não foi possível consultar o catálogo; nada foi apagado.") from None
+    target = f"s3a://{bucket}/{prefix}".rstrip("/")
+    for location in registered:
+        location = canonical(location)
+        if bucket_of(location) != bucket:
+            continue
+        if not prefix or overlaps(target, location):
+            raise _error(409, "table_location_in_use", "Há tabela registrada nesta pasta; remova a tabela antes de apagar a pasta.")
+
+
 def _check_folder(prefix: str, *, allow_empty: bool) -> str:
     """Prefixo de pasta: vazio só quando permitido; senão termina em `/` (`bronze/` nunca alcança `bronze2/`)."""
     _check_prefix(prefix)
@@ -359,7 +401,7 @@ def list_buckets(request: Request) -> dict[str, Any]:
         names = objectstore.list_buckets(connection)
     except ObjectStoreError as exc:
         raise _upstream(exc) from None
-    return {"source": connection.source, "buckets": names}
+    return {"source": connection.source, "buckets": [name for name in names if name != MANAGED_BUCKET]}
 
 
 class BucketBody(BaseModel):
@@ -368,7 +410,7 @@ class BucketBody(BaseModel):
 
 @router.post("/buckets", status_code=201)
 def create_bucket(request: Request, body: BucketBody) -> dict[str, str]:
-    name = _check_bucket(body.name, "body", "name")
+    name = _check_not_reserved(_check_bucket(body.name, "body", "name"))
     connection = _local_connection_for_write(request)
     try:
         objectstore.create_bucket_with_folders(connection, name)
@@ -389,7 +431,7 @@ def list_objects(
 ) -> dict[str, Any]:
     _check_prefix(prefix)
     if bucket is not None:
-        _check_bucket(bucket)
+        _check_not_reserved(_check_bucket(bucket))
     connection = _resolve(request)
     if bucket is not None and connection.source == "manual" and bucket != BUCKET:
         raise _error(409, "manual_mode_unsupported", "No S3 externo só o bucket configurado é acessível.")
@@ -425,7 +467,7 @@ def bucket_summary(
     bucket: Annotated[str, PathParam(max_length=MAX_PREFIX_LENGTH)],
     prefix: Annotated[str, Query(max_length=MAX_PREFIX_LENGTH)] = "",
 ) -> dict[str, int]:
-    _check_bucket(bucket, "path")
+    _check_not_reserved(_check_bucket(bucket, "path"))
     _check_folder(prefix, allow_empty=True)
     connection = _local_connection_for_write(request)
     try:
@@ -456,7 +498,8 @@ def delete_bucket(
     bucket: Annotated[str, PathParam(max_length=MAX_PREFIX_LENGTH)],
     expected_count: Annotated[int, Query(ge=0)],
 ) -> dict[str, int]:
-    _check_bucket(bucket, "path")
+    _check_not_reserved(_check_bucket(bucket, "path"))
+    _check_tables_free(request, bucket, "")
     _acquire_delete()
     try:
         connection = _local_connection_for_write(request)
@@ -480,8 +523,9 @@ def delete_folder(
     prefix: Annotated[str, Query(max_length=MAX_PREFIX_LENGTH)],
     expected_count: Annotated[int, Query(ge=0)],
 ) -> dict[str, int]:
-    _check_bucket(bucket)
+    _check_not_reserved(_check_bucket(bucket))
     _check_folder(prefix, allow_empty=False)
+    _check_tables_free(request, bucket, prefix)
     _acquire_delete()
     try:
         connection = _local_connection_for_write(request)
@@ -514,8 +558,9 @@ def delete_object(
     bucket: Annotated[str, Query(max_length=MAX_PREFIX_LENGTH)],
     key: Annotated[str, Query(max_length=MAX_PREFIX_LENGTH)],
 ) -> dict[str, int]:
-    _check_bucket(bucket)
+    _check_not_reserved(_check_bucket(bucket))
     _check_key(key)
+    _check_tables_free(request, bucket, key)
     _acquire_delete()
     try:
         connection = _local_connection_for_write(request)
@@ -531,6 +576,15 @@ def delete_object(
         _delete_lock.release()
 
 
+def _managed_bucket_ready(connection: Connection) -> bool:
+    """O bucket reservado existe no destino; no modo manual é o operador quem o cria (o app não cria nem exclui)."""
+    try:
+        objectstore.probe(connection, bucket=MANAGED_BUCKET)
+    except ObjectStoreError:
+        return False
+    return True
+
+
 @router.post("/test")
 def test_connection(request: Request, body: ConfigBody | None = None) -> dict[str, Any]:
     """Sonda o destino do rascunho (ou a conexão vigente, sem corpo); só devolve resultado categórico."""
@@ -542,7 +596,7 @@ def test_connection(request: Request, body: ConfigBody | None = None) -> dict[st
             objectstore.probe(connection)
         except ObjectStoreError as exc:
             return {"ok": False, "source": connection.source, "code": exc.code, "message": str(exc)}
-        return {"ok": True, "source": connection.source}
+        return {"ok": True, "source": connection.source, "managed_bucket": _managed_bucket_ready(connection)}
     finally:
         _test_lock.release()
 
