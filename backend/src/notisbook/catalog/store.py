@@ -158,6 +158,8 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
     ),
     # O tipo passou a derivar da location: a EXTERNAL gravada na própria pasta gerenciada (reidratada por `createTable`
     # com path, que o Spark vê como EXTERNAL) vira MANAGED. A generation sobe para as sessões abertas relerem o tipo.
+    # A igualdade é exata (`s3a://`, sem `/` final): variantes com `/` final ou `s3://` não são alcançadas aqui e
+    # convergem para MANAGED no próximo update da tabela, que recalcula o tipo pela location.
     (
         f"""UPDATE nb_tables SET table_type = 'MANAGED', updated_at = strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')
   WHERE catalog_name = 'spark_catalog' AND table_type = 'EXTERNAL'
