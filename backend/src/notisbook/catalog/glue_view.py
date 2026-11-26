@@ -23,7 +23,7 @@ FORMAT_DELTA = "delta"
 FORMAT_HUDI = "hudi"
 TYPE_MANAGED = "MANAGED"
 TYPE_EXTERNAL = "EXTERNAL"
-# Mesmos valores de `registry` e `iceberg_jdbc` (a pasta só é apagada se é a gerenciada da própria tabela e nenhuma outra a usa).
+# Mesmos valores de `registry` e `iceberg_jdbc`; a regra de cada um está na docstring de `_drop_behavior`.
 DROP_DELETES_FILES = "deletes_files"
 DROP_REGISTRY_ONLY = "registry_only"
 DROP_KEEPS_OUTSIDE = "keeps_files_outside_managed"
