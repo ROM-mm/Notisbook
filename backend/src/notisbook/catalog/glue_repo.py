@@ -10,8 +10,8 @@ três nem cai em pasta com exclusão pendente. O tipo deriva da location, não d
 `s3://notisbook-managed/<database>/<tabela>` (o DROP do cliente Hive apaga a pasta) é `MANAGED_TABLE`, sem
 `Parameters.EXTERNAL`; as demais são externas. O `metadata_location` Iceberg no bucket reservado fica na própria pasta.
 O `LocationUri` de um database, quando informado, é sempre `s3://notisbook-managed/<database>`
-(`schema_location_not_managed`); sem ele segue NULL. O
-DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).
+(`schema_location_not_managed`); sem ele segue NULL.
+O DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).
 Tabelas e partições saem com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags,
 `Retention`, listas e mapas).
 Erros: `GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
