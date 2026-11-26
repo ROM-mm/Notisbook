@@ -49,8 +49,9 @@ def validate(catalog: str, database: str, table: str) -> None:
             raise TableError("invalid_name")
 
 
-def _etag(row: _Row) -> str:
-    return hashlib.sha256(json.dumps(list(row)).encode()).hexdigest()[:16]
+def _etag(row: _Row, queues: bool) -> str:
+    """Hash da linha e do efeito da remoção: mudança de `queues_files`/`registry_only` invalida a prévia."""
+    return hashlib.sha256(json.dumps([*row, queues]).encode()).hexdigest()[:16]
 
 
 def _find(conn: sqlite3.Connection, database: str, table: str) -> _Row | None:
@@ -100,7 +101,7 @@ def preview_table(home: Path, catalog: str, database: str, table: str) -> dict[s
         "remove_effect": "queues_files" if queues else "registry_only",
         "can_remove": True,
         "reason": None,
-        "etag": _etag(row),
+        "etag": _etag(row, queues),
     }
 
 
@@ -115,9 +116,9 @@ def remove_table(home: Path, catalog: str, database: str, table: str, etag: str)
             row = _find(conn, database, table)
             if row is None:
                 raise TableError("table_not_found")
-            if _etag(row) != etag:
-                raise TableError("catalog_changed")
             queues = _queues_files(conn, row)
+            if _etag(row, queues) != etag:
+                raise TableError("catalog_changed")
             if not registry.delete_table_row(conn, row[0], row[1], row[2]):
                 raise TableError("catalog_changed")
             if queues:
