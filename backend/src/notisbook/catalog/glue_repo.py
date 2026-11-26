@@ -6,8 +6,9 @@ o que o notebook gravou. As funções recebem uma conexão e NÃO abrem transaç
 datas saem em segundos desde a época. Nomes de database/tabela são gravados em minúsculas, como o Glue faz.
 Regras: o `default` existe sempre e não se exclui; `<schema>.<tabela>` é único entre `nb_*`, `iceberg_*` e `glue_*`, e a
 location (gravada como veio e checada em forma `s3a` sem `/` final) não se sobrepõe à de outra tabela de nenhum dos
-três nem cai em pasta com exclusão pendente. O tipo deriva da location (`_derived_type`): não-Iceberg em
-`s3://notisbook-managed/<database>/<tabela>` é `MANAGED_TABLE`, sem `Parameters.EXTERNAL`; as demais são externas.
+três nem cai em pasta com exclusão pendente. O tipo deriva da location (`_derived_type`), não do cliente:
+não-Iceberg em `s3://notisbook-managed/<database>/<tabela>` é `MANAGED_TABLE`, sem `Parameters.EXTERNAL`, porque o
+DROP do Hive apaga a pasta; as demais são externas.
 O `metadata_location` Iceberg no bucket reservado fica na própria pasta. O `LocationUri` de um database, se informado,
 é sempre `s3://notisbook-managed/<database>` (`schema_location_not_managed`).
 O DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).

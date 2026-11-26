@@ -263,7 +263,7 @@ def install_display():
 
 def show_width(truncate):
     # Spark: True -> 20 chars, False/<=0 -> no cut (here the renderer cap), N -> N chars in total.
-    # Here N means N characters plus "…" (N+1), which diverges from Spark: its cut includes the marker.
+    # Here every cut (True included) keeps the width and appends "…" (width+1); Spark's cut includes its own marker.
     if truncate is True:
         return SHOW_TRUNCATE
     if truncate is False:
