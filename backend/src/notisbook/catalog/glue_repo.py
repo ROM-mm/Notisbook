@@ -26,8 +26,8 @@ from typing import Any
 
 from ..notislake import locations
 from . import iceberg_jdbc
+from .names import NAME_RE
 from .registry import DEFAULT_DATABASE, ERR_NAME_IN_OTHER_CATALOG, pending_locations, table_name_exists
-from .schemas import NAME_RE
 from .store import catalog_db_path, connect, ensure_catalog_db, immediate
 
 GLUE_CATALOG = "glue"

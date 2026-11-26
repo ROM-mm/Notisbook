@@ -12,7 +12,6 @@ Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 
 import hashlib
 import json
-import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,10 +19,10 @@ from typing import Any
 
 from ..notislake import locations
 from . import iceberg_jdbc, registry
+from .names import NAME_RE
 from .store import catalog_db_path, connect, ensure_catalog_db
 from .store import immediate as _immediate
 
-NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 RESERVED_SPARK = {"global_temp"}
 
 _STATUS = {
