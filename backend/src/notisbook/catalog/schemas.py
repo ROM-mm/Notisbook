@@ -117,6 +117,28 @@ def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
     return {"catalog": catalog, "name": name}
 
 
+def _queueable(conn: sqlite3.Connection, schema: str, rows: list[tuple[str, str, str]]) -> set[str]:
+    """Tabelas MANAGED na própria pasta cuja pasta o DROP SCHEMA pode enfileirar (as `rows` ainda estão no registro).
+
+    Mesma regra do DROP de tabela: `is_own_managed` e pasta livre. As linhas do próprio schema saem na mesma operação,
+    então não seguram a pasta (uma ocorrência de cada em `used_folders`); tabelas de outros schemas, Iceberg e Glue seguram.
+    """
+    if not registry.has_pending_table(conn):
+        return set()
+    used = registry.used_folders(conn)
+    for _, location, _ in rows:
+        folder = registry.folder_key(location)
+        if folder in used:
+            used.remove(folder)
+    queueable = set()
+    for table, location, kind in rows:
+        folder = registry.folder_key(location)
+        if kind == "MANAGED" and locations.is_own_managed(schema, table, location):
+            if not any(u.startswith(folder) or folder.startswith(u) for u in used):
+                queueable.add(table)
+    return queueable
+
+
 def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> dict[str, Any]:
     key = schema.lower()
     if conn is None:
@@ -128,7 +150,7 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
             raise SchemaError("schema_not_found")
         rows = registry.namespace_tables(conn, key)
     managed = sum(1 for r in rows if r[2] == "MANAGED")
-    queued = sum(1 for r in rows if r[2] == "MANAGED" and locations.managed_table(r[1]))
+    queued = len(_queueable(conn, key, rows)) if conn is not None else 0
     is_default = key == registry.DEFAULT_DATABASE
     # `tables` conta todos os formatos. O backend não apaga arquivos: `managed` (apagadas por ele) é sempre 0, as pastas
     # MANAGED do bucket reservado vão para a fila de exclusão (`managed_queued`) e a MANAGED legada local fica
@@ -197,8 +219,9 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
             rows = registry.namespace_tables(conn, key)
             if _spark_etag(rows) != etag:
                 raise SchemaError("catalog_changed")
+            queueable = _queueable(conn, key, rows)  # antes do DROP: precisa ver as linhas das outras tabelas do schema
             registry.drop_namespace(conn, key)
-            queued = _queue_managed(conn, registry.SPARK_CATALOG, key, [(t, loc) for t, loc, kind in rows if kind == "MANAGED"])
+            queued = _queue_managed(conn, registry.SPARK_CATALOG, key, [(t, loc) for t, loc, _ in rows if t in queueable])
     finally:
         conn.close()
 
