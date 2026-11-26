@@ -1,9 +1,28 @@
-import { DeltaIcon, HudiIcon, IcebergIcon, ParquetIcon, type TechIcon } from "../shell/techIcons";
+import { FileCsvIcon, FileJsonIcon } from "../shell/icons";
+import { AvroIcon, DeltaIcon, HudiIcon, IcebergIcon, OrcIcon, ParquetIcon, type TechIcon } from "../shell/techIcons";
 
 /** Rótulo de exibição por formato de tabela (chave normalizada em minúsculas). */
-const LABELS: Record<string, string> = { delta: "Delta", parquet: "Parquet", iceberg: "Iceberg", hudi: "Hudi" };
-/** Ícone por formato de tabela (delta, hudi, iceberg, parquet). */
-const ICONS: Record<string, TechIcon> = { delta: DeltaIcon, hudi: HudiIcon, iceberg: IcebergIcon, parquet: ParquetIcon };
+const LABELS: Record<string, string> = {
+  delta: "Delta",
+  parquet: "Parquet",
+  iceberg: "Iceberg",
+  hudi: "Hudi",
+  csv: "CSV",
+  json: "JSON",
+  orc: "ORC",
+  avro: "Avro",
+};
+/** Ícone por formato de tabela; csv/json/orc/avro seguem os mesmos desenhos de `fileFormatIcon`. */
+const ICONS: Record<string, TechIcon> = {
+  delta: DeltaIcon,
+  hudi: HudiIcon,
+  iceberg: IcebergIcon,
+  parquet: ParquetIcon,
+  csv: FileCsvIcon,
+  json: FileJsonIcon,
+  orc: OrcIcon,
+  avro: AvroIcon,
+};
 
 /** Rótulo legível do formato; formato desconhecido é exibido como veio. */
 export function tableFormatLabel(format: string): string {

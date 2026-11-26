@@ -2,16 +2,26 @@
  * Rótulos e ícones de exibição dos catálogos, compartilhados pela árvore do Catalog e pelo painel
  * Catalog info. Só exibição: o nome real (`spark_catalog`) segue em chaves, API e requisições.
  */
-import { HudiIcon, IcebergIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
+import { GlueIcon, IcebergIcon, SparkIcon, type TechIcon } from "../shell/techIcons";
 
 /** Nome real do catálogo de sessão do Spark (usado em chaves, API e requisições). */
 export const SPARK_CATALOG = "spark_catalog";
 
-/** Nó só de exibição das tabelas Hudi: os schemas são do `spark_catalog`. */
-export const HUDI_CATALOG = "hudi";
+/**
+ * Catálogo AWS Glue local (endpoint `/glue`): a UI cria e exclui schemas e tira tabelas do registro
+ * ("Remove from catalog"), como no `spark_catalog`.
+ */
+export const GLUE_CATALOG = "glue";
+
+/** Nome real do catálogo Iceberg (usado em chaves, API e requisições). */
+export const ICEBERG_CATALOG = "iceberg";
 
 const CATALOG_LABELS: Record<string, string> = { [SPARK_CATALOG]: "spark" };
-const CATALOG_ICONS: Record<string, TechIcon> = { [SPARK_CATALOG]: SparkIcon, iceberg: IcebergIcon, [HUDI_CATALOG]: HudiIcon };
+const CATALOG_ICONS: Record<string, TechIcon> = {
+  [SPARK_CATALOG]: SparkIcon,
+  [ICEBERG_CATALOG]: IcebergIcon,
+  [GLUE_CATALOG]: GlueIcon,
+};
 
 /** Rótulo exibido do catálogo (`spark_catalog` → "spark"); os demais aparecem pelo nome real. */
 export function catalogLabel(name: string): string {

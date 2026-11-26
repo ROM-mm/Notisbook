@@ -1,20 +1,15 @@
 """Iceberg REST catalog para o kernel Docker: o `SparkCatalog` do container usa o catálogo `iceberg` só por aqui.
 
-Autenticação pelo token de runtime da sessão (o mesmo de `/api/runtime-catalog`, nunca o da UI) e regra de
-Host de runtime. Todo erro sai como `ErrorModel` (`{"error": {message, type, code}}`), inclusive 401/403 de
-autenticação. Recusa de operação é 403/400 (409 faria o cliente repetir; 5xx viraria estado de commit
-desconhecido); 409 só para requisito violado ou CAS perdido, 500 só se o estado é realmente desconhecido.
+Autenticação pelo token de runtime da sessão (o mesmo de `/api/runtime-catalog`, nunca o da UI) e regra de Host de
+runtime. Todo erro sai como `ErrorModel` (`{"error": {message, type, code}}`), inclusive 401/403. Recusa de operação é
+403/400 (409 faria o cliente repetir; 5xx viraria estado de commit desconhecido); 409 só para requisito violado ou CAS
+perdido, 500 só se o estado é realmente desconhecido. O servidor grava o `metadata.json` (criação exclusiva) e faz o CAS
+de `metadata_location` no SQLite do backend; o `pyiceberg` entra só como biblioteca de domínio.
 
-No protocolo REST quem grava o `metadata.json` é o servidor: o `pyiceberg` (sem extras) entra só como biblioteca
-de domínio (modelos, `validate`, `update_table_metadata`, serialização). A gravação do arquivo (criação exclusiva)
-e o CAS de `metadata_location` usam o SQLite do backend, com o mesmo predicado do JdbcCatalog do runtime local.
-
-Não há warehouse local. O namespace decide a camada: a location de uma tabela é `s3a://notislake/<camada>/<t>` (padrão
-quando o cliente não envia `location`) ou, como externa, uma pasta da mesma camada ou uma pasta local montada na sessão.
-Antes de gravar qualquer metadado o servidor recusa (400, com o código entre parênteses) namespace fora das camadas,
-location fora da camada, pasta que se sobrepõe a outra tabela e nome `<ns>.<t>` já registrado no outro catálogo. O
-backend nunca apaga arquivos de tabela: o purge de `s3a` é recusado e o de tabela local só remove a linha. Tabelas `s3a`
-têm o metadata gravado por criação exclusiva no bucket, só com a conexão com que o kernel abriu (fingerprint).
+Sem warehouse local. A location é `s3a://notisbook-managed/<ns>/<t>` (gerenciada, padrão sem `location`) ou, externa,
+uma pasta de outro bucket ou local montada. Antes de gravar, recusa (400, código entre parênteses) bucket reservado,
+sobreposição, pasta com exclusão pendente e nome `<ns>.<t>` do outro catálogo. O backend nunca apaga arquivos: purge de
+`s3a` é recusado e o DROP de gerenciada enfileira a pasta em `nb_pending_deletions` (o kernel a apaga).
 """
 
 import asyncio
@@ -27,6 +22,7 @@ import sqlite3
 import uuid
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -53,8 +49,15 @@ from pyiceberg.table.update import (
     update_table_metadata,
 )
 
-from ..catalog import iceberg_jdbc
-from ..catalog.registry import ERR_NAME_IN_OTHER_CATALOG, all_table_locations, local_path, table_name_exists
+from ..catalog import glue_repo, iceberg_jdbc
+from ..catalog.registry import (
+    ERR_NAME_IN_OTHER_CATALOG,
+    all_table_locations,
+    enqueue_deletion,
+    local_path,
+    pending_locations,
+    table_name_exists,
+)
 from ..catalog.store import catalog_db_path, connect
 from ..fs_safety import is_within
 from ..notislake import locations, objectstore
@@ -84,7 +87,6 @@ ENDPOINTS = (
     "POST /v1/{prefix}/tables/rename",
     "POST /v1/{prefix}/namespaces/{namespace}/tables/{table}/metrics",
 )
-CANNOT_DROP_LAYER = "cannot_drop_layer"
 NOT_SUPPORTED_MESSAGE = "Operação não suportada pelo catálogo Iceberg do runtime Docker do Notisbook"
 MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_UPDATES = 1000
@@ -168,6 +170,8 @@ async def _authenticate(request: Request) -> RuntimeGrant:
         kind = "NotAuthorizedException" if exc.status_code == 401 else "ForbiddenException"
         message = "Não autorizado" if exc.status_code == 401 else "Host não permitido"
         raise IcebergError(exc.status_code, kind, message) from None
+    if grant.glue:
+        raise IcebergError(403, "ForbiddenException", "O runtime Glue não usa o catálogo Iceberg do Notisbook")
     return grant
 
 
@@ -221,7 +225,7 @@ def _is_s3a(location: str) -> bool:
 
 
 class _Store:
-    """Conexão do bucket notislake numa requisição; só é resolvida quando uma tabela `s3a` é tocada.
+    """Conexão do object store do app numa requisição; só é resolvida quando uma tabela `s3a` é tocada.
 
     `opener` serve a leitura de metadata. A gravação só vale com a conexão com que o kernel abriu.
     """
@@ -241,11 +245,11 @@ class _Store:
         try:
             conn = self.opener()
         except ConfigInvalid:
-            raise _s3a_refused("A configuração do notislake é inválida; corrija-a e reinicie o kernel", commit) from None
+            raise _s3a_refused("A configuração do S3 é inválida; corrija-a e reinicie o kernel", commit) from None
         except objectstore.Unavailable:
-            raise _unavailable("O armazenamento notislake está indisponível", commit) from None
+            raise _unavailable("O armazenamento S3 está indisponível", commit) from None
         if not hmac.compare_digest(expected, fingerprint(conn)):
-            raise _s3a_refused("A conexão do notislake mudou depois da abertura do kernel; reinicie-o para gravar em s3a", commit)
+            raise _s3a_refused("A conexão do S3 mudou depois da abertura do kernel; reinicie-o para gravar em s3a", commit)
         self._writer = conn
         return conn
 
@@ -365,7 +369,7 @@ def _load_table(
         except iceberg_jdbc.MetadataOutsideRoot:
             raise _outside_mounts() from None
         except iceberg_jdbc.MetadataStoreUnavailable:
-            raise _unavailable("O armazenamento notislake está indisponível", False) from None
+            raise _unavailable("O armazenamento S3 está indisponível", False) from None
         except iceberg_jdbc.IcebergMetadataError:
             raise IcebergError(500, "ServiceFailureException", "Não foi possível ler o metadata da tabela") from None
         return {"metadata-location": location, "metadata": _disable_gc(metadata), "config": {}}
@@ -499,16 +503,16 @@ async def _write[T](request: Request, func: Callable[[sqlite3.Connection, bool],
 
 def _outside_mounts() -> IcebergError:
     return IcebergError(
-        403, "ForbiddenException", "A tabela fica fora das pastas montadas no container e do notislake e não é acessível ao runtime Docker"
+        403, "ForbiddenException", "A tabela fica fora das pastas montadas no container e dos buckets S3 e não é acessível ao runtime Docker"
     )
 
 
 def _read_raw_metadata(location: str, grant: RuntimeGrant, store: _Store) -> dict[str, Any]:
-    """`metadata.json` local (dentro das pastas montadas) ou em `s3a://notislake/...` (lido com teto)."""
+    """`metadata.json` local (dentro das pastas montadas) ou em `s3a://<bucket>/...` (lido com teto)."""
     if not _is_s3a(location):
         return iceberg_jdbc.read_metadata_within(location, grant.roots)
     try:
-        locations.parse_notislake(location)
+        locations.parse_location(location)
     except locations.InvalidLocation:
         raise iceberg_jdbc.MetadataOutsideRoot("metadata outside the allowed roots") from None
     return iceberg_jdbc.read_metadata(location, store.opener)
@@ -527,50 +531,54 @@ def _table_path(location: str, grant: RuntimeGrant) -> Path:
         real_root = Path(os.path.realpath(root))
         if real != real_root and is_within(real, real_root):
             return real
-    raise _bad_request("A location deve ficar numa pasta montada no container ou em s3a://notislake")
+    raise _bad_request("A location deve ficar numa pasta montada no container ou em s3a://<bucket>/<pasta>")
 
 
-def _s3a_table(location: str) -> locations.NotislakeLocation:
-    """Location `s3a://notislake/<camada>/<dataset>[/...]` de uma tabela; 400 se inválida ou fora do notislake.
+def _s3a_table(location: str) -> locations.Location:
+    """Location `s3a://<bucket>/<pasta>[/...]` de uma tabela; 400 se inválida.
 
-    Só a forma é validada aqui; camada, nome e sobreposição dependem do catálogo (`_require_destination`).
+    Só a forma é validada aqui; bucket reservado, nome e sobreposição dependem do catálogo (`_require_destination`).
     """
     try:
-        return locations.parse_notislake(location)
+        return locations.parse_location(location)
     except locations.InvalidLocation:
-        raise _bad_request("A location s3a deve ser s3a://notislake/<camada>/<dataset> sem segmentos vazios, '.' ou '..'") from None
+        raise _bad_request("A location s3a deve ser s3a://<bucket>/<pasta> sem segmentos vazios, '.' ou '..'") from None
 
 
-def _table_target(location: str, grant: RuntimeGrant) -> Path | locations.NotislakeLocation:
+def _table_target(location: str, grant: RuntimeGrant) -> Path | locations.Location:
     """Destino de uma tabela nova ou escrita: pasta local (`_table_path`) ou location `s3a` do notislake."""
     if _is_s3a(location):
         return _s3a_table(location)
     return _table_path(location, grant)
 
 
-def _registered_folder(metadata_location: str) -> Path | locations.NotislakeLocation | None:
+def _registered_folder(metadata_location: str) -> Path | locations.Location | None:
     """Pasta (local) ou prefixo (`s3a`) da tabela dona de `metadata_location`; `None` se não for reconhecível."""
     folder = iceberg_jdbc.table_folder(metadata_location)
     if folder is not None:
         return folder
     prefix = iceberg_jdbc.table_prefix(metadata_location)
-    return locations.parse_notislake(prefix) if prefix is not None else None
+    return locations.parse_location(prefix) if prefix is not None else None
 
 
-def _notislake_uri(location: str) -> str | None:
+def _s3_uri(location: str) -> str | None:
     try:
-        return locations.parse_notislake(location).uri
+        return locations.parse_location(location).uri
     except locations.InvalidLocation:
         return None
 
 
 _DESTINATION_MESSAGES = {
-    "schema_not_layer": "O namespace precisa ser uma camada do notislake (bronze, silver ou gold) para gravar em s3a",
-    "outside_layer": "A location deve ficar dentro da camada do namespace",
+    "reserved_bucket": "O bucket notisbook-managed é reservado; use uma location em outro bucket ou omita-a",
     "overlaps_table": "A location se sobrepõe à pasta de outra tabela registrada",
-    "too_shallow": "A location s3a deve ter ao menos <camada>/<dataset>",
-    "bad_segment": "A location ou o nome da tabela tem segmento inválido",
-    "not_notislake": "A location deve ficar no bucket notislake",
+    "pending_cleanup": "A pasta da tabela anterior ainda aguarda exclusão por um kernel Spark/Glue; rode uma célula nele e tente de novo",
+    "managed_rename": "Tabela gerenciada não pode ser renomeada: a pasta fica em notisbook-managed/<namespace>/<tabela>; crie a nova e copie os dados",
+    "too_shallow": "A location s3a deve ter ao menos uma pasta dentro do bucket",
+    "bad_segment": "A location, o namespace ou o nome da tabela tem segmento inválido",
+    "bad_bucket": "O nome do bucket da location é inválido",
+    "not_s3": "A location deve ser s3a://<bucket>/<pasta>",
+    "schema_location_not_managed": "A location do namespace deve ser s3a://notisbook-managed/<namespace>",
+    "namespace_case_collision": "Já existe um namespace que difere só pela caixa de letras",
 }
 
 
@@ -580,9 +588,11 @@ def _destination_refused(code: str) -> IcebergError:
 
 
 def _require_free_name(conn: sqlite3.Connection, ns: str, table: str) -> None:
-    """400 se `<ns>.<t>` já existe no registro Delta/Parquet (as duas pastas coincidiriam no notislake)."""
+    """400 se `<ns>.<t>` já existe no registro Delta/Parquet ou no `glue` (as pastas coincidiriam no notislake)."""
     if table_name_exists(conn, ns, table):
         raise _bad_request(f"A tabela já existe no catálogo spark_catalog ({ERR_NAME_IN_OTHER_CATALOG})")
+    if glue_repo.table_name_exists_in_glue(conn, ns, table):
+        raise _bad_request(f"A tabela já existe no catálogo glue ({ERR_NAME_IN_OTHER_CATALOG})")
 
 
 def _require_no_overlap(conn: sqlite3.Connection, folder: Path | None) -> None:
@@ -601,27 +611,22 @@ def _require_no_overlap(conn: sqlite3.Connection, folder: Path | None) -> None:
                 raise _bad_request("A location se sobrepõe à pasta de outra tabela registrada")
 
 
-def _require_exact_layer_case(ns: str) -> None:
-    """400 se `ns` é uma camada só na caixa (`Bronze`): no JdbcCatalog ele vira pasta própria, fora das camadas."""
-    if locations.is_layer_case_variant(ns):
-        raise _destination_refused("schema_not_layer")
-
-
 def _require_destination(
-    conn: sqlite3.Connection, ns: str, table: str, target: Path | locations.NotislakeLocation, own: str | None = None
+    conn: sqlite3.Connection, ns: str, table: str, target: Path | locations.Location, own: str | None = None
 ) -> None:
-    """Recusa (400) antes de gravar: nome já usado no outro catálogo e destino fora da regra da camada.
+    """Recusa (400) antes de gravar: nome já usado no outro catálogo e destino fora da regra.
 
-    Em `s3a` vale `locations.table_destination` (camada pelo namespace, sem sobrepor outra tabela; `own` é a pasta da
-    própria tabela, ignorada); em pasta local, a checagem de sobreposição local.
+    Em `s3a` vale `locations.table_destination` (bucket reservado só na forma gerenciada, sem sobrepor outra tabela, do
+    `glue` inclusive, nem pasta com exclusão pendente; `own` é a pasta da própria tabela, ignorada); em pasta local, a
+    checagem de sobreposição local.
     """
     _require_free_name(conn, ns, table)
-    if not isinstance(target, locations.NotislakeLocation):
+    if not isinstance(target, locations.Location):
         _require_no_overlap(conn, target)
         return
-    _require_exact_layer_case(ns)
     try:
-        locations.table_destination(ns, table, target.uri, iceberg_jdbc.known_table_locations(conn), own)
+        known = [*iceberg_jdbc.known_table_locations(conn), *glue_repo.table_locations(conn)]
+        locations.table_destination(ns, table, target.uri, known, own, pending_locations(conn))
     except locations.InvalidLocation as exc:
         raise _destination_refused(exc.code) from None
 
@@ -645,25 +650,29 @@ def _next_version(previous_location: str | None) -> int:
     return int(match.group(1)) + 1 if match else 0
 
 
-def _remove_remote_quiet(conn: objectstore.Connection, key: str) -> None:
+def _remove_remote_quiet(conn: objectstore.Connection, bucket: str, key: str) -> None:
     """Remove só o objeto `key` (nunca por prefixo); falha vira aviso."""
     try:
-        objectstore.delete_key(conn, key)
+        objectstore.delete_key(conn, key, bucket=bucket)
     except objectstore.ObjectStoreError:
         log.warning("não foi possível remover um metadata.json não registrado do bucket")
 
 
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def _write_remote_metadata(
-    table: locations.NotislakeLocation, name: str, data: bytes, store: _Store, commit: bool
+    table: locations.Location, name: str, data: bytes, store: _Store, commit: bool
 ) -> tuple[Callable[[], None], str, bytes]:
     """Grava `<prefixo>/metadata/<name>` no bucket por criação exclusiva, só com a conexão validada pelo fingerprint."""
     conn = store.writer(commit)
     key = f"{table.key}/metadata/{name}"
     try:
-        objectstore.put_exclusive(conn, key, data)
+        objectstore.put_exclusive(conn, key, data, bucket=table.bucket)
     except objectstore.ObjectStoreError:
         raise _unavailable("Não foi possível gravar o metadata da tabela", commit) from None
-    return (lambda: _remove_remote_quiet(conn, key)), f"{table.uri}/metadata/{name}", data
+    return (lambda: _remove_remote_quiet(conn, table.bucket, key)), f"{table.uri}/metadata/{name}", data
 
 
 def _write_metadata_file(
@@ -679,7 +688,7 @@ def _write_metadata_file(
         raise _bad_request("O metadata resultante excede o limite suportado")
     destination = _table_target(metadata.location, grant)
     name = f"{_next_version(previous_location):05d}-{uuid.uuid4()}.metadata.json"
-    if isinstance(destination, locations.NotislakeLocation):
+    if isinstance(destination, locations.Location):
         return _write_remote_metadata(destination, name, data, store, commit)
     table_dir = destination
     target = table_dir / "metadata" / name
@@ -772,7 +781,7 @@ def _load_current(location: str, grant: RuntimeGrant, store: _Store) -> TableMet
     except iceberg_jdbc.MetadataOutsideRoot:
         raise _outside_mounts() from None
     except iceberg_jdbc.MetadataStoreUnavailable:
-        raise _unavailable("O armazenamento notislake está indisponível", False) from None
+        raise _unavailable("O armazenamento S3 está indisponível", False) from None
     except iceberg_jdbc.IcebergMetadataError:
         raise IcebergError(422, "UnprocessableEntityException", "Não foi possível ler o metadata da tabela") from None
     try:
@@ -846,8 +855,7 @@ def _persist(
 
 
 def _default_location(ns: str, table: str) -> str:
-    """Location padrão MANAGED `s3a://notislake/<camada>/<t>`; 400 se o namespace não é uma camada."""
-    _require_exact_layer_case(ns)
+    """Location padrão MANAGED `s3a://notisbook-managed/<ns>/<t>`; 400 se um nome não cabe como pasta."""
     try:
         return locations.managed_location(ns, table)
     except locations.InvalidLocation as exc:
@@ -864,7 +872,7 @@ def _create_table(grant: RuntimeGrant, ns: str, body: dict[str, Any], store: _St
     location = body.get("location")
     if location is not None and not isinstance(location, str):
         raise _bad_request("location inválida")
-    final_location = location or _default_location(ns, table)
+    final_location = locations.canonical(location) if location else _default_location(ns, table)  # `s3://` é `s3a://`
     _table_target(final_location, grant)
     _check_data_paths(properties, final_location)
     try:
@@ -940,9 +948,9 @@ def _commit_table(
 
 
 def _require_inside_roots(location: str, grant: RuntimeGrant) -> None:
-    """403 se o metadata da tabela está fora das pastas montadas e do notislake (como load/commit)."""
+    """403 se o metadata da tabela está fora das pastas montadas e dos buckets s3a válidos (como load/commit)."""
     if _is_s3a(location):
-        if _notislake_uri(location) is None:
+        if _s3_uri(location) is None:
             raise _outside_mounts()
         return
     if not iceberg_jdbc.location_within_roots(location, grant.roots):
@@ -960,10 +968,14 @@ def _drop_table(
             _require_inside_roots(location, grant)
         if purge and location and _is_s3a(location):  # S3 não tem rename: nada de `s3a` é apagado
             raise _bad_request("O purge de tabelas em s3a não é suportado: o purge foi recusado e nada foi removido")
-        # Sem warehouse local, nenhuma tabela é apagada pelo backend: o purge de tabela local só remove a linha.
+        # Sem warehouse local, nenhuma tabela é apagada pelo backend: o purge de tabela local só remove a linha e a
+        # gerenciada (`<warehouse>/<ns>/<t>`) entra na fila de exclusão, que o kernel executa depois de rechecar o uso.
+        managed = bool(location) and _is_s3a(location) and iceberg_jdbc.is_managed_s3a(location, ns, table)
         with _write_txn(conn):
             if not iceberg_jdbc.delete_table_row(conn, ns, table, has_type):
                 raise _no_such_table()
+            if managed:
+                enqueue_deletion(conn, iceberg_jdbc.ICEBERG_CATALOG, (ns, table), iceberg_jdbc.table_prefix(location) or "", _now())
 
     return run
 
@@ -972,13 +984,18 @@ def _drop_table(
 async def create_namespace(request: Request) -> dict[str, Any]:
     body = await _json_body(request)
     ns = _new_namespace(body.get("namespace"))
-    _require_exact_layer_case(ns)
     properties = _string_map(body.get("properties"), "Propriedades")
     if "exists" in properties:
         raise _bad_request("A propriedade 'exists' é reservada")
+    if "location" in properties and not locations.schema_location_matches(ns, properties["location"]):
+        raise _destination_refused("schema_location_not_managed")
 
     def run(conn: sqlite3.Connection, _has_type: bool) -> None:
         with _write_txn(conn):
+            if iceberg_jdbc.namespace_exists(conn, ns):
+                raise IcebergError(409, "AlreadyExistsException", "O namespace já existe")
+            if iceberg_jdbc.namespace_exists(conn, ns, ignore_case=True):
+                raise _destination_refused("namespace_case_collision")
             if not iceberg_jdbc.create_namespace(conn, ns):
                 raise IcebergError(409, "AlreadyExistsException", "O namespace já existe")
             iceberg_jdbc.set_namespace_properties(conn, ns, properties)
@@ -990,8 +1007,6 @@ async def create_namespace(request: Request) -> dict[str, Any]:
 @router.delete("/v1/namespaces/{namespace}")
 async def drop_namespace(request: Request, namespace: str) -> Response:
     ns = parse_namespace(namespace)
-    if ns in locations.LAYERS:  # grafia exata: `Bronze` legado não é camada no Iceberg e precisa poder sair
-        raise IcebergError(403, "ForbiddenException", f"As camadas do notislake não podem ser excluídas ({CANNOT_DROP_LAYER})")
 
     def run(conn: sqlite3.Connection, has_type: bool) -> None:
         with _write_txn(conn):
@@ -1069,11 +1084,14 @@ async def rename_table(request: Request, grant: Grant) -> Response:
             if iceberg_jdbc.table_row_exists(conn, target[0], target[1]):
                 raise IcebergError(409, "AlreadyExistsException", "O destino já existe")
             prefix = iceberg_jdbc.table_prefix(current) if current and _is_s3a(current) else None
+            if prefix is not None and locations.targets_managed(prefix):
+                # a pasta gerenciada é `<ns>/<t>` do próprio nome e não muda de lugar: o rename a deixaria órfã do nome
+                raise _destination_refused("managed_rename")
             if prefix is None:
                 _require_free_name(conn, target[0], target[1])
-            else:  # a pasta não muda no rename: o novo nome precisa continuar numa camada válida
+            else:  # externa: a pasta não muda, e continua sem sobrepor outra tabela
                 try:
-                    prefix_location = locations.parse_notislake(prefix)
+                    prefix_location = locations.parse_location(prefix)
                 except locations.InvalidLocation as exc:
                     raise _destination_refused(exc.code) from None
                 _require_destination(conn, target[0], target[1], prefix_location, own=prefix)

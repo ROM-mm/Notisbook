@@ -1,7 +1,9 @@
 /**
- * Árvore somente leitura do bucket Notislake (padrão ARIA "tree" plana, como o
- * `FileTree`). Cada prefixo é listado ao expandir; páginas extras vêm pela linha
- * "Load more…". A única ação é copiar o caminho `s3a://<bucket>/<chave>`.
+ * Árvore do Notislake (padrão ARIA "tree" plana, como o `FileTree`): cada bucket é
+ * uma raiz `s3://<bucket>`; cada prefixo é listado ao expandir (sempre relista);
+ * páginas extras vêm pela linha "Load more…". O botão direito copia o caminho
+ * `s3://<bucket>/<chave>`, recarrega bucket/pasta e, só no MinIO local, exclui bucket,
+ * pasta ou arquivo (sem proteção; bucket e pasta confirmam com a contagem de objetos).
  */
 import {
   useCallback,
@@ -12,15 +14,19 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { contentChangedCount, notislakeManageErrorMessage } from "../../api/notislake";
 import {
+  isNotislakeManageable,
   isNotislakeTreeAvailable,
+  splitNodeKey,
   useNotislake,
   type NotislakeDirState,
 } from "../../state/notislake";
+import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
-import { DeltaIcon } from "../shell/techIcons";
+import { DeltaIcon, S3Icon } from "../shell/techIcons";
 import { BrandIcon } from "./BrandIcon";
 import { extension } from "./fileExtension";
 import { fileFormatIcon } from "./fileFormatIcon";
@@ -28,10 +34,12 @@ import styles from "./DataPanel.module.css";
 import { INDENT_PX, treeIndent } from "./treeIndent";
 
 interface TreeNode {
-  /** Chave S3 completa; pastas terminam em "/". */
+  /** Chave do nó no store (`<bucket>/<chave S3>`); pastas e buckets terminam em "/". */
   key: string;
   name: string;
   isDir: boolean;
+  /** Raiz `s3://<bucket>`. */
+  isBucket?: boolean;
   /** Tamanho em bytes; só para arquivos. */
   bytes?: number;
 }
@@ -39,7 +47,7 @@ interface TreeNode {
 type Row =
   | { kind: "node"; rowKey: string; node: TreeNode; level: number; dir: string; pos: number; size: number }
   | { kind: "more"; rowKey: string; dir: string; level: number }
-  | { kind: "status"; rowKey: string; level: number; text: string; error: boolean; retryDir?: string };
+  | { kind: "status"; rowKey: string; level: number; text: string; error: boolean; onRetry?: () => void };
 
 type NavRow = Exclude<Row, { kind: "status" }>;
 
@@ -61,9 +69,9 @@ const SIZE_UNITS = ["B", "KB", "MB", "GB", "TB"];
 /** Pastas da raiz exibidas atenuadas (área de pouso, fora das camadas). */
 const MUTED_ROOT_DIRS = new Set(["landing"]);
 /**
- * Pastas da raiz sempre exibidas, nesta ordem: no modo manual (S3 externo) os prefixos podem
- * não existir no bucket, por isso a lista é fixa na exibição. Expandir uma pasta inexistente
- * lista vazio.
+ * Só no modo manual (S3 externo): pastas da raiz do bucket sempre exibidas, nesta ordem, porque
+ * os prefixos podem não existir lá. Expandir uma pasta inexistente lista vazio. No MinIO local a
+ * raiz já vem ordenada pelo backend (landing, bronze, silver, gold e depois alfabética).
  */
 const FIXED_ROOT_DIRS = ["landing", "bronze", "silver", "gold"];
 
@@ -84,19 +92,27 @@ function formatSize(bytes: number): string {
 
 /**
  * Pastas primeiro, depois objetos; marcadores de pasta (chave igual ao prefixo ou terminada em "/") ficam de fora.
- * Na raiz (sem erro de listagem), `FIXED_ROOT_DIRS` vêm antes, e as demais pastas seguem na ordem da listagem.
+ * No modo manual, na raiz do bucket (sem erro de listagem), `FIXED_ROOT_DIRS` vêm antes.
  */
-function childrenOf(dir: string, state: NotislakeDirState): TreeNode[] {
+function childrenOf(dir: string, state: NotislakeDirState, manual: boolean): TreeNode[] {
+  const { bucket, prefix } = splitNodeKey(dir);
   const fixed: TreeNode[] =
-    dir === "" && !state.error ? FIXED_ROOT_DIRS.map((name) => ({ key: `${name}/`, name, isDir: true })) : [];
+    manual && prefix === "" && !state.error
+      ? FIXED_ROOT_DIRS.map((name) => ({ key: `${dir}${name}/`, name, isDir: true }))
+      : [];
   const fixedKeys = new Set(fixed.map((n) => n.key));
   const folders = state.prefixes
+    .map((p) => `${bucket}/${p}`)
     .filter((key) => !fixedKeys.has(key))
     .map((key) => ({ key, name: baseName(key, dir), isDir: true }));
   const files = state.objects
-    .filter((o) => o.key !== dir && !o.key.endsWith("/"))
-    .map((o) => ({ key: o.key, name: baseName(o.key, dir), isDir: false, bytes: o.size }));
+    .filter((o) => o.key !== prefix && !o.key.endsWith("/"))
+    .map((o) => ({ key: `${bucket}/${o.key}`, name: baseName(`${bucket}/${o.key}`, dir), isDir: false, bytes: o.size }));
   return [...fixed, ...folders, ...files];
+}
+
+function pushNode(out: Row[], node: TreeNode, level: number, dir: string, pos: number, size: number): void {
+  out.push({ kind: "node", rowKey: `${node.isDir ? "dir" : "obj"}:${node.key}`, node, level, dir, pos, size });
 }
 
 function buildRows(
@@ -104,27 +120,21 @@ function buildRows(
   level: number,
   dirs: Record<string, NotislakeDirState>,
   expanded: Record<string, true>,
+  manual: boolean,
+  refresh: (key: string) => void,
   out: Row[],
 ): void {
   const state = dirs[dir];
   if (!state) return;
-  const nodes = childrenOf(dir, state);
+  const nodes = childrenOf(dir, state, manual);
   nodes.forEach((node, i) => {
-    out.push({
-      kind: "node",
-      rowKey: `${node.isDir ? "dir" : "obj"}:${node.key}`,
-      node,
-      level,
-      dir,
-      pos: i + 1,
-      size: nodes.length,
-    });
-    if (node.isDir && expanded[node.key]) buildRows(node.key, level + 1, dirs, expanded, out);
+    pushNode(out, node, level, dir, i + 1, nodes.length);
+    if (node.isDir && expanded[node.key]) buildRows(node.key, level + 1, dirs, expanded, manual, refresh, out);
   });
   if (state.loading) {
     out.push({ kind: "status", rowKey: `loading:${dir}`, level, text: "Loading…", error: false });
   } else if (state.error) {
-    out.push({ kind: "status", rowKey: `error:${dir}`, level, text: state.error, error: true, retryDir: dir });
+    out.push({ kind: "status", rowKey: `error:${dir}`, level, text: state.error, error: true, onRetry: () => refresh(dir) });
   } else if (nodes.length === 0 && state.nextToken === null) {
     out.push({ kind: "status", rowKey: `empty:${dir}`, level, text: "Empty", error: false });
   }
@@ -133,8 +143,150 @@ function buildRows(
   }
 }
 
+/** Raízes: um nó por bucket (`s3://<bucket>`), com a subárvore aberta logo abaixo. */
+function buildBucketRows(
+  buckets: string[] | null,
+  loading: boolean,
+  error: string | null,
+  dirs: Record<string, NotislakeDirState>,
+  expanded: Record<string, true>,
+  manual: boolean,
+  actions: { refresh: (key: string) => void; loadBuckets: () => void },
+  out: Row[],
+): void {
+  if (buckets === null) {
+    if (error) {
+      out.push({ kind: "status", rowKey: "buckets:error", level: 1, text: error, error: true, onRetry: actions.loadBuckets });
+    } else if (loading) {
+      out.push({ kind: "status", rowKey: "buckets:loading", level: 1, text: "Loading…", error: false });
+    }
+    return;
+  }
+  buckets.forEach((bucket, i) => {
+    const key = `${bucket}/`;
+    pushNode(out, { key, name: `s3://${bucket}`, isDir: true, isBucket: true }, 1, "", i + 1, buckets.length);
+    if (expanded[key]) buildRows(key, 2, dirs, expanded, manual, actions.refresh, out);
+  });
+  // Uma recarga manual que falha mantém a última lista conhecida e avisa ao final dela, com retry.
+  if (error) {
+    out.push({ kind: "status", rowKey: "buckets:error", level: 1, text: error, error: true, onRetry: actions.loadBuckets });
+  } else if (buckets.length === 0) {
+    out.push({ kind: "status", rowKey: "buckets:empty", level: 1, text: "No buckets", error: false });
+  }
+}
+
+/** Caminho `s3://` do nó; o bucket é copiado sem a barra final. */
+function s3Path(node: TreeNode): string {
+  return `s3://${node.isBucket ? node.key.slice(0, -1) : node.key}`;
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+type DeleteKind = "bucket" | "folder" | "file";
+
+/** testIds literais do item de menu e do diálogo de cada exclusão. */
+const DELETE_TEST_IDS: Record<DeleteKind, { item: string; dialog: string }> = {
+  bucket: { item: "notislake-delete-bucket", dialog: "notislake-delete-bucket-dialog" },
+  folder: { item: "notislake-delete-folder", dialog: "notislake-delete-folder-dialog" },
+  file: { item: "notislake-delete-file", dialog: "notislake-delete-file-dialog" },
+};
+
+function deleteKind(node: TreeNode): DeleteKind {
+  return node.isBucket ? "bucket" : node.isDir ? "folder" : "file";
+}
+
+/** Bucket/pasta: prévia da contagem → confirmação → exclusão com `expected_count`; 409 `content_changed` reconfirma com a contagem nova. */
+function DeleteNodeDialog({
+  node,
+  onDeleted,
+  onClose,
+}: {
+  node: TreeNode;
+  onDeleted: (deleted: number) => void;
+  onClose: () => void;
+}) {
+  const { bucket, prefix } = splitNodeKey(node.key);
+  const kind = deleteKind(node);
+  const counted = kind !== "file";
+  const [count, setCount] = useState<number | null>(null);
+  const [changed, setChanged] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!counted) return;
+    let alive = true;
+    useNotislake
+      .getState()
+      .summary(bucket, prefix)
+      .then((n) => alive && setCount(n))
+      .catch((err: unknown) => alive && setError(notislakeManageErrorMessage(err)));
+    return () => {
+      alive = false;
+    };
+  }, [counted, bucket, prefix]);
+
+  async function confirm() {
+    const store = useNotislake.getState();
+    setBusy(true);
+    setError(null);
+    try {
+      if (kind === "bucket") onDeleted(await store.deleteBucket(bucket, count ?? 0));
+      else if (kind === "folder") onDeleted(await store.deleteFolder(bucket, prefix, count ?? 0));
+      else onDeleted(await store.deleteObject(bucket, prefix));
+    } catch (err) {
+      const fresh = contentChangedCount(err);
+      if (fresh !== null) {
+        setCount(fresh);
+        setChanged(true);
+      } else {
+        setError(notislakeManageErrorMessage(err));
+      }
+      setBusy(false);
+    }
+  }
+
+  const label = node.isBucket ? bucket : node.name;
+  const path = s3Path(node);
+  return (
+    <ConfirmDialog
+      title={`Delete ${kind} '${label}'?`}
+      confirmLabel="Delete"
+      busyLabel="Deleting…"
+      danger
+      busy={busy}
+      confirmDisabled={counted && count === null}
+      error={error}
+      onConfirm={() => void confirm()}
+      onCancel={onClose}
+      testId={DELETE_TEST_IDS[kind].dialog}
+    >
+      {counted ? (
+        <>
+          <p>
+            <code>{path}</code>
+          </p>
+          {count !== null ? (
+            <p>
+              {changed ? "The content changed: " : ""}
+              {plural(count, "object", "objects")} will be permanently deleted.
+            </p>
+          ) : error ? null : (
+            <p>Counting objects…</p>
+          )}
+        </>
+      ) : (
+        <p>
+          <code>{path}</code> will be permanently deleted.
+        </p>
+      )}
+    </ConfirmDialog>
+  );
+}
+
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
   const ext = extension(node.name);
+  if (node.isBucket) return <BrandIcon icon={S3Icon} />;
   if (node.isDir) {
     if (node.name === "_delta_log" || ext === "delta") return <BrandIcon icon={DeltaIcon} />;
     return <FolderIcon size={14} />;
@@ -145,20 +297,25 @@ function NodeIcon({ node }: { node: TreeNode }): ReactNode {
 export function NotislakeTree() {
   const dirs = useNotislake((s) => s.dirs);
   const expanded = useNotislake((s) => s.expanded);
-  const bucket = useNotislake((s) => s.bucket);
+  const buckets = useNotislake((s) => s.buckets);
+  const bucketsLoading = useNotislake((s) => s.bucketsLoading);
+  const bucketsError = useNotislake((s) => s.bucketsError);
+  const manual = useNotislake((s) => s.status?.mode === "manual");
   const available = useNotislake((s) => isNotislakeTreeAvailable(s.status));
-  const hasRoot = useNotislake((s) => s.dirs[""] !== undefined);
-  const { toggle, expand, collapse, loadMore, loadRoot, refresh } = useNotislake.getState();
+  const manageable = useNotislake((s) => isNotislakeManageable(s.status));
+  const hasBuckets = buckets !== null;
+  const { toggle, expand, collapse, loadMore, ensureBuckets, loadBuckets, refresh } = useNotislake.getState();
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [deleting, setDeleting] = useState<TreeNode | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
   useEffect(() => {
-    // `hasRoot` volta a false após `reset()` (troca de conexão) e recarrega a raiz.
-    if (available && !hasRoot) loadRoot();
-  }, [available, hasRoot, loadRoot]);
+    // `hasBuckets` volta a false após `reset()` (troca de conexão) e recarrega a lista de buckets.
+    if (available && !hasBuckets) ensureBuckets();
+  }, [available, hasBuckets, ensureBuckets]);
 
   useEffect(() => {
     if (!feedback) return;
@@ -167,12 +324,8 @@ export function NotislakeTree() {
   }, [feedback]);
 
   async function copyUri(node: TreeNode) {
-    if (!bucket) {
-      setFeedback({ text: "Could not copy", error: true });
-      return;
-    }
     try {
-      await navigator.clipboard.writeText(`s3a://${bucket}/${node.key}`);
+      await navigator.clipboard.writeText(s3Path(node));
       setFeedback({ text: "Path copied", error: false });
     } catch {
       setFeedback({ text: "Could not copy", error: true });
@@ -201,16 +354,46 @@ export function NotislakeTree() {
     }
   }
 
-  const menuItems = (node: TreeNode): MenuItem[] => [
-    {
-      label: "Copy s3a:// path",
-      onSelect: () => void copyUri(node),
-      testId: "notislake-copy-s3a-path",
-    },
-  ];
+  /** Refresh de bucket/pasta fechado abre o nó (abrir já relista). */
+  function refreshNode(node: TreeNode) {
+    if (expanded[node.key]) refresh(node.key);
+    else expand(node.key);
+  }
+
+  function onDeleted(node: TreeNode, deleted: number) {
+    setDeleting(null);
+    setFeedback({ text: node.isDir ? `Deleted ${plural(deleted, "object", "objects")}` : "File deleted", error: false });
+  }
+
+  const menuItems = (node: TreeNode): MenuItem[] => {
+    const items: MenuItem[] = [
+      {
+        label: "Copy s3:// path",
+        onSelect: () => void copyUri(node),
+        testId: "notislake-copy-s3-path",
+      },
+    ];
+    if (node.isDir) {
+      items.push({ label: "Refresh", onSelect: () => refreshNode(node), testId: "notislake-refresh-node" });
+    }
+    // Criar/excluir só no MinIO local; nenhum bucket, pasta ou arquivo é protegido.
+    if (manageable) {
+      const kind = deleteKind(node);
+      items.push("separator", {
+        label: `Delete ${kind}…`,
+        danger: true,
+        onSelect: () => setDeleting(node),
+        testId: DELETE_TEST_IDS[kind].item,
+      });
+    }
+    return items;
+  };
 
   const rows: Row[] = [];
-  buildRows("", 1, dirs, expanded, rows);
+  buildBucketRows(buckets, bucketsLoading, bucketsError, dirs, expanded, manual, {
+    refresh,
+    loadBuckets: () => void loadBuckets(),
+  }, rows);
   const nav = rows.filter((r): r is NavRow => r.kind !== "status");
   const navIndex = new Map(nav.map((r, i) => [r.rowKey, i]));
   const activeKey = nav.some((r) => r.rowKey === focusKey) ? focusKey : (nav[0]?.rowKey ?? null);
@@ -279,8 +462,8 @@ export function NotislakeTree() {
                 style={indent}
               >
                 {row.text}
-                {row.retryDir !== undefined ? (
-                  <button type="button" className={`btn btn-ghost ${styles.treeRetry}`} onClick={() => refresh(row.retryDir)}>
+                {row.onRetry !== undefined ? (
+                  <button type="button" className={`btn btn-ghost ${styles.treeRetry}`} onClick={row.onRetry}>
                     Retry
                   </button>
                 ) : null}
@@ -316,7 +499,7 @@ export function NotislakeTree() {
           const { node } = row;
           const isOpen = node.isDir && Boolean(expanded[node.key]);
           const size = node.isDir ? null : node.bytes;
-          const muted = node.isDir && row.dir === "" && MUTED_ROOT_DIRS.has(node.name);
+          const muted = node.isDir && !node.isBucket && splitNodeKey(row.dir).prefix === "" && MUTED_ROOT_DIRS.has(node.name);
           return (
             <div
               key={row.rowKey}
@@ -326,7 +509,7 @@ export function NotislakeTree() {
               aria-setsize={row.size}
               aria-expanded={node.isDir ? isOpen : undefined}
               aria-selected={row.rowKey === focusKey}
-              title={node.key}
+              title={s3Path(node)}
               {...common}
               className={muted ? `${common.className} ${styles.treeMuted}` : common.className}
               onContextMenu={(e) => onContextMenu(e, node)}
@@ -357,6 +540,14 @@ export function NotislakeTree() {
           ariaLabel={`Actions for ${menu.node.name}`}
           onClose={closeMenu}
           returnFocusTo={menu.origin}
+        />
+      ) : null}
+      {deleting ? (
+        <DeleteNodeDialog
+          key={deleting.key}
+          node={deleting}
+          onDeleted={(n) => onDeleted(deleting, n)}
+          onClose={() => setDeleting(null)}
         />
       ) : null}
       <div

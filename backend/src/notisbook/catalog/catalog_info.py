@@ -17,7 +17,7 @@ MAX_NAMESPACES = 1000
 MASK = "********"
 STATUS_OK = "ok"
 STATUS_EMPTY = "empty"
-KNOWN_CATALOGS = (registry.SPARK_CATALOG, iceberg_jdbc.ICEBERG_CATALOG, registry.HUDI_CATALOG)
+KNOWN_CATALOGS = (registry.SPARK_CATALOG, iceberg_jdbc.ICEBERG_CATALOG)
 
 _SENSITIVE = re.compile(r"(?i)secret|password|token|access[.]?key|credential")
 # `user:pass@` (ou `user@`) logo após `://`, em qualquer URI, inclusive `jdbc:...://`.
@@ -36,21 +36,15 @@ def redact(key: str, value: str) -> tuple[str, bool]:
     return masked, masked != value
 
 
-def _conf_name(catalog: str) -> str:
-    """Nome do catálogo na config Spark: o `hudi` (só exibição) vive no `spark_catalog`."""
-    return registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else catalog
-
-
 def _config_for(home: Path, catalog: str) -> list[tuple[str, str]]:
-    """Linhas de `catalog_conf` do catálogo; o `hudi` herda as do `spark_catalog`. Vazio se `home` não serve de URL JDBC."""
+    """Linhas de `catalog_conf` do catálogo. Vazio se `home` não serve de URL JDBC."""
     try:
         conf = bundles.catalog_conf(home)
     except bundles.UnsupportedHome:
         return []
-    name = _conf_name(catalog)
-    prefix = f"{bundles.CATALOG_PREFIX}{name}"
+    prefix = f"{bundles.CATALOG_PREFIX}{catalog}"
     keep = [(k, v) for k, v in conf if k == prefix or k.startswith(f"{prefix}.")]
-    if name == registry.SPARK_CATALOG:
+    if catalog == registry.SPARK_CATALOG:
         keep += [(k, v) for k, v in conf if k == _WAREHOUSE_KEY]
     return keep
 
@@ -74,15 +68,15 @@ def _summary_or_status(conn: sqlite3.Connection | None, catalog: str) -> tuple[s
     if conn is None:
         layers = [{"name": ns, "tables": 0, "views": 0} for ns in registry.empty_display_names()]
         return STATUS_EMPTY, {**empty, "namespaces": layers}
-    return STATUS_OK, registry.catalog_summary(conn, hudi=catalog == registry.HUDI_CATALOG)
+    return STATUS_OK, registry.catalog_summary(conn)
 
 
 def build_catalog_info(home: Path, catalog: str, conn: sqlite3.Connection | None) -> dict[str, Any]:
-    """Painel do catálogo (`KNOWN_CATALOGS`); `sqlite3.Error` do spark/hudi sobe ao chamador, o do Iceberg vira status."""
+    """Painel do catálogo (`KNOWN_CATALOGS`); `sqlite3.Error` do spark sobe ao chamador, o do Iceberg vira status."""
     status, summary = _summary_or_status(conn, catalog)
     conf = _config_for(home, catalog)
     values = dict(conf)
-    prefix = f"{bundles.CATALOG_PREFIX}{_conf_name(catalog)}"
+    prefix = f"{bundles.CATALOG_PREFIX}{catalog}"
     is_iceberg = catalog == iceberg_jdbc.ICEBERG_CATALOG
     namespaces = summary["namespaces"]
     config = []
@@ -91,8 +85,8 @@ def build_catalog_info(home: Path, catalog: str, conn: sqlite3.Connection | None
         config.append({"key": key, "value": shown, "redacted": redacted})
     return {
         "name": catalog,
-        "kind": {registry.SPARK_CATALOG: "session", iceberg_jdbc.ICEBERG_CATALOG: "named"}.get(catalog, "display_group"),
-        "backing_catalog": registry.SPARK_CATALOG if catalog == registry.HUDI_CATALOG else None,
+        "kind": "session" if catalog == registry.SPARK_CATALOG else "named",
+        "backing_catalog": None,
         "status": status,
         "profile": PROFILE,
         "implementation": _safe(prefix, values.get(prefix)),

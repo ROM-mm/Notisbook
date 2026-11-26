@@ -7,6 +7,7 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ApiError, errorMessage } from "../../api/http";
 import {
+  MANAGED_BUCKET,
   deleteNotislakeConfig,
   getNotislakeConfig,
   putNotislakeConfig,
@@ -41,7 +42,7 @@ interface Loaded {
 
 const EMPTY_FORM = { name: "", endpoint: "", accessKey: "", region: DEFAULT_REGION, timeoutS: DEFAULT_TIMEOUT_S };
 
-type Feedback = { kind: "ok" | "error"; text: string } | null;
+type Feedback = { kind: "ok" | "error"; text: string; warning?: string } | null;
 
 export function NotislakeConnectionDialog({ open, onClose }: Props) {
   // Desmontar o corpo descarta o segredo digitado.
@@ -173,11 +174,16 @@ function DialogBody({ onClose }: { onClose: () => void }) {
     setFeedback(null);
     try {
       const result = await testNotislakeConnection(draft(), abortRef.current?.signal);
-      setFeedback(
-        result.ok
-          ? { kind: "ok", text: "Connection OK." }
-          : { kind: "error", text: redact(`${result.code}: ${result.message}`) },
-      );
+      if (!result.ok) {
+        setFeedback({ kind: "error", text: redact(`${result.code}: ${result.message}`) });
+      } else {
+        // No modo manual o app não cria bucket: sem o reservado, tabelas gerenciadas não têm onde gravar.
+        const warning =
+          result.source === "manual" && result.managed_bucket === false
+            ? `The ${MANAGED_BUCKET} bucket was not found. Create it on this endpoint before using managed tables.`
+            : undefined;
+        setFeedback({ kind: "ok", text: "Connection OK.", warning });
+      }
     } catch (err) {
       fail(err);
     } finally {
@@ -292,6 +298,11 @@ function DialogBody({ onClose }: { onClose: () => void }) {
           {feedback ? (
             <p className={feedback.kind === "ok" ? styles.dialogOk : styles.dialogError} role={feedback.kind === "ok" ? "status" : "alert"}>
               {feedback.text}
+            </p>
+          ) : null}
+          {feedback?.warning ? (
+            <p className={styles.notice} role="alert" data-testid="notislake-managed-bucket-warning">
+              {feedback.warning}
             </p>
           ) : null}
           {confirmReset ? (

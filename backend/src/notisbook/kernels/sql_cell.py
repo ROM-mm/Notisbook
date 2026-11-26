@@ -1,15 +1,17 @@
 """Spark SQL / DuckDB SQL cells and the shared result renderer for the user's kernel.
 
-The renderer lives in a hidden module (`_notisbook_display`) installed by an idempotent
-`ensure` snippet, so nothing leaks into the user's namespace. It builds the `display_data`
-bundle (HTML table + ASCII fallback, capped in rows and cell length) and registers a lazy
-`text/html` formatter for PySpark DataFrames.
-
-Row limits: SQL/DuckDB cells and a bare `df` last line show up to `MAX_ROWS`; `echo(df, n=...)`
-(1..`MAX_ROWS`, default `DISPLAY_ROWS`) goes through a marked `builtins.echo` wrapper.
-The query travels as a JSON string literal decoded in the kernel, never spliced into code.
-Spark cells never call `getOrCreate`. DuckDB cells keep one lazy in-memory connection in `STATE`,
-with autoinstall off; in the DuckDB runtime kernel its bootstrap hook prepares that connection.
+The hidden module `_notisbook_display` (idempotent `ensure` snippet) builds the `display_data`
+bundle (HTML table + ASCII fallback, capped rows/cell length), registers a lazy `text/html`
+formatter for PySpark DataFrames and patches `DataFrame.show()` and Glue's `DynamicFrame.show()`
+(at install and on import) to display the same table. The original `show` runs for
+`vertical=True`, n outside 1..MAX_ROWS or a bool, invalid arguments (e.g. truncate), streaming
+DataFrames, no IPython display, and a failed `toDF()`. A Spark error while building the table is
+the cell error; `show` is not re-run. `DynamicFrame.show()` uses `toDF()`, which may read the
+whole source to infer the schema: accepted by design (small data).
+Rows: SQL/DuckDB cells and a bare `df` show up to `MAX_ROWS`; `echo(df, n=...)` (1..MAX_ROWS,
+default `DISPLAY_ROWS`) uses a marked `builtins.echo` wrapper. Queries travel as JSON string
+literals decoded in the kernel. Spark cells never call `getOrCreate`. DuckDB keeps one lazy
+in-memory connection in `STATE`, autoinstall off; the DuckDB runtime bootstrap hook prepares it.
 """
 
 import hashlib
@@ -30,7 +32,7 @@ MODULE_NAME = "_notisbook_display"
 # are substituted in `_KERNEL_SOURCE`. Executed as the body of the hidden module,
 # so it must not import IPython or pyspark at the top (kernels may lack either).
 _KERNEL_TEMPLATE = r'''
-import contextvars, html, json, operator, sys
+import contextvars, functools, html, importlib.abc, importlib.util, json, operator, sys
 
 MAX_ROWS = __MAX_ROWS__
 DISPLAY_ROWS = __DISPLAY_ROWS__
@@ -46,7 +48,12 @@ DUCKDB_STATUS_STATEMENTS = {
     "UPDATE", "DELETE", "LOAD", "EXTENSION", "VACUUM", "ANALYZE", "MERGE_INTO",
     "COPY_DATABASE", "EXPORT",
 }
+# `show()` patch targets: DataFrame classes (base, classic, connect) and Glue's DynamicFrame.
+SHOW_MODULES = ("pyspark.sql.dataframe", "pyspark.sql.classic.dataframe", "pyspark.sql.connect.dataframe")
+DYNAMIC_MODULE = "awsglue.dynamicframe"
+SHOW_TRUNCATE = 20
 STATE = {}
+BUSY = set()
 STYLE = (
     "<style>"
     ".nb-grid th, .nb-grid td { text-align: left; }"
@@ -57,10 +64,10 @@ STYLE = (
     "</style>"
 )
 
-def clip(value):
+def clip(value, limit=MAX_CELL_CHARS):
     if value is None:
         return None
-    return value if len(value) <= MAX_CELL_CHARS else value[:MAX_CELL_CHARS] + "…"
+    return value if len(value) <= limit else value[:limit] + "…"
 
 def is_numeric(type_name):
     return type_name.split("(")[0].strip().lower() in NUMERIC_TYPES
@@ -69,11 +76,13 @@ def limit_var():
     # Lives in STATE so wrappers from older module versions share the same var.
     return STATE.setdefault("limit_var", contextvars.ContextVar("notisbook_limit", default=None))
 
-def footer_text(count, truncated, limit):
+def footer_text(count, truncated, limit, hint=None):
     if truncated:
         text = "showing the first %d rows" % limit
-        # Hint only inside echo(): there `n` can actually raise the limit.
-        return text + " \u2014 use echo(df, n=...)" if limit_var().get() is not None else text
+        # Hint only inside echo(): there `n` can actually raise the limit. `show()` passes False.
+        if hint is None:
+            hint = limit_var().get() is not None
+        return text + " \u2014 use echo(df, n=...)" if hint else text
     return "1 row" if count == 1 else "%d rows" % count
 
 def html_table(names, numeric, rows, footer):
@@ -105,7 +114,7 @@ def plain_table(names, rows, footer):
     lines = [sep, line(names), sep] + [line(row) for row in flat] + [sep, footer]
     return "\n".join(lines)
 
-def _build(df, limit):
+def _build(df, limit, cell_chars=MAX_CELL_CHARS, hint=None):
     fields = df.schema.fields
     names = [f.name for f in fields]
     numeric = [is_numeric(f.dataType.simpleString()) for f in fields]
@@ -115,13 +124,13 @@ def _build(df, limit):
     # extra char lets `clip` tell "exactly MAX" from "longer" and add the ellipsis.
     safe = df.toDF(*["c%d" % i for i in range(len(names))])
     cast = safe.selectExpr(*[
-        "substring(CAST(c%d AS STRING), 1, %d) AS c%d" % (i, MAX_CELL_CHARS + 1, i)
+        "substring(CAST(c%d AS STRING), 1, %d) AS c%d" % (i, cell_chars + 1, i)
         for i in range(len(names))
     ])
     collected = cast.limit(limit + 1).collect()
     truncated = len(collected) > limit
-    rows = [[clip(v) for v in r] for r in collected[:limit]]
-    footer = footer_text(len(rows), truncated, limit)
+    rows = [[clip(v, cell_chars) for v in r] for r in collected[:limit]]
+    footer = footer_text(len(rows), truncated, limit, hint)
     return {
         "text/html": html_table(names, numeric, rows, footer),
         "text/plain": plain_table(names, rows, footer),
@@ -252,6 +261,128 @@ def install_display():
     if hasattr(builtins, "display"):
         del builtins.display
 
+def show_width(truncate):
+    # Spark: True -> 20 chars, False/<=0 -> no cut (here the renderer cap), N -> N chars in total.
+    # Here every cut (True included) keeps the width and appends "…" (width+1); Spark's cut includes its own marker.
+    if truncate is True:
+        return SHOW_TRUNCATE
+    if truncate is False:
+        return MAX_CELL_CHARS
+    width = operator.index(truncate)
+    return MAX_CELL_CHARS if width <= 0 else min(width, MAX_CELL_CHARS)
+
+def show_limit(n, vertical):
+    # Cheap pre-conditions, checked before any Spark work. None means "run the original show".
+    try:
+        if vertical or isinstance(n, bool):
+            return None
+        limit = operator.index(n)
+        if not 1 <= limit <= MAX_ROWS:
+            return None
+        from IPython import get_ipython
+        ip = get_ipython()
+        if ip is None or getattr(ip, "display_pub", None) is None:
+            return None
+        return limit
+    except Exception:
+        return None
+
+def show_render(df, limit, truncate):
+    # False means "run the original show", only for pre-execution conditions. _build, not
+    # render: a runtime Spark error must surface as the cell's error, not rerun the job.
+    try:
+        if getattr(df, "isStreaming", False):
+            return False
+        width = show_width(truncate)
+    except Exception:
+        return False
+    original_display()(_build(df, limit, width, False), raw=True)
+    return True
+
+def show_table(df, n, truncate, vertical):
+    limit = show_limit(n, vertical)
+    return limit is not None and show_render(df, limit, truncate)
+
+def wrap_show(original):
+    @functools.wraps(original)
+    def show(self, n=20, truncate=True, vertical=False):
+        if show_table(self, n, truncate, vertical):
+            return None
+        return original(self, n, truncate, vertical)
+    show._notisbook_original = original
+    return show
+
+def wrap_dynamic_show(original):
+    @functools.wraps(original)
+    def show(self, num_rows=20):
+        limit = show_limit(num_rows, False)
+        if limit is None:
+            return original(self, num_rows)
+        # toDF() may read the whole source to infer the schema (e.g. S3 JSON/CSV from_options),
+        # unlike the original show, which reads num_rows. Accepted by design: small data only.
+        try:
+            df = self.toDF()
+        except Exception:
+            return original(self, num_rows)
+        if show_render(df, limit, False):
+            return None
+        return original(self, num_rows)
+    show._notisbook_original = original
+    return show
+
+def patch_loaded(module):
+    """Wrap `show` in the classes `module` defines; `unwrap` first, so wrappers never stack.
+
+    Also called by the catalog hook when it imports `awsglue.dynamicframe` ahead of this finder.
+    """
+    name = getattr(module, "__name__", None)
+    if name in SHOW_MODULES:
+        cls, wrap = getattr(module, "DataFrame", None), wrap_show
+    elif name == DYNAMIC_MODULE:
+        cls, wrap = getattr(module, "DynamicFrame", None), wrap_dynamic_show
+    else:
+        return
+    if isinstance(cls, type) and "show" in vars(cls):
+        cls.show = wrap(unwrap(vars(cls)["show"]))
+
+class ShowFinder(importlib.abc.MetaPathFinder):
+    _notisbook_show_finder = True
+
+    def find_spec(self, name, path, target=None):
+        if name not in SHOW_MODULES + (DYNAMIC_MODULE,) or name in BUSY:
+            return None
+        BUSY.add(name)
+        try:
+            spec = importlib.util.find_spec(name)
+        except Exception:
+            return None
+        finally:
+            BUSY.discard(name)
+        loader = getattr(spec, "loader", None)
+        if loader is None or not hasattr(loader, "exec_module"):
+            return spec
+        # Limitation: this wraps `exec_module` on the loader object `find_spec` returned, not on its class; a loader
+        # returned again for the same module is wrapped again, so `patch_loaded` may run twice (it unwraps first).
+        original_exec = loader.exec_module
+
+        def exec_module(module):
+            original_exec(module)
+            try:
+                patch_loaded(module)
+            except Exception:
+                pass
+        loader.exec_module = exec_module
+        return spec
+
+def install_show():
+    # Own marker: the catalog hook's finder cleanup must not drop this one, nor the reverse.
+    sys.meta_path[:] = [f for f in sys.meta_path if not getattr(f, "_notisbook_show_finder", False)]
+    sys.meta_path.insert(0, ShowFinder())
+    for name in SHOW_MODULES + (DYNAMIC_MODULE,):
+        module = sys.modules.get(name)
+        if module is not None:
+            patch_loaded(module)
+
 def register():
     from IPython import get_ipython
     ip = get_ipython()
@@ -270,6 +401,10 @@ def register():
     # Por último: uma falha do wrapper não pode derrubar a grade já registrada.
     try:
         install_display()
+    except Exception:
+        pass
+    try:
+        install_show()
     except Exception:
         pass
 
