@@ -86,9 +86,10 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
-async def _check_headers(request: Request) -> glue_sigv4.ParsedAuthorization:
+async def _check_headers(request: Request) -> tuple[glue_sigv4.ParsedAuthorization, str]:
     """Host e cabeçalhos de assinatura, antes de ler o corpo (requisição inválida não consome o corpo).
 
+    Devolve a autorização e o `x-amz-date`. Host recusado ou autenticação ausente/malformada levanta `AwsError` 403.
     Só a conferência do hash do corpo e da assinatura fica para `_verify_signature`."""
     try:
         await require_runtime_host(request)
@@ -101,14 +102,13 @@ async def _check_headers(request: Request) -> glue_sigv4.ParsedAuthorization:
     amz_date = request.headers.get("x-amz-date")
     if amz_date is None or not glue_sigv4.valid_amz_date(amz_date, auth):
         raise AwsError(403, "AccessDeniedException", "Missing or malformed authentication.")
-    return auth
+    return auth, amz_date
 
 
-def _verify_signature(request: Request, body: bytes, auth: glue_sigv4.ParsedAuthorization) -> None:
+def _verify_signature(request: Request, body: bytes, auth: glue_sigv4.ParsedAuthorization, amz_date: str) -> None:
     """SigV4 recalculado com o segredo da sessão; levanta `AwsError` (400 credencial/assinatura).
 
     Token de sessão que não é do runtime Glue recebe a mesma resposta de credencial inválida."""
-    amz_date = request.headers["x-amz-date"]
     body_hash = glue_sigv4.payload_hash(body, request.headers.get("x-amz-content-sha256"))
     raw_path = request.scope.get("raw_path")
     path = raw_path.decode("latin-1") if isinstance(raw_path, bytes) else request.url.path
@@ -183,9 +183,9 @@ async def glue(request: Request) -> Response:
     request_id = str(uuid.uuid4())
     operation = "-"
     try:
-        auth = await _check_headers(request)
+        auth, amz_date = await _check_headers(request)
         body = await _read_body(request)
-        _verify_signature(request, body, auth)
+        _verify_signature(request, body, auth, amz_date)
         operation = _operation(request)
         params = _params(request, body)
         result = await asyncio.to_thread(_execute, _home(request), operation, params)
