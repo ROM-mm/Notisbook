@@ -194,8 +194,26 @@ def _created_error(item: Created, grant: RuntimeGrant) -> str | None:
     return None if notislake_locations.managed_table(item.loc) else "managed_location_rejected"
 
 
+def _glue_refusal(body: PlanBody) -> list[dict[str, Any]]:
+    """Todo item de tabela do plano como `glue_runtime`; só os identificáveis voltam (`key`), sem eco de valores."""
+    keys = [
+        key
+        for section, items in (("created", body.created), ("updated", body.updated), ("renamed", body.renamed))
+        for key in (_raw_key(section, raw) for raw in items)
+        if key is not None
+    ]
+    keys += [(d.db, d.name) for d in (*body.dropped, *body.unregistered)]
+    return [{"key": list(key), "reason": "glue_runtime"} for key in keys]
+
+
 def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Plano do `apply_plan` só com os itens válidos e a lista dos recusados (`key`, `reason`); sem eco de valores."""
+    """Plano do `apply_plan` só com os itens válidos e a lista dos recusados (`key`, `reason`); sem eco de valores.
+
+    O runtime Glue nunca grava em `nb_*`: o plano volta vazio e todo item de tabela em `rejected` (`glue_runtime`).
+    """
+    if grant.glue:
+        empty: dict[str, Any] = {key: [] for key in ("created", "updated", "renamed", "dropped", "unregistered", "new_dbs", "gone_dbs")}
+        return empty, _glue_refusal(body)
     rejected: list[dict[str, Any]] = []
     created, updated, renamed = [], [], []
     for item in _parse_items("created", body.created, Created, rejected):
@@ -308,6 +326,17 @@ def _registry(home: Path) -> dict[str, Any]:
     return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces), "iceberg": iceberg, "glue": glue}
 
 
+def _apply_or_skip(home: Path, plan: dict[str, Any], grant: RuntimeGrant) -> dict[str, Any]:
+    """`_apply`, exceto para o runtime Glue: nada é gravado (o banco só é lido, para a `generation`)."""
+    if not grant.glue:
+        return _apply(home, plan)
+    generation = _generation(home)
+    return {
+        "changed": False, "adopted": [], "conflicts": [], "rejected": [], "updated_ok": [], "renamed_ok": [],
+        "dropped_ok": [], "files_kept": [], "deletions": [], "generation_before": generation, "generation": generation,
+    }
+
+
 def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
     """Transação do plano; depois do COMMIT devolve as exclusões MANAGED que a própria linha autoriza.
 
@@ -377,7 +406,7 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         raise HTTPException(422, "plan_too_large")
     plan, rejected = _build_plan(body, grant)
     try:
-        result = await asyncio.to_thread(_apply, _home(request), plan)
+        result = await asyncio.to_thread(_apply_or_skip, _home(request), plan, grant)
     except sqlite3.Error as exc:
         raise _sqlite_http(exc) from exc
     log.info(

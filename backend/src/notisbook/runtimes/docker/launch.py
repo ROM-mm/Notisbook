@@ -17,13 +17,10 @@ from typing import Any
 
 from ...config import RUNTIME_HOST
 from ...notislake.sparkconf import closed_options
-from ...spark.bundles import docker_safety_warehouse_uri
 from . import catalog, cli
 
 # Porta do backend para o container alcançar o Glue do app (`/glue`); o KernelService a põe no env do kernel.
 PORT_ENV = "NOTISBOOK_RUNTIME_PORT"
-# Home que o backend usa (o mesmo que o DockerService monta); o `launch` roda em outro processo e o recebe pelo ambiente.
-HOME_ENV = "NOTISBOOK_RUNTIME_HOME"
 START_TIMEOUT_S = 60.0
 CALL_TIMEOUT_S = 30.0
 INCONTAINER = Path(__file__).with_name("incontainer.py")
@@ -45,22 +42,17 @@ def tag_for(connection_file: str) -> str:
 
 
 def glue_options(runtime: catalog.DockerRuntime) -> list[str]:
-    """Endpoint Glue do app (`/glue`) só para o runtime Glue; vazio sem a porta do backend no ambiente.
+    """Endpoint Glue do app (`/glue`) só para o runtime Glue; os demais runtimes devolvem vazio.
 
     O container não recebe credencial por aqui: o hook a grava no tmpfs (`catalog_hook.write_glue_credentials`).
+    Levanta `LaunchError` no runtime Glue sem porta válida do backend: sem o `/glue` o kernel não tem catálogo.
     """
-    port = os.environ.get(PORT_ENV, "")
-    if runtime.key != "glue" or not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
+    if runtime.key != "glue":
         return []
+    port = os.environ.get(PORT_ENV, "")
+    if not (port.isascii() and port.isdigit() and 0 < int(port) < 65536):
+        raise LaunchError(f"o runtime Glue precisa da porta do backend ({PORT_ENV}) para alcançar o catálogo Glue")
     return ["--glue-uri", f"http://{RUNTIME_HOST}:{int(port)}/glue"]
-
-
-def safety_warehouse() -> str:
-    """Warehouse local do `spark_catalog` no container, derivado do home que o backend informou em `HOME_ENV`."""
-    home = os.environ.get(HOME_ENV, "")
-    if not home:
-        raise LaunchError("home do Notisbook não informado ao launch")
-    return docker_safety_warehouse_uri(Path(home))
 
 
 def incontainer_source() -> bytes:
@@ -126,6 +118,7 @@ def launch(key: str, connection_file: str) -> None:
     runtime = catalog.get(key)
     if runtime is None:
         raise LaunchError("runtime desconhecido")
+    glue = glue_options(runtime)  # antes de iniciar o container: sem a porta do backend o runtime Glue não sobe
     ensure_started(runtime)
     binary = cli.docker_binary()
     if binary is None:
@@ -146,9 +139,7 @@ def launch(key: str, connection_file: str) -> None:
     argv += [
         "--cwd",
         os.getcwd(),
-        "--warehouse-dir",
-        safety_warehouse(),
-        *glue_options(runtime),
+        *glue,
         "--s3a-closed",
         json.dumps(closed_options(), sort_keys=True),
     ]

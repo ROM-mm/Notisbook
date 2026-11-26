@@ -88,6 +88,7 @@ REJECTED = {
     "name_in_spark_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog)",
     "name_in_glue_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo glue",
     "name_in_non_glue_catalog": "já existe uma tabela com o mesmo schema e nome no catálogo do Spark (spark_catalog) ou no Iceberg",
+    "glue_runtime": "o runtime Glue só registra tabelas no catálogo Glue",
 }
 # Escrita por path (sem tabela): o texto fala em caminho, não em schema da tabela.
 REJECTED_PATH = {

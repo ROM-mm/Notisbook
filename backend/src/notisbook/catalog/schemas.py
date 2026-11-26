@@ -1,4 +1,4 @@
-"""Criar, pré-visualizar e excluir schemas (spark_catalog, nó de exibição hudi e iceberg) sem SparkSession.
+"""Criar, pré-visualizar e excluir schemas (spark_catalog e iceberg) sem SparkSession.
 
 Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das linhas -> COMMIT. Não existe
 warehouse local: as tabelas MANAGED vivem no bucket (`s3a`) e o backend nunca apaga por prefixo, então a
@@ -22,8 +22,6 @@ from .store import immediate as _immediate
 
 NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 RESERVED_SPARK = {"global_temp"}
-# O nó `hudi` é só exibição: seus schemas são namespaces do `spark_catalog`, com a mesma criação e exclusão.
-_SPARK_NODES = (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
 
 _STATUS = {
     "invalid_catalog": 400,
@@ -47,7 +45,7 @@ class SchemaError(Exception):
 
 
 def validate(catalog: str, name: str) -> None:
-    if catalog not in (*_SPARK_NODES, iceberg_jdbc.ICEBERG_CATALOG):
+    if catalog not in (registry.SPARK_CATALOG, iceberg_jdbc.ICEBERG_CATALOG):
         raise SchemaError("invalid_catalog")
     if NAME_RE.fullmatch(name) is None:
         raise SchemaError("invalid_name")
@@ -91,9 +89,9 @@ def _open_write(home: Path) -> sqlite3.Connection:
 
 
 def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
-    """Cria o schema; `spark_catalog` e `hudi` gravam em minúsculas (`hudi` fixa a origem de exibição). Levanta `SchemaError`, `sqlite3.Error`."""
+    """Cria o schema; o `spark_catalog` grava em minúsculas. Levanta `SchemaError`, `sqlite3.Error`."""
     validate(catalog, name)
-    if catalog in _SPARK_NODES:
+    if catalog == registry.SPARK_CATALOG:
         if name.lower() in RESERVED_SPARK:
             raise SchemaError("reserved_name")
         name = name.lower()
@@ -105,8 +103,8 @@ def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
             except iceberg_jdbc.UnsupportedIcebergSchema as exc:
                 raise SchemaError("unsupported_iceberg_catalog_schema") from exc
         with _immediate(conn):
-            if catalog in _SPARK_NODES:
-                created = registry.create_namespace(conn, name, catalog)
+            if catalog == registry.SPARK_CATALOG:
+                created = registry.create_namespace(conn, name)
             else:
                 created = iceberg_jdbc.create_namespace(conn, name)
             if not created:
@@ -122,21 +120,18 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         if key != registry.DEFAULT_DATABASE:
             raise SchemaError("schema_not_found")
         rows: list[tuple[str, str, str]] = []
-        hudi = 0
     else:
         if not registry.namespace_exists(conn, key):
             raise SchemaError("schema_not_found")
         rows = registry.namespace_tables(conn, key)
-        hudi = registry.namespace_hudi_count(conn, key)
     managed = sum(1 for r in rows if r[2] == "MANAGED")
     kept = sum(1 for r in rows if r[2] == "MANAGED" and locations.managed_table(r[1]))
     is_default = key == registry.DEFAULT_DATABASE
     is_layer = locations.layer_of_schema(key) is not None
-    # `tables` = não-Hudi e `hudi` = Hudi. O backend não apaga arquivos: `managed` (apagadas) é sempre 0 e as pastas
+    # `tables` conta todos os formatos. O backend não apaga arquivos: `managed` (apagadas) é sempre 0 e as pastas
     # MANAGED s3a ficam no bucket (`managed_kept`); `external` segue sendo as linhas que não são MANAGED.
     return {
-        "tables": len(rows) - hudi,
-        "hudi": hudi,
+        "tables": len(rows),
         "views": 0,
         "managed": 0,
         "managed_kept": kept,
@@ -163,7 +158,6 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
     is_layer = schema in locations.LAYERS  # no Iceberg a caixa conta: `Bronze` legado não é camada
     return {
         "tables": len(tables),
-        "hudi": 0,
         "views": len(entries) - len(tables),
         "managed": 0,  # o backend não apaga arquivos do bucket
         "managed_kept": kept,
@@ -179,7 +173,7 @@ def preview_schema(home: Path, catalog: str, schema: str) -> dict[str, Any]:
     validate(catalog, schema)
     conn = _open_read(home)
     try:
-        if catalog in _SPARK_NODES:
+        if catalog == registry.SPARK_CATALOG:
             return _preview_spark(home, schema, conn)
         return _preview_iceberg(schema, conn)
     finally:
@@ -258,6 +252,6 @@ def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
 def delete_schema(home: Path, catalog: str, schema: str, etag: str) -> dict[str, Any]:
     """Exclui o schema em cascata (ordem no docstring do módulo). Levanta `SchemaError`, `sqlite3.Error`."""
     validate(catalog, schema)
-    if catalog in _SPARK_NODES:
+    if catalog == registry.SPARK_CATALOG:
         return _delete_spark(home, schema, etag)
     return _delete_iceberg(home, schema, etag)

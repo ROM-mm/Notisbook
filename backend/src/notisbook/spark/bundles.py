@@ -267,11 +267,6 @@ def safety_warehouse_uri(home: Path) -> str:
     return f"file:{home / SAFETY_WAREHOUSE_DIR}"
 
 
-def docker_safety_warehouse_uri(home: Path) -> str:
-    """Warehouse de segurança no container: a pasta `warehouse/` do `home`, montada no mesmo caminho do host."""
-    return f"file:{home / WAREHOUSE_DIR}"
-
-
 def render_base_defaults() -> list[str]:
     """Lines every managed env gets: in-memory session catalog and driver bound to loopback.
 

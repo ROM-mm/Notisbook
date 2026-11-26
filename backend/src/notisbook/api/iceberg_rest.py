@@ -168,6 +168,8 @@ async def _authenticate(request: Request) -> RuntimeGrant:
         kind = "NotAuthorizedException" if exc.status_code == 401 else "ForbiddenException"
         message = "Não autorizado" if exc.status_code == 401 else "Host não permitido"
         raise IcebergError(exc.status_code, kind, message) from None
+    if grant.glue:
+        raise IcebergError(403, "ForbiddenException", "O runtime Glue não usa o catálogo Iceberg do Notisbook")
     return grant
 
 

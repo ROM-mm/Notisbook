@@ -1,7 +1,7 @@
 """Código executado DENTRO do container do runtime (Python 3.13, só biblioteca padrão).
 
 Enviado pelo stdin de `docker exec -i`; nunca importado pelo app. Modos (argv após o nome do script):
-  run <tag> [--cwd DIR] [--warehouse-dir DIR] [--s3a-closed JSON] [--glue-uri URI]
+  run <tag> --glue-uri URI [--cwd DIR] [--s3a-closed JSON]
                          lê o connection file (JSON) do stdin, encerra o kernel anterior de <tag>,
                          vira líder de grupo, grava PID+starttime em /run/notisbook e faz exec do ipykernel
   kill <tag>             SIGKILL no grupo do kernel de <tag> (validando PID+starttime)
@@ -27,7 +27,7 @@ RUN_DIR = "/run/notisbook"
 TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 CONN_PORTS = ("shell_port", "iopub_port", "stdin_port", "control_port", "hb_port")
 KILL_WAIT_S = 5.0
-RUN_OPTIONS = {"--cwd", "--warehouse-dir", "--s3a-closed", "--glue-uri"}
+RUN_OPTIONS = {"--cwd", "--s3a-closed", "--glue-uri"}
 # Raiz do bucket; espelha `notislake.locations.ROOT_URI` (o incontainer não importa `notisbook.*`). É o warehouse do
 # `glue_catalog`, que cria `<banco>/<tabela>` abaixo dela (ou usa o LocationUri do banco, quando existe).
 GLUE_ROOT_URI = "s3a://notislake"
@@ -37,8 +37,6 @@ GLUE_WAREHOUSE_URI = f"{GLUE_ROOT_URI}/default"
 # Id de catálogo fixo: com ele o cliente Hive do Glue não consulta o STS (que iria à AWS) para descobrir a conta.
 GLUE_CATALOG_ID = "123456789012"
 GLUE_HIVE_FACTORY = "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
-# Warehouse local de segurança do `spark_catalog`: `file:` absoluto, sem `..`, aspas, vírgula ou controle.
-LOCAL_WAREHOUSE_RE = re.compile(r"file:/[^\x00-\x1f\x7f\"',]{1,500}")
 # Config fechada vinda do launch (`sparkconf.closed_options()`): chave global `fs.s3a.*` e valor simples. Chave por
 # bucket é recusada: a fechada é global e uma por bucket venceria a global do hook (o launch só envia `closed_options`).
 S3A_KEY_RE = re.compile(r"fs\.s3a\.(?!bucket(?:\.|$))[a-z][a-z0-9.]{0,80}")
@@ -61,8 +59,6 @@ SUBMIT_ARGS = (
     "pyspark-shell"
 )
 PYSPARK_SHELL = "pyspark-shell"
-# Sem o Glue do app (porta do backend ausente) o catálogo cai para a memória: o cliente Hive do Glue iria à AWS.
-LOCAL_CATALOG_CONFS = ("spark.sql.catalogImplementation=in-memory",)
 # Config de log do driver: só erros chegam à saída da célula, como no Spark local (`spark.bundles.render_log4j2`).
 # Raiz e os loggers do limiar do shell em `error`: o Spark imprime "Setting default log level" quando diferem.
 LOG4J2_PATH = os.path.join(RUN_DIR, "jvm-log4j2.properties")
@@ -124,22 +120,13 @@ def _glue_confs(glue_uri: str) -> list[str]:
     ]
 
 
-def _submit_args(
-    warehouse_dir: str | None,
-    s3a_closed: dict[str, str] | None = None,
-    glue_uri: str | None = None,
-) -> str:
-    """SUBMIT_ARGS com o catálogo: Glue do app com `glue_uri`; sem ele, memória e o warehouse local de segurança.
+def _submit_args(glue_uri: str, s3a_closed: dict[str, str] | None = None) -> str:
+    """SUBMIT_ARGS com o catálogo do Glue do app (`glue_uri`) e a config S3A fechada.
 
     O PySpark separa a variável com shlex. Sem segredos: a credencial S3A e a do Glue entram depois (hook e tmpfs).
     """
     confs = [f"spark.hadoop.{key}={value}" for key, value in (s3a_closed or {}).items()]
-    if glue_uri:
-        confs += _glue_confs(glue_uri)
-    else:
-        confs += LOCAL_CATALOG_CONFS
-        if warehouse_dir:
-            confs.append(f"spark.sql.warehouse.dir={warehouse_dir}")
+    confs += _glue_confs(glue_uri)
     head = SUBMIT_ARGS[: -len(PYSPARK_SHELL)]
     return head + "".join(f"--conf {shlex.quote(conf)} " for conf in confs) + PYSPARK_SHELL
 
@@ -348,12 +335,11 @@ def cmd_run(tag: str, options: dict[str, str]) -> None:
         _unlink(_conn_path(tag))
         _fail(3, str(exc))
     _jvm_logging()
-    if glue_uri := options.get("--glue-uri"):
-        _glue_env(tag, glue_uri)
+    glue_uri = options["--glue-uri"]
+    _glue_env(tag, glue_uri)
     os.environ["PYSPARK_SUBMIT_ARGS"] = _submit_args(
-        options.get("--warehouse-dir"),
+        glue_uri,
         _parse_s3a_closed(options["--s3a-closed"]) if "--s3a-closed" in options else None,
-        options.get("--glue-uri"),
     )
     try:
         os.execv(
@@ -386,14 +372,9 @@ def _run_options(rest: list[str]) -> dict[str, str] | None:
     options = dict(zip(rest[::2], rest[1::2]))
     if len(options) * 2 != len(rest) or not set(options) <= RUN_OPTIONS:
         return None
-    warehouse = options.get("--warehouse-dir")
-    if warehouse is not None and not (
-        LOCAL_WAREHOUSE_RE.fullmatch(warehouse) and ".." not in warehouse.split("/")
-    ):
-        return None
     if "--s3a-closed" in options and _parse_s3a_closed(options["--s3a-closed"]) is None:
         return None
-    if "--glue-uri" in options and not GLUE_URI_RE.fullmatch(options["--glue-uri"]):
+    if not GLUE_URI_RE.fullmatch(options.get("--glue-uri", "")):
         return None
     return options
 
@@ -412,7 +393,7 @@ def main(argv: list[str]) -> None:
     else:
         _fail(
             2,
-            "uso: run <tag> [--cwd DIR] [--warehouse-dir DIR] [--s3a-closed JSON] [--glue-uri URI]"
+            "uso: run <tag> --glue-uri URI [--cwd DIR] [--s3a-closed JSON]"
             " | kill <tag> | sweep | packages",
         )
 

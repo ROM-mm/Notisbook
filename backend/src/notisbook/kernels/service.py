@@ -1232,7 +1232,6 @@ class KernelService:
             env = {k: v for k, v in os.environ.items() if k not in SCRUBBED_ENV}
             if docker_runtime is not None:
                 env[docker_launch.PORT_ENV] = str(self._port)
-                env[docker_launch.HOME_ENV] = str(self._home)
             try:
                 await session.start(env, cwd)
             except Exception:

@@ -56,16 +56,11 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
     conn = _open(home)
     if conn is None:
         return [
-            *(
-                {"name": node, "databases": [{"name": ns, "tables": []} for ns in registry.empty_display_names()]}
-                for node in (registry.SPARK_CATALOG, registry.HUDI_CATALOG)
-            ),
+            {"name": registry.SPARK_CATALOG, "databases": [{"name": ns, "tables": []} for ns in registry.empty_display_names()]},
             {"name": glue_view.GLUE_CATALOG, "databases": glue_view.empty_databases()},
         ]
     try:
         databases, used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES)
-        hudi_dbs, hudi_used = registry.list_databases(conn, registry.MAX_TOTAL_TABLES - used, hudi=True)
-        used += hudi_used
         spark_node: dict[str, Any] = {"name": registry.SPARK_CATALOG, "databases": databases}
         try:
             ice_dbs, _ = iceberg_jdbc.list_databases(conn, registry.MAX_TOTAL_TABLES - used)
@@ -74,8 +69,7 @@ def _read_catalogs(home: Path) -> list[dict[str, Any]]:
             iceberg_node = iceberg_jdbc.error_entry(iceberg_jdbc.ERR_UNSUPPORTED)
         except sqlite3.Error:
             iceberg_node = iceberg_jdbc.error_entry(iceberg_jdbc.ERR_UNREADABLE)
-        hudi_node: dict[str, Any] = {"name": registry.HUDI_CATALOG, "databases": hudi_dbs}
-        return [spark_node, iceberg_node, hudi_node, _glue_node(conn, registry.MAX_TOTAL_TABLES - used)]
+        return [spark_node, iceberg_node, _glue_node(conn, registry.MAX_TOTAL_TABLES - used)]
     finally:
         conn.close()
 
@@ -101,7 +95,6 @@ def _dispatch[T](
     catalog: str,
     *,
     spark: Callable[[sqlite3.Connection], T],
-    hudi: Callable[[sqlite3.Connection], T],
     iceberg: Callable[[sqlite3.Connection], T],
     glue: Callable[[sqlite3.Connection], T],
 ) -> T | None:
@@ -112,8 +105,6 @@ def _dispatch[T](
     try:
         if catalog == registry.SPARK_CATALOG:
             return spark(conn)
-        if catalog == registry.HUDI_CATALOG:
-            return hudi(conn)
         if catalog == iceberg_jdbc.ICEBERG_CATALOG:
             return iceberg(conn)
         if catalog == glue_view.GLUE_CATALOG:
@@ -130,7 +121,6 @@ def _read_table_info(
         home,
         catalog,
         spark=lambda conn: registry.read_table_info(conn, database, table),
-        hudi=lambda conn: registry.read_table_info(conn, database, table, hudi_only=True),
         iceberg=lambda conn: iceberg_jdbc.read_table_info(conn, database, table, open_store),
         glue=lambda conn: glue_view.read_table_info(conn, database, table),
     )
@@ -175,7 +165,7 @@ def _read_catalog_info(home: Path, catalog: str) -> dict[str, Any]:
 
 @router.get("/info")
 async def get_catalog_info(home: Home, catalog: Name) -> dict[str, Any]:
-    """Visão geral de um catálogo (`spark_catalog`, `iceberg`, `hudi` ou `glue`), só leitura. 404 desconhecido, 503 se o db falhar.
+    """Visão geral de um catálogo (`spark_catalog`, `iceberg` ou `glue`), só leitura. 404 desconhecido, 503 se o db falhar.
 
     Sem `catalog.db` devolve `status: "empty"`; Iceberg ilegível devolve 200 com o status degradado. Segredos saem mascarados.
     """
@@ -232,7 +222,7 @@ async def delete_schema(home: Home, kernels: Kernels, catalog: Name, schema: Nam
         schemas.validate(catalog, schema)
     except schemas.SchemaError as exc:
         raise HTTPException(exc.status, exc.code) from exc
-    if catalog in (registry.SPARK_CATALOG, registry.HUDI_CATALOG) and schema.lower() == registry.DEFAULT_DATABASE:
+    if catalog == registry.SPARK_CATALOG and schema.lower() == registry.DEFAULT_DATABASE:
         raise HTTPException(409, "cannot_drop_default")
 
     async def reserved_delete() -> dict[str, Any]:

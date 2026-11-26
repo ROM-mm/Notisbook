@@ -48,7 +48,7 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, GLUE_CATALOG, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, GLUE_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
@@ -307,7 +307,7 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
       {preview ? (
         <>
           <p>
-            Delete schema <code>{schema}</code> and its {plural(catalog === HUDI_CATALOG ? preview.hudi : preview.tables, "table", "tables")}?
+            Delete schema <code>{schema}</code> and its {plural(preview.tables, "table", "tables")}?
           </p>
           <p>
             {preview.managed_kept > 0
@@ -315,12 +315,6 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
               : ""}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
-          {catalog !== HUDI_CATALOG && preview.hudi > 0 ? (
-            <p>{plural(preview.hudi, "Hudi table", "Hudi tables")} will also be removed.</p>
-          ) : null}
-          {catalog === HUDI_CATALOG && preview.tables > 0 ? (
-            <p>{plural(preview.tables, "non-Hudi table", "non-Hudi tables")} (Delta/Parquet) in this schema will also be removed.</p>
-          ) : null}
           {catalog === "iceberg" && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
         </>
       ) : error ? (
@@ -374,7 +368,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
-      const sparkNode = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
+      const sparkNode = catalog === SPARK_CATALOG;
       const key = schema.toLowerCase();
       // `default` e as camadas são protegidos no backend (`cannot_drop_default`/`cannot_drop_layer`).
       const isProtected = sparkNode && (key === DEFAULT_SCHEMA || LAYER_ORDER.includes(key));
@@ -400,13 +394,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
 
   function onDeleted(catalog: string, schema: string, res: SchemaDeletion) {
     const { forgetSchema, refresh } = useCatalog.getState();
-    // Um schema do `spark_catalog` pode estar nos dois nós (misto); a exclusão vale para ambos.
-    if (catalog === SPARK_CATALOG || catalog === HUDI_CATALOG) {
-      forgetSchema(SPARK_CATALOG, schema);
-      forgetSchema(HUDI_CATALOG, schema);
-    } else {
-      forgetSchema(catalog, schema);
-    }
+    forgetSchema(catalog, schema);
     // Única releitura após a exclusão: árvore e o painel lateral aberto.
     refresh();
     setDeleting(null);
@@ -625,24 +613,22 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
 }
 
 /**
- * Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o nó `hudi` só pelo menu de
- * contexto; o `glue` nunca, pois não aceita criar schema).
+ * Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o `glue` nunca, pois não
+ * aceita criar schema).
  */
 function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
-  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== HUDI_CATALOG && c.name !== GLUE_CATALOG);
+  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== GLUE_CATALOG);
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 
 /**
- * Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós.
- * Nesses nós o `default` vazio fica oculto, mas sempre existe no backend: é incluído para o diálogo recusá-lo.
+ * Schemas do catálogo. No `spark_catalog` o `default` vazio fica oculto, mas sempre existe no backend: é incluído
+ * para o diálogo recusá-lo.
  */
 function existingSchemas(catalogs: CatalogNode[] | undefined, catalog: string): string[] {
-  const shared = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
-  const names = (catalogs ?? [])
-    .filter((c) => (shared ? c.name === SPARK_CATALOG || c.name === HUDI_CATALOG : c.name === catalog))
-    .flatMap((c) => c.databases.map((d) => d.name));
-  return shared && !names.some((n) => n.toLowerCase() === DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
+  const spark = catalog === SPARK_CATALOG;
+  const names = (catalogs ?? []).filter((c) => c.name === catalog).flatMap((c) => c.databases.map((d) => d.name));
+  return spark && !names.some((n) => n.toLowerCase() === DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
 }
 
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {

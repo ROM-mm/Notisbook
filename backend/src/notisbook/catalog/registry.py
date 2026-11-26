@@ -15,8 +15,6 @@ from urllib.parse import unquote, urlparse
 from ..notislake import locations
 
 SPARK_CATALOG = "spark_catalog"
-# Nó só de exibição: as tabelas Hudi vivem no `spark_catalog` (`nb_tables.format = 'hudi'`).
-HUDI_CATALOG = "hudi"
 DEFAULT_DATABASE = "default"
 # Teto da varredura: tabelas por database e no total. Estourar o teto marca `"truncated": true`.
 MAX_TABLES = 500
@@ -42,19 +40,16 @@ def namespace_exists(conn: sqlite3.Connection, namespace: str) -> bool:
     return row is not None
 
 
-def create_namespace(conn: sqlite3.Connection, namespace: str, display_catalog: str = SPARK_CATALOG) -> bool:
-    """Registra o schema em minúsculas (como o SessionCatalog); `False` se já existe. Dentro de transação.
-
-    `display_catalog` (`spark_catalog` ou `hudi`) é o nó onde o schema vazio aparece.
-    """
+def create_namespace(conn: sqlite3.Connection, namespace: str) -> bool:
+    """Registra o schema em minúsculas (como o SessionCatalog); `False` se já existe. Dentro de transação."""
     key = namespace.lower()
     if namespace_exists(conn, key):
         return False
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     # Sem `location`: o hook cria a pasta (`CREATE DATABASE IF NOT EXISTS`) ao hidratar a sessão.
     conn.execute(
-        "INSERT INTO nb_namespaces (catalog_name, namespace, location, created_at, display_catalog) VALUES (?, ?, NULL, ?, ?)",
-        (SPARK_CATALOG, key, stamp, display_catalog),
+        "INSERT INTO nb_namespaces (catalog_name, namespace, location, created_at) VALUES (?, ?, NULL, ?)",
+        (SPARK_CATALOG, key, stamp),
     )
     _bump_generation(conn)
     return True
@@ -68,15 +63,6 @@ def namespace_tables(conn: sqlite3.Connection, namespace: str) -> list[tuple[str
         (SPARK_CATALOG, namespace.lower()),
     ).fetchall()
     return [(r[0], r[1], r[2]) for r in rows]
-
-
-def namespace_hudi_count(conn: sqlite3.Connection, namespace: str) -> int:
-    """Quantas tabelas do schema são Hudi (o nó `spark_catalog` não as lista, mas a exclusão do schema as remove)."""
-    row = conn.execute(
-        "SELECT COUNT(*) FROM nb_tables WHERE catalog_name = ? AND lower(namespace) = ? AND format = 'hudi'",
-        (SPARK_CATALOG, namespace.lower()),
-    ).fetchone()
-    return int(row[0])
 
 
 def table_name_exists(conn: sqlite3.Connection, namespace: str, table: str) -> bool:
@@ -137,46 +123,30 @@ def _table_node(namespace: str, name: str, fmt: str, table_type: str, location: 
     }
 
 
-def _display_names(conn: sqlite3.Connection, hudi: bool) -> set[str]:
-    """Schemas exibidos no nó: camadas sempre; `default` só com tabela do nó; demais por tabela ou origem vazia.
+def _display_names(conn: sqlite3.Connection) -> set[str]:
+    """Schemas exibidos: camadas sempre; os com tabela de qualquer formato; os registrados em `nb_namespaces`.
 
-    As camadas (`locations.LAYERS`) aparecem sempre nos dois nós, mesmo vazias ou só com tabelas do outro formato.
-    O `default` só aparece no nó em que tem tabela; vazio, é omitido nos dois.
+    O `default` só aparece quando tem tabela; vazio, é omitido.
     """
-    counts: dict[str, tuple[int, int]] = {
-        r[0]: (int(r[1]), int(r[2]))
-        for r in conn.execute(
-            "SELECT namespace, SUM(format = 'hudi'), SUM(format != 'hudi') FROM nb_tables WHERE catalog_name = ? GROUP BY namespace",
-            (SPARK_CATALOG,),
-        )
-    }
-    origins = {
-        r[0]: r[1]
-        for r in conn.execute("SELECT namespace, display_catalog FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,))
-    }
-    node = HUDI_CATALOG if hudi else SPARK_CATALOG
-    names = set()
-    for ns in {*locations.LAYERS, *counts, *origins}:
-        n_hudi, n_other = counts.get(ns, (0, 0))
-        empty_by_origin = n_hudi + n_other == 0 and ns != DEFAULT_DATABASE and origins.get(ns, SPARK_CATALOG) == node
-        if ns in locations.LAYERS or (n_hudi if hudi else n_other) > 0 or empty_by_origin:
-            names.add(ns)
-    return names
+    with_tables = {r[0] for r in conn.execute("SELECT DISTINCT namespace FROM nb_tables WHERE catalog_name = ?", (SPARK_CATALOG,))}
+    registered = {
+        r[0] for r in conn.execute("SELECT namespace FROM nb_namespaces WHERE catalog_name = ?", (SPARK_CATALOG,))
+    } - {DEFAULT_DATABASE}
+    return {*locations.LAYERS, *with_tables, *registered}
 
 
 def empty_display_names() -> list[str]:
-    """Schemas dos nós spark e hudi sem `catalog.db`: só as camadas, na ordem de `locations.LAYERS`; sem `default`."""
+    """Schemas do `spark_catalog` sem `catalog.db`: só as camadas, na ordem de `locations.LAYERS`; sem `default`."""
     return list(locations.LAYERS)
 
 
-def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False) -> tuple[list[dict[str, Any]], int]:
-    """Databases do nó e o total de tabelas listadas: `spark_catalog` (sem as Hudi) ou, com `hudi`, só as Hudi.
+def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[str, Any]], int]:
+    """Databases do `spark_catalog` (todos os formatos) e o total de tabelas listadas.
 
     `max_total` é o que resta do teto global; databases após o teto voltam vazios e `truncated`.
-    Cada schema é um só namespace do `spark_catalog`; a regra de exibição está em `_display_names`.
+    A regra de exibição está em `_display_names`.
     """
-    fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
-    names = _display_names(conn, hudi)
+    names = _display_names(conn)
     ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, locations.layer_rank(n), n))
     used = 0
     databases: list[dict[str, Any]] = []
@@ -187,7 +157,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False)
         limit = min(MAX_TABLES, max_total - used)
         rows = conn.execute(
             "SELECT table_name, format, table_type, location, description FROM nb_tables "
-            f"WHERE catalog_name = ? AND namespace = ? AND {fmt_filter} ORDER BY table_name LIMIT ?",
+            "WHERE catalog_name = ? AND namespace = ? ORDER BY table_name LIMIT ?",
             (SPARK_CATALOG, db, limit + 1),
         ).fetchall()
         entry: dict[str, Any] = {"name": db, "tables": [_table_node(db, *r) for r in rows[:limit]]}
@@ -198,22 +168,20 @@ def list_databases(conn: sqlite3.Connection, max_total: int, hudi: bool = False)
     return databases, used
 
 
-def catalog_summary(conn: sqlite3.Connection, hudi: bool = False) -> dict[str, Any]:
-    """Contagens exatas do nó (sem `MAX_TABLES`/`MAX_TOTAL_TABLES`): por namespace e por formato.
+def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Contagens exatas do `spark_catalog` (sem `MAX_TABLES`/`MAX_TOTAL_TABLES`): por namespace e por formato.
 
-    Os namespaces vêm de `_display_names`; `spark_catalog` conta o que não é Hudi e `hudi`, só o Hudi.
-    O `spark_catalog` não tem views no registro.
+    Os namespaces vêm de `_display_names`. O `spark_catalog` não tem views no registro.
     """
-    fmt_filter = "format = 'hudi'" if hudi else "format != 'hudi'"
     per_namespace: dict[str, int] = {}
     formats: dict[str, int] = {}
     for namespace, fmt, count in conn.execute(
-        f"SELECT namespace, format, COUNT(*) FROM nb_tables WHERE catalog_name = ? AND {fmt_filter} GROUP BY namespace, format",
+        "SELECT namespace, format, COUNT(*) FROM nb_tables WHERE catalog_name = ? GROUP BY namespace, format",
         (SPARK_CATALOG,),
     ):
         per_namespace[namespace] = per_namespace.get(namespace, 0) + int(count)
         formats[fmt] = formats.get(fmt, 0) + int(count)
-    names = _display_names(conn, hudi)
+    names = _display_names(conn)
     ordered = sorted(names, key=lambda n: (n != DEFAULT_DATABASE, locations.layer_rank(n), n))
     return {
         "namespaces": [{"name": ns, "tables": per_namespace.get(ns, 0), "views": 0} for ns in ordered],
@@ -257,17 +225,16 @@ def _partition_names(partition_cols: str) -> list[str]:
     return [str(p) for p in items] if isinstance(items, list) else []
 
 
-def read_table_info(conn: sqlite3.Connection, database: str, table: str, hudi_only: bool = False) -> dict[str, Any] | None:
+def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict[str, Any] | None:
     """Metadados de uma tabela Delta/Parquet/Hudi só do registro `nb_tables` (sem ler `_delta_log`/`.hoodie`).
 
-    `hudi_only` serve ao nó de exibição `hudi`. `None` se a tabela não existir. Nomes sem distinção de caixa.
+    `None` se a tabela não existir. Nomes sem distinção de caixa.
     """
     row = conn.execute(
         "SELECT namespace, table_name, format, location, table_type, columns_json, partition_cols, description, "
         "created_at, updated_at, delta_version, hudi_instant FROM nb_tables "
-        "WHERE catalog_name = ? AND namespace = ? COLLATE NOCASE AND table_name = ? COLLATE NOCASE "
-        "AND (? = 0 OR format = 'hudi')",
-        (SPARK_CATALOG, database, table, int(hudi_only)),
+        "WHERE catalog_name = ? AND namespace = ? COLLATE NOCASE AND table_name = ? COLLATE NOCASE",
+        (SPARK_CATALOG, database, table),
     ).fetchone()
     if row is None:
         return None
@@ -278,7 +245,7 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str, hudi_on
     elif fmt == "hudi":
         version = {"kind": "hudi_instant", "value": hi}
     return {
-        "catalog": HUDI_CATALOG if hudi_only else SPARK_CATALOG,
+        "catalog": SPARK_CATALOG,
         "database": namespace,
         "table": name,
         "format": fmt,

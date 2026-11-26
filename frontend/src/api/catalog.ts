@@ -127,8 +127,8 @@ export function getTableInfo(q: TableQuery, signal?: AbortSignal): Promise<Table
   });
 }
 
-/** `session` = spark_catalog, `named` = iceberg, `display_group` = nó `hudi` (exibição dentro do spark_catalog). */
-export type CatalogKind = "session" | "named" | "display_group";
+/** `session` = spark_catalog, `named` = iceberg. */
+export type CatalogKind = "session" | "named";
 export type CatalogInfoStatus = "ok" | "empty" | "unsupported_iceberg_catalog_schema" | "iceberg_catalog_unreadable";
 
 export interface CatalogConfigEntry {
@@ -177,7 +177,6 @@ export interface SchemaRef {
 }
 
 /**
- * `catalog` `hudi` cria o namespace no `spark_catalog` com origem de exibição no nó `hudi`.
  * 400 `invalid_catalog`/`invalid_name`/`reserved_name`, 409 `schema_exists`, 503 `catalog_busy`/`catalog_unavailable`.
  */
 export function createSchema(catalog: string, name: string): Promise<SchemaRef> {
@@ -185,10 +184,8 @@ export function createSchema(catalog: string, name: string): Promise<SchemaRef> 
 }
 
 export interface SchemaPreview {
-  /** Tabelas não-Hudi do schema (Delta/Parquet no `spark_catalog`, Iceberg no `iceberg`). */
+  /** Total de tabelas do schema, de todos os formatos (Delta/Parquet/Hudi no `spark_catalog`, Iceberg no `iceberg`). */
   tables: number;
-  /** Tabelas Hudi do schema; no `spark_catalog` e no `hudi` a exclusão remove as duas contagens. Sempre 0 no `iceberg`. */
-  hudi: number;
   views: number;
   /** Sempre 0: o backend não apaga pastas de tabelas gerenciadas. */
   managed: number;
