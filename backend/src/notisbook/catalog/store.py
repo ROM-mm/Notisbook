@@ -172,6 +172,14 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
   AND upper(coalesce(json_extract(parameters, '$.table_type'), '')) <> 'ICEBERG'
   AND (table_type <> 'MANAGED_TABLE' OR json_extract(parameters, '$.EXTERNAL') IS NOT NULL)""",
     ),
+    # A MANAGED_TABLE legada fora da própria pasta (regra antiga `notislake/<camada>/<tabela>`, ou sem location) teria a
+    # pasta apagada pelo DROP do Hive: vira EXTERNAL_TABLE com `Parameters.EXTERNAL=TRUE`. `IS NOT` cobre location NULL.
+    (
+        f"""UPDATE glue_tables SET table_type = 'EXTERNAL_TABLE', parameters = json_set(parameters, '$.EXTERNAL', 'TRUE')
+  WHERE table_type = 'MANAGED_TABLE'
+  AND upper(coalesce(json_extract(parameters, '$.table_type'), '')) <> 'ICEBERG'
+  AND location IS NOT 's3a://{locations.MANAGED_BUCKET}/' || database_name || '/' || name""",
+    ),
 )
 
 
