@@ -19,7 +19,13 @@ from typing import Any
 from ..fs_safety import is_within
 from ..notislake import locations, objectstore
 from ..notislake.settings_store import ConfigInvalid
-from .registry import MAX_TABLES, all_table_locations, is_available, local_path
+from .registry import (
+    MAX_TABLES,
+    all_table_locations,
+    folder_in_use,
+    is_available,
+    local_path,
+)
 
 ICEBERG_CATALOG = "iceberg"
 ERR_UNSUPPORTED = "unsupported_iceberg_catalog_schema"
@@ -106,6 +112,16 @@ def table_prefix(location: str | None) -> str | None:
     if segments and segments[-1] == "metadata":
         segments = segments[:-1]
     return locations.Location(parsed.bucket, segments).uri if segments else None
+
+
+def _drop_behavior(conn: sqlite3.Connection, metadata_location: str, namespace: str, table: str) -> str:
+    """A tabela na pasta gerenciada própria entra na fila de exclusão no DROP, a menos que outra tabela use a pasta."""
+    if not is_managed_s3a(metadata_location, namespace, table):
+        return "registry_only"
+    prefix = table_prefix(metadata_location) or ""
+    if folder_in_use(conn, prefix, skip_tables=[(ICEBERG_CATALOG, namespace, table)]):
+        return "keeps_files_shared"
+    return "deletes_files"
 
 
 def _shown_location(metadata_location: str) -> str | None:
@@ -537,8 +553,7 @@ def read_table_info(
         "table": table,
         "format": "iceberg",
         "table_type": _table_type(metadata_location, database, table),
-        # A MANAGED (`<warehouse>/<ns>/<t>`) entra na fila de exclusão no DROP; a externa só sai do registro.
-        "drop_behavior": "deletes_files" if is_managed_s3a(metadata_location, database, table) else "registry_only",
+        "drop_behavior": _drop_behavior(conn, metadata_location, database, table),
         "location": _shown_location(metadata_location),
         "available": is_available(metadata_location),
         "description": None,

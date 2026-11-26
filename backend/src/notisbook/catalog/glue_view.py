@@ -13,7 +13,7 @@ from typing import Any
 from ..notislake import locations
 from . import glue_repo
 from .catalog_info import STATUS_EMPTY, STATUS_OK, redact
-from .registry import MAX_TABLES
+from .registry import MAX_TABLES, folder_in_use
 
 GLUE_CATALOG = glue_repo.GLUE_CATALOG
 ERR_UNREADABLE = "glue_catalog_unreadable"
@@ -23,9 +23,11 @@ FORMAT_DELTA = "delta"
 FORMAT_HUDI = "hudi"
 TYPE_MANAGED = "MANAGED"
 TYPE_EXTERNAL = "EXTERNAL"
-# Mesmos valores de `registry` e `iceberg_jdbc`: MANAGED apaga entrada e arquivos; EXTERNAL e Iceberg só a entrada (Iceberg apaga com PURGE).
+# Mesmos valores de `registry` e `iceberg_jdbc` (a pasta só é apagada se é a gerenciada da própria tabela e nenhuma outra a usa).
 DROP_DELETES_FILES = "deletes_files"
 DROP_REGISTRY_ONLY = "registry_only"
+DROP_KEEPS_OUTSIDE = "keeps_files_outside_managed"
+DROP_KEEPS_SHARED = "keeps_files_shared"
 # Onde está o schema real: o Delta guarda só um placeholder no Glue e o schema fica no `_delta_log`.
 SCHEMA_STORAGE_DESCRIPTOR = "storage_descriptor"
 SCHEMA_SPARK_PROPERTIES = "spark_properties"
@@ -92,11 +94,20 @@ def _managed_folder(location: Any, database: str, table: str) -> bool:
         return False
 
 
-def _drop_behavior(fmt: str, kind: str, managed_folder: bool = False) -> str:
-    """A Iceberg (sempre EXTERNAL_TABLE) e a MANAGED_TABLE na pasta gerenciada têm os arquivos apagados no DROP; a externa não."""
-    if fmt == FORMAT_ICEBERG:
-        return DROP_DELETES_FILES if managed_folder else DROP_REGISTRY_ONLY
-    return DROP_DELETES_FILES if kind == TYPE_MANAGED else DROP_REGISTRY_ONLY
+def _drop_behavior(conn: sqlite3.Connection, fmt: str, kind: str, database: str, table: str, location: Any) -> str:
+    """O que o DROP faz com os arquivos: só a MANAGED_TABLE ou o Iceberg na própria pasta gerenciada, sem outro uso, os apaga.
+
+    A MANAGED_TABLE fora da própria pasta é EXTERNAL de fato para o Notisbook (`keeps_files_outside_managed`); a externa
+    só sai do registro.
+    """
+    own = _managed_folder(location, database, table)
+    if kind == TYPE_MANAGED and not own:
+        return DROP_KEEPS_OUTSIDE
+    if not own or (kind != TYPE_MANAGED and fmt != FORMAT_ICEBERG):
+        return DROP_REGISTRY_ONLY
+    if folder_in_use(conn, locations.canonical(location).rstrip("/"), skip_tables=[(GLUE_CATALOG, database, table)]):
+        return DROP_KEEPS_SHARED
+    return DROP_DELETES_FILES
 
 
 def _shown_location(recorded: Any, canonical: str | None = None) -> str | None:
@@ -353,7 +364,7 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
         "table": raw["Name"],
         "format": fmt,
         "table_type": kind,
-        "drop_behavior": _drop_behavior(fmt, kind, _managed_folder(descriptor.get("Location"), raw["DatabaseName"], raw["Name"])),
+        "drop_behavior": _drop_behavior(conn, fmt, kind, raw["DatabaseName"], raw["Name"], descriptor.get("Location")),
         "location": _shown_location(descriptor.get("Location")),
         "available": None,
         "description": raw.get("Description"),
