@@ -8,6 +8,7 @@ devolve (corpo, cabeçalhos, texto de exceção) chega ao chamador, e o segredo 
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,7 +20,11 @@ from .bootstrap import BUCKET, PREFIXES
 from .locations import valid_bucket_name
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from .supervisor import LocalConnection
+
+logger = logging.getLogger(__name__)
 
 _AUTOMATIC_REGION = "us-east-1"
 _AUTOMATIC_CONNECT_TIMEOUT_S = 5.0
@@ -340,34 +345,61 @@ def create_bucket_with_folders(connection: Connection, bucket: str) -> None:
     client = make_client(connection, retries=_BUCKET_RETRIES)
     try:
         client.create_bucket(Bucket=bucket)
-        for prefix in PREFIXES:
-            client.put_object(Bucket=bucket, Key=prefix, Body=b"")
     except _upstream_errors() as exc:
         raise _classify_bucket(exc) from None
+    written: list[str] = []
+    try:
+        for prefix in PREFIXES:
+            client.put_object(Bucket=bucket, Key=prefix, Body=b"")
+            written.append(prefix)
+    except _upstream_errors() as exc:
+        error = _classify_bucket(exc)
+        _undo_create(client, bucket, written)
+        raise error from None
 
 
-def list_keys_under(connection: Connection, bucket: str, prefix: str = "") -> list[str]:
-    """Todas as chaves sob `prefix` (vazio = bucket inteiro), sem delimitador e paginando até o fim.
+def _undo_create(client: Any, bucket: str, written: list[str]) -> None:
+    """Desfaz, em melhor esforço, um `create_bucket` cujos marcadores falharam, para o retry não dar 409.
+
+    Falhas aqui são só registradas (sem nome de bucket) e nunca substituem o erro original.
+    """
+    try:
+        for key in written:
+            client.delete_object(Bucket=bucket, Key=key)
+        client.delete_bucket(Bucket=bucket)
+    except _upstream_errors():
+        logger.warning("notislake: falha ao desfazer a criação do bucket após erro nos marcadores")
+
+
+def iter_key_pages(connection: Connection, bucket: str, prefix: str = "") -> Iterator[list[str]]:
+    """Gera as chaves sob `prefix` (vazio = bucket inteiro) uma página por vez, sem delimitador.
 
     Inclui os marcadores de pasta. `prefix` não vazio precisa terminar em `/`, para que `bronze/`
-    nunca alcance `bronze2/`. Sem limite de objetos: a lista cresce com o conteúdo do bucket.
+    nunca alcance `bronze2/`. Só uma página fica em memória; o consumidor pode apagar as chaves
+    recebidas antes de pedir a próxima. Páginas vazias não são geradas.
     """
     _check_prefix(prefix)
     params: dict[str, Any] = {"Bucket": bucket}
     if prefix:
         params["Prefix"] = prefix
-    keys: list[str] = []
     client = make_client(connection)
     try:
         while True:
             response = client.list_objects_v2(**params)
-            keys.extend(item["Key"] for item in response.get("Contents", []))
+            keys = [item["Key"] for item in response.get("Contents", [])]
+            if keys:
+                yield keys
             token = response.get("NextContinuationToken")
             if not response.get("IsTruncated") or not token:
-                return keys
+                return
             params["ContinuationToken"] = token
     except _upstream_errors() as exc:
         raise _classify(exc) from None
+
+
+def count_keys_under(connection: Connection, bucket: str, prefix: str = "") -> int:
+    """Quantidade de chaves sob `prefix` (inclui marcadores de pasta), contada página a página sem acumulá-las."""
+    return sum(len(page) for page in iter_key_pages(connection, bucket, prefix))
 
 
 def delete_keys(connection: Connection, bucket: str, keys: list[str]) -> int:
