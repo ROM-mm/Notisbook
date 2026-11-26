@@ -54,10 +54,12 @@ export function getCatalog(signal?: AbortSignal): Promise<CatalogResponse> {
 
 export type TableFormat = "delta" | "parquet" | "hudi" | "iceberg" | "csv" | "json" | "orc" | "avro" | "unknown";
 /**
- * Semântica do DROP decidida pelo backend, igual em todos os catálogos: `deletes_files` (gerenciada; os arquivos entram na
- * fila de exclusão executada pelo kernel) ou `registry_only` (externa; os arquivos ficam).
+ * Semântica do DROP decidida pelo backend, igual em todos os catálogos: `deletes_files` (gerenciada na própria pasta;
+ * os arquivos entram na fila de exclusão executada pelo kernel), `registry_only` (externa; os arquivos ficam),
+ * `keeps_files_outside_managed` (gerenciada fora da própria pasta reservada; o DROP remove só o registro) ou
+ * `keeps_files_shared` (gerenciada cuja pasta é usada por outra tabela; o DROP mantém os arquivos).
  */
-export type DropBehavior = "deletes_files" | "registry_only";
+export type DropBehavior = "deletes_files" | "registry_only" | "keeps_files_outside_managed" | "keeps_files_shared";
 /**
  * Origem de `columns` numa tabela do `glue`: `storage_descriptor` (Columns do Glue), `spark_properties`
  * (schema gravado pelo Spark nos parâmetros) ou `delta_log` (schema no `_delta_log`; `columns` traz só as partições).
@@ -240,9 +242,14 @@ const SCHEMA_ERRORS: Record<string, string> = {
   namespace_case_collision: "A schema whose name differs only in letter case already exists.",
 };
 
+/** Código `detail` (string) de um erro de `/api/catalog`, ou null. */
+function detailCode(err: unknown): string | null {
+  return err instanceof ApiError && typeof err.detail === "string" ? err.detail : null;
+}
+
 /** Código `detail` (string) de um erro de `/api/catalog/schemas`, ou null. */
 export function schemaErrorCode(err: unknown): string | null {
-  return err instanceof ApiError && typeof err.detail === "string" ? err.detail : null;
+  return detailCode(err);
 }
 
 /** Mensagem curta em inglês para o código do backend; sem mapeamento, o texto do erro. */
@@ -254,4 +261,75 @@ export function schemaErrorMessage(err: unknown): string {
 /** Texto para o `reason` de um preview que não pode ser excluído. */
 export function schemaReasonMessage(reason: string | null): string {
   return (reason && SCHEMA_ERRORS[reason]) || "This schema cannot be deleted.";
+}
+
+/** Efeito da remoção pelo painel: só a entrada do catálogo sai; os arquivos ficam. */
+export type RemoveEffect = "registry_only";
+/** `managed_use_drop`: gerenciada na própria pasta; só o DROP TABLE (sessão) apaga a tabela e os arquivos. */
+export type TableRemovalReason = "managed_use_drop";
+
+/** Prévia da remoção de uma tabela do `spark_catalog` só do registro. */
+export interface TableRemovalPreview {
+  catalog: string;
+  /** Nomes como estão gravados (a busca no backend não distingue caixa). */
+  database: string;
+  table: string;
+  table_type: "MANAGED" | "EXTERNAL";
+  location: string | null;
+  remove_effect: RemoveEffect;
+  can_remove: boolean;
+  /** Código do motivo quando `can_remove` é false. */
+  reason: TableRemovalReason | null;
+  /** Estado lido; a remoção só vale se a linha ainda corresponder a ele. */
+  etag: string;
+}
+
+/** 400 `invalid_catalog`/`invalid_name`, 404 `table_not_found`, 503 `catalog_busy`/`catalog_unavailable`. */
+export function previewTableRemoval(q: TableQuery, signal?: AbortSignal): Promise<TableRemovalPreview> {
+  return request<TableRemovalPreview>("/api/catalog/tables/preview", {
+    query: { catalog: q.catalog, database: q.database, table: q.table },
+    signal,
+  });
+}
+
+export interface TableRemoval {
+  removed: TableQuery;
+  /** Sempre vazios: a remoção não apaga nem enfileira arquivos. */
+  files_deleted: string[];
+  files_queued: string[];
+  generation: number;
+}
+
+/** 409 `catalog_changed`/`managed_use_drop`, 404 `table_not_found`, 400, 503. */
+export function removeTable(q: TableQuery, etag: string): Promise<TableRemoval> {
+  return request<TableRemoval>("/api/catalog/tables", {
+    method: "DELETE",
+    query: { catalog: q.catalog, database: q.database, table: q.table, etag },
+  });
+}
+
+const TABLE_ERRORS: Record<string, string> = {
+  invalid_catalog: "Only spark_catalog tables can be removed from the catalog here.",
+  invalid_name: "Invalid schema or table name.",
+  table_not_found: "The table no longer exists.",
+  catalog_changed: "The table changed. Review and confirm again.",
+  managed_use_drop: "Managed table in its own folder: use DROP TABLE in a session to delete the table and its files.",
+  catalog_busy: "The catalog is busy. Try again.",
+  catalog_unavailable: "Catalog database unavailable. Try again.",
+};
+
+/** Código `detail` (string) de um erro de `/api/catalog/tables`, ou null. */
+export function tableErrorCode(err: unknown): string | null {
+  return detailCode(err);
+}
+
+/** Mensagem curta em inglês para o código do backend; sem mapeamento, o texto do erro. */
+export function tableErrorMessage(err: unknown): string {
+  const code = tableErrorCode(err);
+  return (code && TABLE_ERRORS[code]) || errorMessage(err);
+}
+
+/** Texto para o `reason` de uma prévia que não pode ser removida. */
+export function tableReasonMessage(reason: string | null): string {
+  return (reason && TABLE_ERRORS[reason]) || "This table cannot be removed from the catalog.";
 }

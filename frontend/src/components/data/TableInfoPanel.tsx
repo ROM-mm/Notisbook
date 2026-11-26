@@ -5,14 +5,30 @@
  * Tabelas do `glue` trazem ainda o armazenamento do AWS Glue (classification, formatos, SerDe); tipo, formato e
  * semântica do DROP chegam do backend como nos demais catálogos. Delta no `glue` guarda o schema no log Delta.
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
+ * Só no `spark_catalog`: "Remove from catalog" tira a tabela do registro (prévia → confirmação → DELETE com o etag),
+ * sem apagar arquivos; ao concluir, fecha o painel e relê a árvore.
  */
-import type { ReactNode } from "react";
-import type { GlueStorage, TableHistoryEntry, TableInfo, TableQuery, TableVersion } from "../../api/catalog";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  previewTableRemoval,
+  removeTable,
+  tableErrorCode,
+  tableErrorMessage,
+  tableReasonMessage,
+  type GlueStorage,
+  type RemoveEffect,
+  type TableHistoryEntry,
+  type TableInfo,
+  type TableQuery,
+  type TableRemovalPreview,
+  type TableVersion,
+} from "../../api/catalog";
 import { TABLE_INFO_PANEL_ID, tableRef, useCatalog } from "../../state/catalog";
 import { formatSize } from "../files/format";
+import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { TableIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
-import { GLUE_CATALOG } from "./catalogLabels";
+import { GLUE_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import own from "./TableInfoPanel.module.css";
@@ -64,7 +80,10 @@ function TableFormatIcon({ format, size }: { format: string; size: number }) {
   return icon ? <BrandIcon icon={icon} size={size} /> : <TableIcon size={size} />;
 }
 
-/** Frase do DROP a partir de `drop_behavior`: gerenciada enfileira a exclusão dos arquivos, externa os preserva. */
+/**
+ * Frase do DROP a partir de `drop_behavior`: só a gerenciada na própria pasta e sem outro uso enfileira a exclusão dos
+ * arquivos; externa, gerenciada fora da própria pasta ou com a pasta compartilhada os preserva.
+ */
 function dropSentence(info: TableInfo): ReactNode {
   const where = info.location ? <code className={styles.mono}>{info.location}</code> : null;
   switch (info.drop_behavior) {
@@ -79,6 +98,20 @@ function dropSentence(info: TableInfo): ReactNode {
       return (
         <>
           External table: the catalog only points to the files. DROP TABLE removes the registration; files stay
+          {where ? <> at {where}</> : " in place"}.
+        </>
+      );
+    case "keeps_files_outside_managed":
+      return (
+        <>
+          Managed table outside its reserved folder. DROP TABLE removes the registration; files stay
+          {where ? <> at {where}</> : " in place"}.
+        </>
+      );
+    case "keeps_files_shared":
+      return (
+        <>
+          Managed table whose folder is also used by another table. DROP TABLE removes the registration; files stay
           {where ? <> at {where}</> : " in place"}.
         </>
       );
@@ -104,7 +137,7 @@ function glueFacts(glue: GlueStorage): [string, ReactNode][] {
   ];
 }
 
-function Overview({ info }: { info: TableInfo }) {
+function Overview({ info, onRemove }: { info: TableInfo; onRemove?: () => void }) {
   const facts: [string, ReactNode][] = [
     ["Full name", `${info.catalog}.${info.database}.${info.table}`],
     ["Type", info.table_type],
@@ -126,7 +159,18 @@ function Overview({ info }: { info: TableInfo }) {
     );
   }
   if (info.glue) facts.push(...glueFacts(info.glue));
-  return <Facts facts={facts} />;
+  return (
+    <>
+      <Facts facts={facts} />
+      {onRemove ? (
+        <p className={styles.note}>
+          <button type="button" className="btn btn-danger" onClick={onRemove} data-testid="table-remove-from-catalog">
+            Remove from catalog
+          </button>
+        </p>
+      ) : null}
+    </>
+  );
 }
 
 function Columns({ info }: { info: TableInfo }) {
@@ -272,10 +316,108 @@ function focusTreeRow(query: TableQuery) {
   }
 }
 
-function PanelBody({ info, tab }: { info: TableInfo; tab: TabId }) {
+const REMOVE_EFFECTS: Record<RemoveEffect, string> = {
+  registry_only: "Removes only the catalog entry; files are kept.",
+};
+
+interface RemoveTableProps {
+  query: TableQuery;
+  onRemoved: () => void;
+  onClose: () => void;
+}
+
+/**
+ * Prévia → confirmação → DELETE com o etag; `catalog_changed` (ou `managed_use_drop` surgido depois da prévia) relê a
+ * prévia e mantém o diálogo aberto, como a exclusão de schema.
+ */
+function RemoveTableDialog({ query, onRemoved, onClose }: RemoveTableProps) {
+  const { catalog, database, table } = query;
+  const [preview, setPreview] = useState<TableRemovalPreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const fail = useCallback((err: unknown) => {
+    setError(tableErrorMessage(err));
+    // Tabela sumiu: a árvore está defasada.
+    if (tableErrorCode(err) === "table_not_found") useCatalog.getState().refresh();
+  }, []);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    previewTableRemoval({ catalog, database, table }, ctrl.signal)
+      .then(setPreview)
+      .catch((err: unknown) => {
+        if (!ctrl.signal.aborted) fail(err);
+      });
+    return () => ctrl.abort();
+  }, [catalog, database, table, fail]);
+
+  async function confirm() {
+    if (!preview) return;
+    const target = { catalog, database, table };
+    setBusy(true);
+    setError(null);
+    try {
+      await removeTable(target, preview.etag);
+    } catch (err) {
+      const code = tableErrorCode(err);
+      if (code === "catalog_changed" || code === "managed_use_drop") {
+        try {
+          setPreview(await previewTableRemoval(target));
+          setError(tableErrorMessage(err));
+        } catch (reread) {
+          setPreview(null);
+          fail(reread);
+        }
+      } else {
+        fail(err);
+      }
+      setBusy(false);
+      return;
+    }
+    onRemoved();
+  }
+
+  const blocked = preview !== null && !preview.can_remove;
+  const shownError = error ?? (blocked ? tableReasonMessage(preview.reason) : null);
+  const name = preview ? `${preview.database}.${preview.table}` : `${database}.${table}`;
+
+  return (
+    <ConfirmDialog
+      title="Remove from catalog"
+      confirmLabel="Remove"
+      busyLabel="Removing…"
+      danger
+      busy={busy}
+      confirmDisabled={preview === null || blocked}
+      error={shownError}
+      onConfirm={() => void confirm()}
+      onCancel={onClose}
+      testId="remove-table-dialog"
+    >
+      {preview || error ? (
+        <p>
+          Remove <code>{name}</code> from the catalog?
+        </p>
+      ) : (
+        <p>Checking table…</p>
+      )}
+      {preview ? (
+        <>
+          <p>{REMOVE_EFFECTS[preview.remove_effect] ?? REMOVE_EFFECTS.registry_only}</p>
+          <p>
+            Location: {preview.location ? <code style={{ overflowWrap: "anywhere" }}>{preview.location}</code> : DASH}
+          </p>
+        </>
+      ) : null}
+    </ConfirmDialog>
+  );
+}
+
+function PanelBody({ info, tab, onRemove }: { info: TableInfo; tab: TabId; onRemove?: () => void }) {
   switch (tab) {
     case "overview":
-      return <Overview info={info} />;
+      return <Overview info={info} onRemove={onRemove} />;
     case "columns":
       return <Columns info={info} />;
     case "history":
@@ -287,6 +429,7 @@ function PanelBody({ info, tab }: { info: TableInfo; tab: TabId }) {
 
 export function TableInfoPanel() {
   const state = useCatalog((s) => (s.info?.kind === "table" ? s.info : null));
+  const [removing, setRemoving] = useState<TableQuery | null>(null);
   if (!state) return null;
   const { query, data, loading, error } = state;
   const fullName = `${query.catalog}.${query.database}.${query.table}`;
@@ -297,46 +440,60 @@ export function TableInfoPanel() {
     focusTreeRow(query);
   }
 
+  /** Remoção só do registro, oferecida apenas no `spark_catalog` (o backend recusa os demais). */
+  const onRemove = data?.catalog === SPARK_CATALOG ? () => setRemoving(query) : undefined;
+
+  function onRemoved() {
+    setRemoving(null);
+    const { closeInfo, refresh } = useCatalog.getState();
+    // Fecha antes de reler: o `refresh()` relê o painel aberto, e a tabela não existe mais.
+    closeInfo();
+    refresh();
+  }
+
   const metadataError = data?.metadata_error ? METADATA_ERRORS[data.metadata_error] : null;
   const notice = metadataError ?? (data && schemaInDeltaLog(data) ? DELTA_LOG_NOTE : null);
 
   return (
-    <InfoPanelShell
-      id={TABLE_INFO_PANEL_ID}
-      label="Table info"
-      testId="table-info-panel"
-      resetKey={tableRef(query)}
-      measureKey={data}
-      icon={<TableFormatIcon format={format} size={18} />}
-      title={data?.table ?? query.table}
-      titleHint={query.table}
-      path={fullName}
-      loading={loading}
-      error={error}
-      hasData={data !== null}
-      badges={
-        data ? (
-          <>
-            <span className={`${styles.badge} ${data.table_type === "MANAGED" ? styles.managed : styles.external}`}>
-              {data.table_type}
-            </span>
-            <span className={styles.badge}>{tableFormatLabel(data.format)}</span>
-            {data.available === false ? <span className={`${styles.badge} ${styles.warn}`}>files missing</span> : null}
-          </>
-        ) : undefined
-      }
-      notices={
-        notice ? (
-          <p className={styles.notice} role="status">
-            {notice}
-          </p>
-        ) : null
-      }
-      callout={data ? dropSentence(data) : undefined}
-      tabs={TABS}
-      tablistLabel="Table info sections"
-      renderTab={(tab) => (data ? <PanelBody info={data} tab={tab} /> : null)}
-      onClose={close}
-    />
+    <>
+      <InfoPanelShell
+        id={TABLE_INFO_PANEL_ID}
+        label="Table info"
+        testId="table-info-panel"
+        resetKey={tableRef(query)}
+        measureKey={data}
+        icon={<TableFormatIcon format={format} size={18} />}
+        title={data?.table ?? query.table}
+        titleHint={query.table}
+        path={fullName}
+        loading={loading}
+        error={error}
+        hasData={data !== null}
+        badges={
+          data ? (
+            <>
+              <span className={`${styles.badge} ${data.table_type === "MANAGED" ? styles.managed : styles.external}`}>
+                {data.table_type}
+              </span>
+              <span className={styles.badge}>{tableFormatLabel(data.format)}</span>
+              {data.available === false ? <span className={`${styles.badge} ${styles.warn}`}>files missing</span> : null}
+            </>
+          ) : undefined
+        }
+        notices={
+          notice ? (
+            <p className={styles.notice} role="status">
+              {notice}
+            </p>
+          ) : null
+        }
+        callout={data ? dropSentence(data) : undefined}
+        tabs={TABS}
+        tablistLabel="Table info sections"
+        renderTab={(tab) => (data ? <PanelBody info={data} tab={tab} onRemove={onRemove} /> : null)}
+        onClose={close}
+      />
+      {removing ? <RemoveTableDialog query={removing} onRemoved={onRemoved} onClose={() => setRemoving(null)} /> : null}
+    </>
   );
 }
