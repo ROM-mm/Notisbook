@@ -374,7 +374,7 @@ export function NotislakeTree() {
     if (node.isDir) {
       items.push({ label: "Refresh", onSelect: () => refreshNode(node), testId: "notislake-refresh-node" });
     }
-    // Criar/excluir só no MinIO local (D3); nenhum bucket, pasta ou arquivo é protegido (D2).
+    // Criar/excluir só no MinIO local; nenhum bucket, pasta ou arquivo é protegido.
     if (manageable) {
       const kind = deleteKind(node);
       items.push("separator", {

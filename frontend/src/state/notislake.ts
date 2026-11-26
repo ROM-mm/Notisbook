@@ -81,7 +81,7 @@ interface NotislakeState {
   deleteObject: (bucket: string, key: string) => Promise<number>;
 }
 
-/** Bucket expandido na primeira listagem de buckets (comportamento anterior: a árvore abria nele). */
+/** Bucket aberto automaticamente na primeira listagem de buckets. */
 const DEFAULT_BUCKET = "notislake";
 
 const EMPTY_TREE = { buckets: null, bucketsLoading: false, bucketsError: null, expanded: {}, dirs: {} } as const;

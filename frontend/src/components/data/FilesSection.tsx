@@ -125,7 +125,7 @@ export function FilesSection({ collapsed, onToggle }: { collapsed: boolean; onTo
   const consoleUrl = status?.local?.console_url ?? null;
   const manageable = isNotislakeManageable(status);
 
-  // Menu da conexão: botão direito no cabeçalho (D18); pelo teclado, tecla ContextMenu ou Shift+F10 no título.
+  // Menu da conexão: botão direito no cabeçalho; pelo teclado, tecla ContextMenu ou Shift+F10 no título.
   function onHeaderContextMenu(e: MouseEvent<HTMLDivElement>) {
     e.preventDefault();
     if (e.clientX === 0 && e.clientY === 0) openMenuAtHeader();
