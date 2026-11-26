@@ -233,6 +233,17 @@ def _partition_names(partition_cols: str) -> list[str]:
     return [str(p) for p in items] if isinstance(items, list) else []
 
 
+def _drop_behavior(conn: sqlite3.Connection, key: tuple[str, str], table_type: str, location: str) -> str:
+    """O que o DROP faz com os arquivos, como `apply_plan` decide: só a MANAGED na própria pasta e sem outro uso enfileira."""
+    if table_type != "MANAGED":
+        return "registry_only"
+    if not locations.is_own_managed(key[0], key[1], location):
+        return "keeps_files_outside_managed"
+    if folder_in_use(conn, location, skip=key):
+        return "keeps_files_shared"
+    return "deletes_files"
+
+
 def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict[str, Any] | None:
     """Metadados de uma tabela Delta/Parquet/Hudi só do registro `nb_tables` (sem ler `_delta_log`/`.hoodie`).
 
@@ -258,8 +269,7 @@ def read_table_info(conn: sqlite3.Connection, database: str, table: str) -> dict
         "table": name,
         "format": fmt,
         "table_type": table_type,
-        # O DROP de uma MANAGED enfileira a pasta (`apply_plan` -> `nb_pending_deletions`) salvo se outra tabela a usa.
-        "drop_behavior": "deletes_files" if table_type == "MANAGED" else "registry_only",
+        "drop_behavior": _drop_behavior(conn, (namespace, name), table_type, location),
         "location": location,
         "available": is_available(location),
         "description": description,
