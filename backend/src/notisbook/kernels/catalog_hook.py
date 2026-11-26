@@ -56,8 +56,6 @@ S3A_BUCKET_PREFIX = "fs.s3a.bucket."  # per-bucket keys: Hadoop lets them win ov
 S3A_BUCKET_PROBE = "fs.s3a.bucket.probe"  # a global key that merely shares the prefix
 # `any` (automatic MinIO): global real options, every bucket reaches the local MinIO; `notislake` (manual): per-bucket options of that bucket only.
 S3A_SCOPE = CONFIG.get("s3a_scope") or "notislake"
-S3A_ROOT = "s3a://notislake/"
-S3_ROOT = "s3://notislake/"
 S3_SCHEME = CONFIG.get("s3_scheme") or {}  # `sparkconf.scheme_options()`: maps `s3://` to S3A (PySpark local has no mapping)
 S3A_CLOSED = CONFIG["s3a_closed"]  # `sparkconf.closed_options()`, the single source of the closed bucket config
 S3A_CLEARED = ("fs.s3a.access.key", "fs.s3a.secret.key", S3A_PREFIX + "access.key", S3A_PREFIX + "secret.key")  # a failed setup may leave the real credential behind
