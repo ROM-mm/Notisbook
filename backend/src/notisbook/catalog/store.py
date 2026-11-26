@@ -164,6 +164,14 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
   AND location = 's3a://{locations.MANAGED_BUCKET}/' || namespace || '/' || table_name""",
         "UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'",
     ),
+    # Mesma regra no `glue`: a não-Iceberg na própria pasta gerenciada é MANAGED_TABLE e sem `Parameters.EXTERNAL`
+    # (o Hive decide o DROP por ele). O Iceberg do glue_catalog continua EXTERNAL_TABLE. Sem `generation`: não é `nb_tables`.
+    (
+        f"""UPDATE glue_tables SET table_type = 'MANAGED_TABLE', parameters = json_remove(parameters, '$.EXTERNAL')
+  WHERE location = 's3a://{locations.MANAGED_BUCKET}/' || database_name || '/' || name
+  AND upper(coalesce(json_extract(parameters, '$.table_type'), '')) <> 'ICEBERG'
+  AND (table_type <> 'MANAGED_TABLE' OR json_extract(parameters, '$.EXTERNAL') IS NOT NULL)""",
+    ),
 )
 
 
