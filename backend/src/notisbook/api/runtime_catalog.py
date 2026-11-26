@@ -207,14 +207,28 @@ def _glue_refusal(body: PlanBody) -> list[dict[str, Any]]:
     return [{"key": list(key), "reason": "glue_runtime"} for key in keys]
 
 
+_PLAN_KEYS = ("created", "updated", "renamed", "dropped", "unregistered", "new_dbs", "gone_dbs")
+_RESULT_LISTS = ("adopted", "conflicts", "rejected", "updated_ok", "renamed_ok", "dropped_ok", "files_kept", "deletions")
+
+
+def _empty_plan() -> dict[str, Any]:
+    """Plano do `apply_plan` sem nenhum item, com todas as chaves."""
+    return {key: [] for key in _PLAN_KEYS}
+
+
+def _result(generation_before: int, generation: int, **fields: Any) -> dict[str, Any]:
+    """Resposta do plano com todas as chaves; o que `fields` não informa fica vazio (`changed` falso)."""
+    base: dict[str, Any] = {"changed": False, **{key: [] for key in _RESULT_LISTS}}
+    return {**base, "generation_before": generation_before, "generation": generation, **fields}
+
+
 def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Plano do `apply_plan` só com os itens válidos e a lista dos recusados (`key`, `reason`); sem eco de valores.
 
     O runtime Glue nunca grava em `nb_*`: o plano volta vazio e todo item de tabela em `rejected` (`glue_runtime`).
     """
     if grant.glue:
-        empty: dict[str, Any] = {key: [] for key in ("created", "updated", "renamed", "dropped", "unregistered", "new_dbs", "gone_dbs")}
-        return empty, _glue_refusal(body)
+        return _empty_plan(), _glue_refusal(body)
     rejected: list[dict[str, Any]] = []
     created, updated, renamed = [], [], []
     for item in _parse_items("created", body.created, Created, rejected):
@@ -355,10 +369,7 @@ def _apply_or_skip(home: Path, plan: dict[str, Any], grant: RuntimeGrant) -> dic
     if not grant.glue:
         return _apply(home, plan)
     generation = _generation(home)
-    return {
-        "changed": False, "adopted": [], "conflicts": [], "rejected": [], "updated_ok": [], "renamed_ok": [],
-        "dropped_ok": [], "files_kept": [], "deletions": [], "generation_before": generation, "generation": generation,
-    }
+    return _result(generation, generation)
 
 
 def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
@@ -381,19 +392,19 @@ def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
             s3a_deletions.append({"key": key, "loc": location})
             continue
         kept.append(key)
-    return {
-        "changed": result["changed"],
-        "adopted": result["adopted"],
-        "conflicts": result["conflicts"],
-        "rejected": [{"key": list(key), "reason": reason} for key, reason in result["rejected"]],
-        "updated_ok": [{"key": key, "type": change["type"]} for key, change in result["updated_ok"]],
-        "renamed_ok": [{"old": old, "new": new} for old, new, _ in result["renamed_ok"]],
-        "dropped_ok": result["dropped_ok"],
-        "files_kept": kept,
-        "deletions": s3a_deletions,
-        "generation_before": result["generation_before"],
-        "generation": result["generation"],
-    }
+    return _result(
+        result["generation_before"],
+        result["generation"],
+        changed=result["changed"],
+        adopted=result["adopted"],
+        conflicts=result["conflicts"],
+        rejected=[{"key": list(key), "reason": reason} for key, reason in result["rejected"]],
+        updated_ok=[{"key": key, "type": change["type"]} for key, change in result["updated_ok"]],
+        renamed_ok=[{"old": old, "new": new} for old, new, _ in result["renamed_ok"]],
+        dropped_ok=result["dropped_ok"],
+        files_kept=kept,
+        deletions=s3a_deletions,
+    )
 
 
 @router.get("/generation")
@@ -439,7 +450,6 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         len(plan["unregistered"]), len(rejected),
     )
     return {**result, "rejected": [*rejected, *result["rejected"]]}
-
 
 
 class PendingEnqueue(_Model):
