@@ -270,7 +270,7 @@ export function schemaReasonMessage(reason: string | null): string {
  */
 export type RemoveEffect = "queues_files" | "registry_only";
 
-/** Prévia da remoção de uma tabela do `spark_catalog` pelo painel. */
+/** Prévia da remoção de uma tabela do `spark_catalog`, do `glue` ou do `iceberg` pelo painel. */
 export interface TableRemovalPreview {
   catalog: string;
   /** Nomes como estão gravados (a busca no backend não distingue caixa). */
@@ -279,7 +279,7 @@ export interface TableRemovalPreview {
   table_type: "MANAGED" | "EXTERNAL";
   location: string | null;
   remove_effect: RemoveEffect;
-  /** Hoje sempre true no `spark_catalog`; mantido no contrato. */
+  /** Hoje sempre true; mantido no contrato. */
   can_remove: boolean;
   /** Código do motivo quando `can_remove` é false (hoje sempre null). */
   reason: string | null;
@@ -287,7 +287,10 @@ export interface TableRemovalPreview {
   etag: string;
 }
 
-/** 400 `invalid_catalog`/`invalid_name`, 404 `table_not_found`, 503 `catalog_busy`/`catalog_unavailable`. */
+/**
+ * 400 `invalid_catalog`/`invalid_name`, 404 `table_not_found`, 409 `unsupported_iceberg_catalog_schema`,
+ * 503 `catalog_busy`/`catalog_unavailable`.
+ */
 export function previewTableRemoval(q: TableQuery, signal?: AbortSignal): Promise<TableRemovalPreview> {
   return request<TableRemovalPreview>("/api/catalog/tables/preview", {
     query: { catalog: q.catalog, database: q.database, table: q.table },
@@ -304,7 +307,10 @@ export interface TableRemoval {
   generation: number;
 }
 
-/** 409 `catalog_changed`, 404 `table_not_found`, 400, 503. */
+/**
+ * 409 `catalog_changed` (etag obsoleto), `kernel_busy` (só `glue` e `iceberg`, que exigem kernels ociosos) ou
+ * `unsupported_iceberg_catalog_schema`; 404 `table_not_found`, 400, 503.
+ */
 export function removeTable(q: TableQuery, etag: string): Promise<TableRemoval> {
   return request<TableRemoval>("/api/catalog/tables", {
     method: "DELETE",
@@ -313,12 +319,14 @@ export function removeTable(q: TableQuery, etag: string): Promise<TableRemoval> 
 }
 
 const TABLE_ERRORS: Record<string, string> = {
-  invalid_catalog: "Only spark_catalog tables can be removed from the catalog here.",
+  invalid_catalog: "Tables from this catalog cannot be removed here.",
   invalid_name: "Invalid schema or table name.",
   table_not_found: "The table no longer exists.",
   catalog_changed: "The table changed. Review and confirm again.",
   catalog_busy: "The catalog is busy. Try again.",
   catalog_unavailable: "Catalog database unavailable. Try again.",
+  kernel_busy: "A kernel is using the catalog. Try again when it is idle.",
+  unsupported_iceberg_catalog_schema: "Iceberg catalog schema is not supported.",
 };
 
 /** Código `detail` (string) de um erro de `/api/catalog/tables`, ou null. */

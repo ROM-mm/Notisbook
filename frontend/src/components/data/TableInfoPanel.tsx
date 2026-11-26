@@ -5,9 +5,9 @@
  * Tabelas do `glue` trazem ainda o armazenamento do AWS Glue (classification, formatos, SerDe); tipo, formato e
  * semântica do DROP chegam do backend como nos demais catálogos. Delta no `glue` guarda o schema no log Delta.
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
- * Só no `spark_catalog`: "Remove from catalog" tira a tabela do registro (prévia → confirmação → DELETE com o etag);
- * a MANAGED na própria pasta livre tem a pasta enfileirada para exclusão, as demais mantêm os arquivos. Ao concluir,
- * fecha o painel e relê a árvore.
+ * No `spark_catalog`, no `glue` e no `iceberg`: "Remove from catalog" tira a tabela do registro (prévia → confirmação
+ * → DELETE com o etag); a gerenciada na própria pasta livre tem a pasta enfileirada para exclusão, as demais mantêm os
+ * arquivos. Ao concluir, fecha o painel e relê a árvore.
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
@@ -34,6 +34,9 @@ import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import own from "./TableInfoPanel.module.css";
 import { tableFormatIcon, tableFormatLabel } from "./tableFormat";
+
+/** Catálogos cujas tabelas o painel remove do registro (os mesmos que o backend aceita). */
+const REMOVABLE_CATALOGS: ReadonlySet<string> = new Set([SPARK_CATALOG, GLUE_CATALOG, "iceberg"]);
 
 const DELTA_LOG_NOTE =
   "Delta table: the schema lives in the Delta log, not in the catalog. Only partition columns are listed here.";
@@ -442,8 +445,8 @@ export function TableInfoPanel() {
     focusTreeRow(query);
   }
 
-  /** Remoção só do registro, oferecida apenas no `spark_catalog` (o backend recusa os demais). */
-  const onRemove = data?.catalog === SPARK_CATALOG ? () => setRemoving(query) : undefined;
+  /** Remoção só do registro, oferecida nos `REMOVABLE_CATALOGS` (o backend recusa os demais). */
+  const onRemove = data && REMOVABLE_CATALOGS.has(data.catalog) ? () => setRemoving(query) : undefined;
 
   function onRemoved() {
     setRemoving(null);
