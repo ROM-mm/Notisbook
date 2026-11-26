@@ -176,12 +176,11 @@ function buildItems(catalogs: CatalogNode[], s: { expanded: Record<string, true>
     if (c.error) {
       out.push({ status: true, key: `error:${ckey}`, level: 2, text: CATALOG_ERRORS[c.error] ?? "Catalog could not be read.", error: true });
     }
-    const databases = c.databases;
-    databases.forEach((d, di) => {
+    c.databases.forEach((d, di) => {
       const tables = d.tables;
       const dkey = schemaKey(c.name, d.name);
       const dOpen = Boolean(s.expanded[dkey]);
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
         tableRows(c.name, tables, dkey, 3, d.name, out);
