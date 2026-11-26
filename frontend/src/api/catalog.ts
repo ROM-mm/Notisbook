@@ -263,12 +263,14 @@ export function schemaReasonMessage(reason: string | null): string {
   return (reason && SCHEMA_ERRORS[reason]) || "This schema cannot be deleted.";
 }
 
-/** Efeito da remoção pelo painel: só a entrada do catálogo sai; os arquivos ficam. */
-export type RemoveEffect = "registry_only";
-/** `managed_use_drop`: gerenciada na própria pasta; só o DROP TABLE (sessão) apaga a tabela e os arquivos. */
-export type TableRemovalReason = "managed_use_drop";
+/**
+ * Efeito da remoção pelo painel. `queues_files`: MANAGED na própria pasta reservada e pasta livre; a entrada sai e a
+ * pasta entra na fila de exclusão (o próximo notebook apaga os arquivos se ainda existirem). `registry_only`: só a
+ * entrada sai; os arquivos ficam.
+ */
+export type RemoveEffect = "queues_files" | "registry_only";
 
-/** Prévia da remoção de uma tabela do `spark_catalog` só do registro. */
+/** Prévia da remoção de uma tabela do `spark_catalog` pelo painel. */
 export interface TableRemovalPreview {
   catalog: string;
   /** Nomes como estão gravados (a busca no backend não distingue caixa). */
@@ -277,9 +279,10 @@ export interface TableRemovalPreview {
   table_type: "MANAGED" | "EXTERNAL";
   location: string | null;
   remove_effect: RemoveEffect;
+  /** Hoje sempre true no `spark_catalog`; mantido no contrato. */
   can_remove: boolean;
-  /** Código do motivo quando `can_remove` é false. */
-  reason: TableRemovalReason | null;
+  /** Código do motivo quando `can_remove` é false (hoje sempre null). */
+  reason: string | null;
   /** Estado lido; a remoção só vale se a linha ainda corresponder a ele. */
   etag: string;
 }
@@ -294,13 +297,14 @@ export function previewTableRemoval(q: TableQuery, signal?: AbortSignal): Promis
 
 export interface TableRemoval {
   removed: TableQuery;
-  /** Sempre vazios: a remoção não apaga nem enfileira arquivos. */
+  /** Sempre vazio: a remoção não apaga arquivos. */
   files_deleted: string[];
+  /** A location enfileirada para exclusão quando `remove_effect` era `queues_files`; senão vazio. */
   files_queued: string[];
   generation: number;
 }
 
-/** 409 `catalog_changed`/`managed_use_drop`, 404 `table_not_found`, 400, 503. */
+/** 409 `catalog_changed`, 404 `table_not_found`, 400, 503. */
 export function removeTable(q: TableQuery, etag: string): Promise<TableRemoval> {
   return request<TableRemoval>("/api/catalog/tables", {
     method: "DELETE",
@@ -313,7 +317,6 @@ const TABLE_ERRORS: Record<string, string> = {
   invalid_name: "Invalid schema or table name.",
   table_not_found: "The table no longer exists.",
   catalog_changed: "The table changed. Review and confirm again.",
-  managed_use_drop: "Managed table in its own folder: use DROP TABLE in a session to delete the table and its files.",
   catalog_busy: "The catalog is busy. Try again.",
   catalog_unavailable: "Catalog database unavailable. Try again.",
 };

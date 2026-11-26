@@ -5,8 +5,9 @@
  * Tabelas do `glue` trazem ainda o armazenamento do AWS Glue (classification, formatos, SerDe); tipo, formato e
  * semântica do DROP chegam do backend como nos demais catálogos. Delta no `glue` guarda o schema no log Delta.
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha da tabela.
- * Só no `spark_catalog`: "Remove from catalog" tira a tabela do registro (prévia → confirmação → DELETE com o etag),
- * sem apagar arquivos; ao concluir, fecha o painel e relê a árvore.
+ * Só no `spark_catalog`: "Remove from catalog" tira a tabela do registro (prévia → confirmação → DELETE com o etag);
+ * a MANAGED na própria pasta livre tem a pasta enfileirada para exclusão, as demais mantêm os arquivos. Ao concluir,
+ * fecha o painel e relê a árvore.
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
@@ -317,6 +318,8 @@ function focusTreeRow(query: TableQuery) {
 }
 
 const REMOVE_EFFECTS: Record<RemoveEffect, string> = {
+  queues_files:
+    "Removes the catalog entry and queues the table folder for deletion; files are deleted by the next notebook session if they still exist.",
   registry_only: "Removes only the catalog entry; files are kept.",
 };
 
@@ -327,8 +330,8 @@ interface RemoveTableProps {
 }
 
 /**
- * Prévia → confirmação → DELETE com o etag; `catalog_changed` (ou `managed_use_drop` surgido depois da prévia) relê a
- * prévia e mantém o diálogo aberto, como a exclusão de schema.
+ * Prévia → confirmação → DELETE com o etag; `catalog_changed` relê a prévia e mantém o diálogo aberto, como a
+ * exclusão de schema.
  */
 function RemoveTableDialog({ query, onRemoved, onClose }: RemoveTableProps) {
   const { catalog, database, table } = query;
@@ -360,8 +363,7 @@ function RemoveTableDialog({ query, onRemoved, onClose }: RemoveTableProps) {
     try {
       await removeTable(target, preview.etag);
     } catch (err) {
-      const code = tableErrorCode(err);
-      if (code === "catalog_changed" || code === "managed_use_drop") {
+      if (tableErrorCode(err) === "catalog_changed") {
         try {
           setPreview(await previewTableRemoval(target));
           setError(tableErrorMessage(err));
