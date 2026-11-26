@@ -7,6 +7,7 @@ Toda escrita sobe `nb_meta.generation`, que é o que faz as sessões abertas rec
 
 import json
 import sqlite3
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -345,7 +346,7 @@ def enqueue_deletion(conn, catalog, key, location, stamp):
 
 
 def folder_key(location):
-    """Forma de comparar pastas: sem `/` final, em minúsculas (o MinIO não distingue caixa) e terminada em `/`."""
+    """Forma de comparar pastas: minúsculas (o MinIO não distingue caixa) e com uma única `/` final."""
     return location.rstrip("/").lower() + "/"
 
 
@@ -354,7 +355,11 @@ def folder_overlaps(folder, used_folder):
     return used_folder.startswith(folder) or folder.startswith(used_folder)
 
 
-def used_folders(conn, skip=None, skip_tables=None):
+def used_folders(
+    conn,
+    skip: tuple[str, str] | Iterable[tuple[str, str]] | None = None,
+    skip_tables: Iterable[tuple[str, str, str]] | None = None,
+):
     """Pastas de tabela em uso (registro, Iceberg e glue), em `folder_key`.
 
     `skip`: chave `(schema, tabela)` do registro, ou coleção de chaves, cujas linhas não contam como uso.
