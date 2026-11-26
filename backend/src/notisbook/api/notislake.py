@@ -294,14 +294,14 @@ def _check_bucket(bucket: str, location: str = "query", field: str = "bucket") -
     return bucket
 
 
-def _reserved(bucket: str) -> HTTPException:
+def _reserved() -> HTTPException:
     return _error(403, "bucket_reserved", "O bucket notisbook-managed é reservado ao Notisbook e não pode ser alterado pelo painel.")
 
 
 def _check_not_reserved(bucket: str) -> str:
     """O bucket das tabelas gerenciadas não aparece nem é tocado pelo painel (proteção contra acidente, não segurança)."""
     if bucket == MANAGED_BUCKET:
-        raise _reserved(bucket)
+        raise _reserved()
     return bucket
 
 
