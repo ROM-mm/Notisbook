@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from ..catalog import glue_view, iceberg_jdbc, registry, schemas, tables
+from ..catalog import glue_repo, glue_view, iceberg_jdbc, registry, schemas, tables
 from ..catalog.catalog_info import KNOWN_CATALOGS, build_catalog_info
 from ..catalog.store import catalog_db_path, connect
 from ..kernels.service import KernelsBusy
@@ -188,11 +188,24 @@ def _sqlite_http(exc: sqlite3.Error) -> HTTPException:
     return HTTPException(503, "catalog_busy" if "locked" in text or "busy" in text else "catalog_unavailable")
 
 
+def _glue_schema_http(exc: glue_repo.GlueError) -> HTTPException:
+    """Erro do `glue_repo` no vocabulário de `SchemaError`; `protected_database` é o `default`."""
+    if isinstance(exc, glue_repo.GlueEntityNotFound):
+        return HTTPException(404, "schema_not_found")
+    if isinstance(exc, glue_repo.GlueAlreadyExists):
+        return HTTPException(409, "schema_exists")
+    if exc.reason == "protected_database":
+        return HTTPException(409, "cannot_drop_default")
+    return HTTPException(400, exc.reason)
+
+
 async def _run_schema_op(fn: Any, *args: Any) -> Any:
     try:
         return await asyncio.to_thread(fn, *args)
     except schemas.SchemaError as exc:
         raise HTTPException(exc.status, exc.code) from exc
+    except glue_repo.GlueError as exc:
+        raise _glue_schema_http(exc) from exc
     except sqlite3.Error as exc:
         raise _sqlite_http(exc) from exc
 
