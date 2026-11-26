@@ -182,23 +182,36 @@ export interface SchemaRef {
 }
 
 /**
- * 400 `invalid_catalog`/`invalid_name`/`reserved_name`, 409 `schema_exists`/`namespace_case_collision`,
- * 503 `catalog_busy`/`catalog_unavailable`.
+ * Cria o schema em `spark_catalog`, `iceberg` ou `glue`; o `spark_catalog` e o `glue` gravam o nome em minúsculas, e o
+ * `glue` grava o `LocationUri` `s3://notisbook-managed/<nome>`.
+ * 400 `invalid_catalog`/`invalid_name`/`reserved_name` (`global_temp` no `spark_catalog` e no `glue`),
+ * 409 `schema_exists`/`namespace_case_collision` (só `iceberg`), 503 `catalog_busy`/`catalog_unavailable`.
  */
 export function createSchema(catalog: string, name: string): Promise<SchemaRef> {
   return request<SchemaRef>("/api/catalog/schemas", { method: "POST", body: { catalog, name } });
 }
 
 export interface SchemaPreview {
-  /** Total de tabelas do schema, de todos os formatos (Delta/Parquet/Hudi no `spark_catalog`, Iceberg no `iceberg`). */
+  /**
+   * Total de tabelas do schema, de todos os formatos (Delta/Parquet/Hudi no `spark_catalog`, Iceberg no `iceberg`,
+   * qualquer formato no `glue`).
+   */
   tables: number;
+  /** Views (só o `iceberg` tem; nos outros, 0). */
   views: number;
   /** Sempre 0: o backend não apaga pastas de tabelas gerenciadas. */
   managed: number;
-  /** Gerenciadas no bucket reservado cujas pastas entram na fila de exclusão (o kernel as apaga). */
+  /**
+   * Gerenciadas no bucket reservado cujas pastas entram na fila de exclusão (o kernel as apaga): na própria pasta e
+   * pasta livre. No `glue`, a `MANAGED_TABLE` e o Iceberg na própria pasta.
+   */
   managed_queued: number;
-  /** Gerenciadas cujos arquivos permanecem após a exclusão do schema (pasta usada por outra tabela, fora da própria pasta reservada ou location local legada). */
+  /**
+   * Gerenciadas cujos arquivos permanecem após a exclusão do schema: pasta usada por outra tabela, fora da própria pasta
+   * reservada, location local legada ou `catalog.db` sem fila de exclusão. Vale nos três catálogos.
+   */
   managed_kept: number;
+  /** Demais tabelas (só o registro sai; os arquivos ficam). */
   external: number;
   can_delete: boolean;
   /** Código do motivo quando `can_delete` é false. */
@@ -207,7 +220,11 @@ export interface SchemaPreview {
   etag: string;
 }
 
-/** 404 `schema_not_found`. */
+/**
+ * Prévia da exclusão. 400 `invalid_catalog`/`invalid_name`, 404 `schema_not_found`,
+ * 409 `unsupported_iceberg_catalog_schema` (só `iceberg`), 503 `catalog_busy`/`catalog_unavailable`.
+ * O `default` do `spark_catalog` e do `glue` vem com `can_delete` false e `reason` `cannot_drop_default`.
+ */
 export function previewSchemaDeletion(catalog: string, schema: string, signal?: AbortSignal): Promise<SchemaPreview> {
   return request<SchemaPreview>("/api/catalog/schemas/preview", { query: { catalog, schema }, signal });
 }
@@ -218,11 +235,22 @@ export interface SchemaDeletion {
   files_deleted: string[];
   /** Tabelas cujas pastas entraram na fila de exclusão (o kernel as apaga). */
   files_queued: string[];
+  /**
+   * Tabelas gerenciadas cujos arquivos ficam, com o motivo: `keeps_files_shared` (pasta usada por outra tabela),
+   * `keeps_files_outside_managed` (fora da própria pasta reservada), `outside_warehouse` (location local) ou
+   * `no_deletion_queue` (o `catalog.db` não tem a fila de exclusão).
+   */
   files_kept: { table: string; reason: string }[];
+  /** Sempre false: não há pasta de schema a remover. */
   folder_kept: boolean;
 }
 
-/** 409 `catalog_changed`/`cannot_drop_default`/`has_child_namespaces`/`kernel_busy`, 404, 503. */
+/**
+ * Exclui o schema em cascata (`spark_catalog`, `iceberg` ou `glue`); o backend só enfileira a pasta própria e livre
+ * de cada tabela e nunca apaga arquivo. 409 `catalog_changed` (etag obsoleto), `cannot_drop_default` (`default` do
+ * `spark_catalog` e do `glue`), `has_child_namespaces` (só `iceberg`) ou `kernel_busy` (célula rodando); 400
+ * `invalid_catalog`/`invalid_name`, 404 `schema_not_found`, 503 `catalog_busy`/`catalog_unavailable`.
+ */
 export function deleteSchema(catalog: string, schema: string, etag: string): Promise<SchemaDeletion> {
   return request<SchemaDeletion>("/api/catalog/schemas", { method: "DELETE", query: { catalog, schema, etag } });
 }
