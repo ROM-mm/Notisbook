@@ -9,6 +9,7 @@ devolve (corpo, cabeçalhos, texto de exceção) chega ao chamador, e o segredo 
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -33,6 +34,7 @@ _AUTOMATIC_READ_TIMEOUT_S = 10.0
 _LIST_RETRIES = 1
 _PROBE_RETRIES = 0  # o prazo do teste é o timeout configurado, sem multiplicar por tentativas
 _BUCKET_RETRIES = 0  # um retry após timeout com sucesso no servidor viraria um falso "já existe"/"não existe"
+_PREFIX_FORBIDDEN_RE = re.compile(r"[\x00-\x1f\x7f\\]")  # controle e barra invertida
 DELETE_BATCH_SIZE = 1000  # máximo de chaves por `DeleteObjects`
 
 AUTH_FAILED = "auth_failed"
@@ -449,10 +451,19 @@ def _check_key(key: str) -> None:
 
 
 def _check_prefix(prefix: str) -> None:
-    """Aceita prefixo vazio ou terminado em `/`, sem segmentos vazios, `.` ou `..`."""
+    """Aceita prefixo vazio ou terminado em `/`, sem `/` inicial, controle, `\\`, `.` ou `..`.
+
+    Segmentos vazios (`a//`) são válidos: o S3 aceita chaves como `a//b.csv` e a pasta precisa
+    poder ser contada e excluída. Mantém a mesma regra de segurança de `api.notislake._check_prefix`.
+    """
     if not prefix:
         return
-    if not prefix.endswith("/") or any(part in ("", ".", "..") for part in prefix[:-1].split("/")):
+    if (
+        not prefix.endswith("/")
+        or prefix.startswith("/")
+        or _PREFIX_FORBIDDEN_RE.search(prefix)
+        or any(part in (".", "..") for part in prefix[:-1].split("/"))
+    ):
         raise ValueError("prefixo inválido")
 
 
