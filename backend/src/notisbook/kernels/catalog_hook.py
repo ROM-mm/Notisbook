@@ -641,7 +641,8 @@ def report_deletions(outcome):
         http_call("POST", "/pending-deletions/result",
                   {"done": done, "failed": [{"id": row_id, "error": error} for row_id, error in failed.items()]})
         return
-    # `and False`: the queue is not part of the snapshot sessions reconcile, so `generation` must not be bumped (a truthy result bumps it).
+    # `and False` is defensive: `finish_deletions` returns None today, but a truthy result would bump `generation`,
+    # and the queue is not part of the snapshot sessions reconcile.
     write_txn(lambda conn: finish_deletions(conn, done, failed) and False)
 
 
@@ -1828,7 +1829,7 @@ def enqueue_managed_drop(catalog, key, loc):
     if TRANSPORT == "http":
         http_call("POST", "/pending-deletions", {"catalog": catalog, "db": key[0], "name": key[1], "loc": loc})
     else:
-        # `and False`: same as in `report_deletions`; `enqueue_deletion` returns True, which would bump `generation`.
+        # `and False`: same as in `report_deletions`; `enqueue_deletion` returns True when it enqueues, which would bump `generation`.
         write_txn(lambda conn: enqueue_deletion(conn, catalog, key, loc, now()) and False)
     STATE["drain_again"] = True
 
@@ -2876,6 +2877,8 @@ mod.register()
 
 
 def _render(config: dict[str, object]) -> str:
+    # The `registry` functions copied below run via `exec` in a namespace with only what `_KERNEL_TEMPLATE` defines:
+    # they cannot use other names at definition time (annotations and defaults included).
     locations_source = inspect.getsource(notislake_locations)
     helpers = "\n\n\n".join(
         [f"MAX_DELETE_ATTEMPTS = {MAX_DELETE_ATTEMPTS}"]
