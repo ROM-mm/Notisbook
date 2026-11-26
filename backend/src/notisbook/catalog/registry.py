@@ -380,16 +380,18 @@ def finish_deletions(conn, done, failed):
     purge_reused_deletions(conn)
 
 
-def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destination=None, schema_location=None):
+def apply_plan(conn, plan, stamp, own_managed, type_from_row=False, destination=None, schema_location=None):
     """Aplica o plano do hook dentro da transação aberta pelo chamador; não toca em arquivos nem na generation.
 
     `plan`: `created` [(key, info)], `updated` [(key, rec_loc, rec_type, change)], `renamed` [(old, new, rec_loc, info)],
     `dropped` [(key, rec_loc)], `unregistered` [(key, rec_loc)] (só remove a linha), `new_dbs`, `gone_dbs`.
     `rec_loc` é a trava: só mexe na linha que ainda aponta para ele. `type_from_row`: tipo do update vem da linha (HTTP).
+    `own_managed(key, loc)`: `loc` é a pasta gerenciada da tabela `key`; o tipo gravado deriva dela (MANAGED só aí,
+    EXTERNAL em qualquer outra location s3) em `created`, `updated` e `renamed`, não do que o chamador informou.
     `destination` (`locations.table_destination`) liga a regra de destino (reservado, sobreposição, exclusão pendente)
     e o nome `<schema>.<t>` único entre os catálogos; recusas vão em `rejected` `(key, code)`, sem gravar.
     `schema_location(ns)` dá a location de um schema novo (sem ela, NULL). A MANAGED dropada sem outro uso entra na
-    fila `nb_pending_deletions` e em `deletions`; `files_kept`: em uso ou fora da forma gerenciada.
+    fila `nb_pending_deletions` e em `deletions`; `files_kept`: em uso ou fora da própria pasta gerenciada.
     """
     out = {"changed": False, "adopted": [], "conflicts": [], "updated_ok": [], "renamed_ok": [],
            "dropped_ok": [], "deletions": [], "files_kept": [], "rejected": []}
@@ -453,6 +455,12 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             return getattr(exc, "code", "invalid_location")
         return None
 
+    def derived_type(key, loc, current, moved):
+        """Tipo pela location s3; location local (legada) segue a regra antiga: MANAGED movida vira EXTERNAL."""
+        if bucket_of(loc) is not None:
+            return "MANAGED" if own_managed(key, loc) else "EXTERNAL"
+        return "EXTERNAL" if current == "MANAGED" and moved else current
+
     def row_of(key):
         return conn.execute(
             "SELECT location, table_type FROM nb_tables WHERE catalog_name = 'spark_catalog' "
@@ -469,7 +477,8 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
                 "INSERT INTO nb_tables (catalog_name, namespace, table_name, format, location, table_type, "
                 "columns_json, partition_cols, options_json, delta_version, hudi_instant, description, created_at, updated_at) "
                 "VALUES ('spark_catalog', ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?, ?)",
-                (*key, info["fmt"], info["loc"], info["type"], json.dumps(info["cols"]), json.dumps(info["parts"]),
+                (*key, info["fmt"], info["loc"], derived_type(key, info["loc"], info["type"], False),
+                 json.dumps(info["cols"]), json.dumps(info["parts"]),
                  info["dv"], info["hi"], info.get("description"), stamp, stamp))
             spark_locs[key] = info["loc"]
             changed = True
@@ -483,8 +492,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
         if type_from_row:
             row = row_of(key)
             typ = row[1] if row else rec_type
-        if typ == "MANAGED" and change["loc"] != rec_loc and not managed_shape(change["loc"]):
-            typ = "EXTERNAL"
+        typ = derived_type(key, change["loc"], typ, change["loc"] != rec_loc)
         code = refusal(key, change["loc"], key, False) if change["loc"] != rec_loc else None
         if code:
             out["rejected"].append((key, code))
@@ -505,9 +513,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
         if code:
             out["rejected"].append((new, code))
             continue
-        typ = old_row[1] if old_row is not None else None
-        if typ == "MANAGED" and info["loc"] != rec_loc and not managed_shape(info["loc"]):
-            typ = "EXTERNAL"  # same rule as `updated`: MANAGED only in the MANAGED shape
+        typ = derived_type(new, info["loc"], old_row[1] if old_row is not None else None, info["loc"] != rec_loc)
         try:
             cur = conn.execute(
                 "UPDATE nb_tables SET namespace = ?, table_name = ?, format = ?, location = ?, "
@@ -543,7 +549,7 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             shared = conn.execute(
                 "SELECT count(*) FROM iceberg_tables WHERE substr(metadata_location, 1, length(?1) + 1) = ?1 || '/'",
                 (row[0].rstrip("/"),)).fetchone()[0]
-        if shared or not managed_shape(row[0]):
+        if shared or not own_managed(key, row[0]):
             out["files_kept"].append(key)
         else:
             enqueue_deletion(conn, "spark_catalog", key, row[0], stamp)
@@ -586,7 +592,7 @@ def read_generation(conn: sqlite3.Connection) -> int:
     return int(row[0]) if row else 0
 
 
-def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], managed_shape: Any) -> dict[str, Any]:
+def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], own_managed: Any) -> dict[str, Any]:
     """Aplica o plano numa `BEGIN IMMEDIATE`, sobe a generation se algo mudou e devolve o resultado.
 
     O tipo dos updates vem da linha do registro; a regra de destino e a location dos schemas novos entram aqui (o
@@ -598,7 +604,7 @@ def commit_plan(conn: sqlite3.Connection, plan: dict[str, Any], managed_shape: A
     try:
         before = read_generation(conn)
         result: dict[str, Any] = apply_plan(
-            conn, plan, stamp, managed_shape, type_from_row=True,
+            conn, plan, stamp, own_managed, type_from_row=True,
             destination=locations.table_destination, schema_location=_stored_schema_location)
         if result["changed"]:
             _bump_generation(conn)

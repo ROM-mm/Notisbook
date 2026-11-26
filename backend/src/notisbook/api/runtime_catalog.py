@@ -247,9 +247,9 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], li
     return plan, rejected
 
 
-def _managed_shape(location: str) -> bool:
-    """Só `s3a://notisbook-managed/<schema>/<t>` é MANAGED; nenhum caminho local o é."""
-    return notislake_locations.managed_table(location)
+def _own_managed(key: tuple[str, str], location: str) -> bool:
+    """`location` é a pasta gerenciada da tabela `key`; nenhum caminho local o é."""
+    return notislake_locations.is_own_managed(key[0], key[1], location)
 
 
 async def _read_body(request: Request) -> bytes:
@@ -371,7 +371,7 @@ def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
         ensure_catalog_db(home)
     conn = connect(home)
     try:
-        result = registry.commit_plan(conn, plan, _managed_shape)
+        result = registry.commit_plan(conn, plan, _own_managed)
     finally:
         conn.close()
     kept = list(result["files_kept"])

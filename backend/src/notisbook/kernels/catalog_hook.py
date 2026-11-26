@@ -780,8 +780,14 @@ def describe_new(session, key, table):
         return None
     fmt = info["provider"]
     parts = [c["name"] for c in info["columns"] if c["is_partition"]]
-    typ = "EXTERNAL" if table.tableType == "MANAGED" and not managed_shape(loc) else table.tableType
-    return {"fmt": fmt, "loc": loc, "type": typ, "cols": info["columns"], "parts": parts,
+    # MANAGED only in the table's own folder of the reserved bucket; Spark calls EXTERNAL-by-path tables MANAGED
+    # or not depending on who registered them, so the session type is kept apart (`spark_managed`, never sent).
+    if is_s3a(loc):
+        typ = "MANAGED" if own_managed(key, loc) else "EXTERNAL"
+    else:
+        typ = "EXTERNAL" if table.tableType == "MANAGED" else table.tableType
+    return {"fmt": fmt, "loc": loc, "type": typ, "spark_managed": table.tableType == "MANAGED",
+            "cols": info["columns"], "parts": parts,
             "dv": delta_version(loc, session) if fmt == "delta" else None,
             "hi": hudi_instant(loc, session) if fmt == "hudi" else None, "description": table.description}
 
@@ -1328,7 +1334,7 @@ def commit_plan(plan, stamp):
     result = {}
 
     def fn(conn):
-        result.update(apply_plan(conn, plan, stamp, managed_shape, destination=LOCATIONS.table_destination,
+        result.update(apply_plan(conn, plan, stamp, own_managed, destination=LOCATIONS.table_destination,
                                  schema_location=lambda ns: LOCATIONS.schema_location(ns, "s3")))
         return result["changed"]
 
@@ -1357,7 +1363,8 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
     result = commit_plan(plan, now())
     for key, info in created:
         if key in result["adopted"]:
-            known[key] = {**info, "sess_managed": info["type"] == "MANAGED"}
+            # `spark_managed`: Spark's own view, since only a session-created MANAGED table loses files on DROP.
+            known[key] = {**info, "sess_managed": info.get("spark_managed", info["type"] == "MANAGED")}
     for key, reason in result.get("rejected", ()):
         ignored.add(key)
         warn(("rejected", skey, key), reject_text(key, reason))
@@ -1369,8 +1376,10 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
     for old, new, info in result["renamed_ok"]:
         rec = known.pop(old)
         known[new] = {**rec, **{f: info[f] for f in ("fmt", "loc", "cols", "parts", "dv", "hi")}}
-        if rec["type"] == "MANAGED" and info["loc"] != rec["loc"] and not managed_shape(info["loc"]):
-            known[new]["type"] = "EXTERNAL"  # mirrors the demotion apply_plan wrote
+        if is_s3a(info["loc"]):
+            known[new]["type"] = "MANAGED" if own_managed(new, info["loc"]) else "EXTERNAL"  # mirrors apply_plan
+        elif rec["type"] == "MANAGED" and info["loc"] != rec["loc"]:
+            known[new]["type"] = "EXTERNAL"
     for key in result["dropped_ok"]:
         known.pop(key, None)
     known_dbs |= set(new_dbs)
@@ -1381,9 +1390,9 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
         warn(("delete", skey, key), "kept the files of dropped table %s.%s (another registered table uses that folder, or the catalog API could not remove them)." % key)
 
 
-def managed_shape(location):
-    """Only `s3a://notisbook-managed/<schema>/<t>` is MANAGED; no local path is."""
-    return is_s3a(location) and LOCATIONS.managed_table(location)
+def own_managed(key, location):
+    """`location` is the reserved-bucket folder of table `key`; no local path is."""
+    return is_s3a(location) and LOCATIONS.is_own_managed(key[0], key[1], location)
 
 
 def deep_keys(raw_cell, known):

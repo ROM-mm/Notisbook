@@ -164,6 +164,17 @@ def managed_location(schema: str, table: str) -> str:
     return f"{MANAGED_ROOT}/{schema}/{table}"
 
 
+def is_own_managed(schema: str, table: str, uri: str) -> bool:
+    """`uri` é a pasta gerenciada de `schema.table` (`managed_location`); location inválida ou nome sem pasta -> False.
+
+    É o predicado do tipo: MANAGED só na própria pasta do bucket reservado, EXTERNAL em qualquer outra.
+    """
+    try:
+        return parse_location(uri).uri == managed_location(schema, table)
+    except InvalidLocation:
+        return False
+
+
 def managed_table(uri: str) -> bool:
     """`uri` tem exatamente a forma `s3a://notisbook-managed/<schema>/<tabela>` (caixa exata)."""
     try:

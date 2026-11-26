@@ -156,6 +156,14 @@ _NB_MIGRATIONS: tuple[tuple[str, ...], ...] = (
   AND (location_uri IS NULL OR rtrim(location_uri, '/') IN ('s3://{locations.BUCKET}/' || name, 's3a://{locations.BUCKET}/' || name))""",
         "UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'",
     ),
+    # O tipo passou a derivar da location: a EXTERNAL gravada na própria pasta gerenciada (reidratada por `createTable`
+    # com path, que o Spark vê como EXTERNAL) vira MANAGED. A generation sobe para as sessões abertas relerem o tipo.
+    (
+        f"""UPDATE nb_tables SET table_type = 'MANAGED', updated_at = strftime('%Y-%m-%dT%H:%M:%S+00:00', 'now')
+  WHERE catalog_name = 'spark_catalog' AND table_type = 'EXTERNAL'
+  AND location = 's3a://{locations.MANAGED_BUCKET}/' || namespace || '/' || table_name""",
+        "UPDATE nb_meta SET value = CAST(CAST(value AS INTEGER) + 1 AS TEXT) WHERE key = 'generation'",
+    ),
 )
 
 
