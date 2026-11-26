@@ -9,7 +9,7 @@ import dlg from "../../styles/dialog.module.css";
 import styles from "./DataPanel.module.css";
 
 interface Props {
-  /** Nome real do catálogo (`spark_catalog`, `iceberg`). */
+  /** Nome real do catálogo (`spark_catalog`, `iceberg`, `glue`). */
   catalog: string;
   /** Rótulo exibido do catálogo. */
   catalogLabel: string;

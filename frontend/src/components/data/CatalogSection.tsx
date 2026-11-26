@@ -3,8 +3,8 @@
  * catálogo persistente (`catalog.db`), sem depender de kernel ou notebook.
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
- * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema. O nó `glue` é só leitura
- * (o backend recusa `catalog=glue` em `/api/catalog/schemas`): sem menu de contexto e fora do destino do "+".
+ * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema, nos três catálogos
+ * (`spark_catalog`, `iceberg` e `glue`). O `default` do `spark_catalog` e do `glue` é protegido.
  * Linha de tabela é folha (sem chevron): clique (ou Enter) abre o painel Table info, que mostra as colunas.
  * Linha de catálogo: clique (ou Enter) abre o painel Catalog info e expande o nó se recolhido (nunca recolhe);
  * o chevron (ou Space/setas) segue expandindo/recolhendo. Um painel lateral por vez.
@@ -311,6 +311,13 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
           {catalog === "iceberg" && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
+          {catalog === GLUE_CATALOG && preview.can_delete ? (
+            <p>
+              Here, a managed table whose folder is used by another table keeps its files. A DROP from a notebook
+              (Glue/Hive) behaves differently: DROP DATABASE refuses a schema with tables, and DROP TABLE deletes a
+              managed table&apos;s folder even when another table uses it.
+            </p>
+          ) : null}
         </>
       ) : error ? (
         <p>
@@ -354,19 +361,18 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     return () => window.clearTimeout(t);
   }, [notice]);
 
-  /** Itens do menu de contexto; tabelas e o nó `glue` (só leitura) não têm menu. */
+  /** Itens do menu de contexto; tabelas não têm menu. */
   function menuItems(row: Row): MenuItem[] | null {
-    if (row.catalog === GLUE_CATALOG) return null;
     if (row.kind === "catalog" && row.catalog) {
       const catalog = row.catalog;
       return [{ label: "Create Schema…", disabled: row.catalogError, onSelect: () => onCreate(catalog), testId: "catalog-create-schema" }];
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
-      const sparkNode = catalog === SPARK_CATALOG;
       const key = schema.toLowerCase();
-      // Só `default` é protegido no backend (`cannot_drop_default`); os demais schemas, inclusive bronze/silver/gold, são livres.
-      const isProtected = sparkNode && key === DEFAULT_SCHEMA;
+      // Só o `default` do spark_catalog e do glue é protegido no backend (`cannot_drop_default`); os demais schemas,
+      // inclusive bronze/silver/gold, são livres.
+      const isProtected = (catalog === SPARK_CATALOG || catalog === GLUE_CATALOG) && key === DEFAULT_SCHEMA;
       return [{ label: "Delete Schema…", danger: true, disabled: isProtected, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
     }
     return null;
@@ -607,12 +613,9 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   );
 }
 
-/**
- * Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o `glue` nunca, pois não
- * aceita criar schema).
- */
+/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro. */
 function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
-  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== GLUE_CATALOG);
+  const ok = (catalogs ?? []).filter((c) => !c.error);
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 
