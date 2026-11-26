@@ -25,8 +25,8 @@ from ..catalog.registry import (
     enqueue_deletion,
     finish_deletions,
     folder_in_use,
-    folder_overlaps,
     folder_key,
+    folder_overlaps,
     has_pending_table,
     iceberg_folder,
     pending_deletions,
@@ -134,11 +134,13 @@ WRITE_TARGET_RE = re.compile(
     r"|\b(?:saveAsTable|insertInto|writeTo)\s*\(\s*[\"']?)", re.I)
 SHOW_CREATE_RE = re.compile(r"\bSHOW\s+CREATE\s+TABLE\b", re.I)
 # A path ending in `/<table>` inside a batch write chain (`.write` + builder calls + save/parquet/...); `%s` is the escaped table name.
-# Streaming writes (`writeStream`/`start`/`toTable`) do NOT release a refused table: out of the current batch scope, so it stays refused (safe side).
-# Builder arguments cannot hold parentheses (`.option("k", f(x))`): such a chain is not matched, so the refusal stays (safe side).
+# Not matched, so the refusal stays (safe side): streaming (`writeStream`/`start`/`toTable`: the write happens after the cell returns, so its source proves nothing);
+# builder arguments with parentheses (`.option("k", f(x))`); a path that is not the first string literal of the save call (`.save(path="...")`, `.option("path", "...").save()`).
 WRITE_PATH_RE = (r"\.write\b(?:[\s\\]*\.\s*\w+\s*\([^()]*\))*[\s\\]*\.\s*(?:save|parquet|orc|json|csv|text)\s*\("
                  r"\s*[\"'][^\"']*/%s/?[\"']")
-REFUSAL_WARNINGS = ("format", "rejected", "conflict")  # warn() categories that put a table in `ignored`
+# warn() categories that `release_written` re-arms when a cell rewrites the table. `view` (`describe_new`) and `leaving` (`LEAVE`, which
+# warns as `rejected`) also fill `ignored`; `view` is not listed, so a rewrite does not repeat its warning.
+REFUSAL_WARNINGS = ("format", "rejected", "conflict")
 LOG_RE = re.compile(r"^(\d{20})\.json$")
 HUDI_INSTANT_RE = re.compile(r"^(\d+)_(\d+)\.(?:commit|deltacommit|replacecommit)$")
 HUDI_V1_INSTANT_RE = re.compile(r"^(\d+)\.(?:commit|deltacommit|replacecommit)$")
@@ -638,6 +640,7 @@ def report_deletions(outcome):
         http_call("POST", "/pending-deletions/result",
                   {"done": done, "failed": [{"id": row_id, "error": error} for row_id, error in failed.items()]})
         return
+    # `and False`: the queue is not part of the snapshot sessions reconcile, so `generation` must not be bumped (a truthy result bumps it).
     write_txn(lambda conn: finish_deletions(conn, done, failed) and False)
 
 
@@ -1823,6 +1826,7 @@ def enqueue_managed_drop(catalog, key, loc):
     if TRANSPORT == "http":
         http_call("POST", "/pending-deletions", {"catalog": catalog, "db": key[0], "name": key[1], "loc": loc})
     else:
+        # `and False`: same as in `report_deletions`; `enqueue_deletion` returns True, which would bump `generation`.
         write_txn(lambda conn: enqueue_deletion(conn, catalog, key, loc, now()) and False)
     STATE["drain_again"] = True
 
