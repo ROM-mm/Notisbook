@@ -6,14 +6,12 @@ o que o notebook gravou. As funções recebem uma conexão e NÃO abrem transaç
 datas saem em segundos desde a época. Nomes de database/tabela são gravados em minúsculas, como o Glue faz.
 Regras: o `default` existe sempre e não se exclui; `<schema>.<tabela>` é único entre `nb_*`, `iceberg_*` e `glue_*`, e a
 location (gravada como veio e checada em forma `s3a` sem `/` final) não se sobrepõe à de outra tabela de nenhum dos
-três nem cai em pasta com exclusão pendente. O tipo deriva da location, não do cliente: tabela não-Iceberg em
-`s3://notisbook-managed/<database>/<tabela>` (o DROP do cliente Hive apaga a pasta) é `MANAGED_TABLE`, sem
-`Parameters.EXTERNAL`; as demais são externas. O `metadata_location` Iceberg no bucket reservado fica na própria pasta.
-O `LocationUri` de um database, quando informado, é sempre `s3://notisbook-managed/<database>`
-(`schema_location_not_managed`); sem ele segue NULL.
+três nem cai em pasta com exclusão pendente. O tipo deriva da location (`_derived_type`): não-Iceberg em
+`s3://notisbook-managed/<database>/<tabela>` é `MANAGED_TABLE`, sem `Parameters.EXTERNAL`; as demais são externas.
+O `metadata_location` Iceberg no bucket reservado fica na própria pasta. O `LocationUri` de um database, se informado,
+é sempre `s3://notisbook-managed/<database>` (`schema_location_not_managed`).
 O DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).
-Tabelas e partições saem com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags,
-`Retention`, listas e mapas).
+Tabelas e partições trazem os campos que os clientes Java do Glue não checam contra nulo (flags, `Retention`, coleções).
 Erros: `GlueEntityNotFound`, `GlueAlreadyExists`, `GlueInvalidInput`.
 """
 

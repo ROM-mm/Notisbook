@@ -375,8 +375,8 @@ def _queue_managed(conn: sqlite3.Connection, catalog: str, schema: str, tables: 
     """Enfileira (na transação da exclusão) a pasta de cada tabela do bucket reservado; devolve os nomes.
 
     Quem decide o que entra é o chamador, com o plano do catálogo: `_managed_plan` (spark_catalog), `_iceberg_plan`
-    (iceberg) ou `_glue_plan` (glue). O backend não apaga arquivos: o kernel
-    consome a fila, depois de rechecar que nenhuma tabela usa a pasta.
+    (iceberg) ou `_glue_plan` (glue). O backend não apaga arquivos: o kernel consome a fila, depois de rechecar que
+    nenhuma tabela usa a pasta.
     """
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     queued = []

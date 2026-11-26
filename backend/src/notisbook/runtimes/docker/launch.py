@@ -44,8 +44,9 @@ def tag_for(connection_file: str) -> str:
 def glue_options(runtime: catalog.DockerRuntime) -> list[str]:
     """Endpoint Glue do app (`/glue`) só para o runtime Glue; os demais runtimes devolvem vazio.
 
-    Hoje todo runtime Docker do catálogo é Glue, e o `incontainer` exige `--glue-uri` (lê `options["--glue-uri"]`):
-    um runtime Docker que devolvesse vazio aqui só falharia dentro do container, não ao montar o comando.
+    Hoje todo runtime Docker do catálogo é Glue, e o `incontainer` exige `--glue-uri`: `_run_options` recusa a linha
+    de comando sem um valor que case com `GLUE_URI_RE`. Um runtime Docker que devolvesse vazio aqui só falharia dentro
+    do container, não ao montar o comando.
     O container não recebe credencial por aqui: o hook a grava no tmpfs (`catalog_hook.write_glue_credentials`).
     Levanta `LaunchError` no runtime Glue sem porta válida do backend: sem o `/glue` o kernel não tem catálogo.
     """

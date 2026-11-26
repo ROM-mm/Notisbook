@@ -2877,8 +2877,8 @@ mod.register()
 
 
 def _render(config: dict[str, object]) -> str:
-    # The `registry` functions copied below run via `exec` in a namespace with only what `_KERNEL_TEMPLATE` defines:
-    # they cannot use other names at definition time (annotations and defaults included).
+    # The `registry` functions copied below run via `exec` in a namespace with only what `_KERNEL_TEMPLATE` defines
+    # before `__REGISTRY_HELPERS__`: they cannot use other names at definition time (annotations and defaults included).
     locations_source = inspect.getsource(notislake_locations)
     helpers = "\n\n\n".join(
         [f"MAX_DELETE_ATTEMPTS = {MAX_DELETE_ATTEMPTS}"]
