@@ -65,12 +65,13 @@ def _spark_etag(rows: list[tuple[str, str, str]], queued: list[str]) -> str:
     return _etag([list(r) for r in rows] + [["queued", *sorted(queued)]])
 
 
-def _iceberg_etag(entries: list[tuple[str, str, str]]) -> str:
+def _iceberg_etag(entries: list[tuple[str, str, str]], queued: list[str]) -> str:
+    """Etag das entradas do namespace e das tabelas que a exclusão enfileiraria (o efeito entra, como no spark)."""
     items = []
     for name, kind, location in entries:
         folder = iceberg_jdbc.table_folder(location)
         items.append([name, kind, str(folder) if folder is not None else location])
-    return _etag(items)
+    return _etag([*items, ["queued", *sorted(queued)]])
 
 
 def _open_read(home: Path) -> sqlite3.Connection | None:
@@ -200,6 +201,28 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
     }
 
 
+def _iceberg_plan(conn: sqlite3.Connection, schema: str, entries: list[tuple[str, str, str]]) -> list[tuple[str, str, str | None]]:
+    """`(tabela, pasta, motivo | None)` de cada tabela Iceberg na pasta gerenciada própria; `None` = enfileirada.
+
+    Mesma regra de pasta em uso do spark e do glue; as entradas do próprio namespace (views inclusive) não a seguram.
+    Prévia e DELETE usam esta.
+    """
+    has_queue = registry.has_pending_table(conn)
+    used = registry.used_folders(conn, skip_tables=[(iceberg_jdbc.ICEBERG_CATALOG, schema, name) for name, _, _ in entries])
+    plan: list[tuple[str, str, str | None]] = []
+    for name, kind, location in entries:
+        prefix = iceberg_jdbc.table_prefix(location)
+        if kind == "VIEW" or prefix is None or not iceberg_jdbc.is_managed_s3a(location, schema, name):
+            continue
+        folder = registry.folder_key(prefix)
+        if any(registry.folder_overlaps(folder, u) for u in used):
+            reason = "keeps_files_shared"
+        else:
+            reason = None if has_queue else "no_deletion_queue"
+        plan.append((name, prefix, reason))
+    return plan
+
+
 def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, Any]:
     if conn is None:
         raise SchemaError("schema_not_found")
@@ -211,18 +234,19 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
         raise SchemaError("schema_not_found")
     entries = iceberg_jdbc.namespace_entries(conn, schema, has_type)
     tables = [e for e in entries if e[1] != "VIEW"]
-    queued = sum(1 for n, _, loc in tables if iceberg_jdbc.is_managed_s3a(loc, schema, n))
+    plan = _iceberg_plan(conn, schema, entries)
+    queued_tables = [name for name, _, reason in plan if reason is None]
     children = iceberg_jdbc.has_child_namespaces(conn, schema)
     return {
         "tables": len(tables),
         "views": len(entries) - len(tables),
         "managed": 0,  # o backend não apaga arquivos do bucket
-        "managed_queued": queued,
-        "managed_kept": 0,
-        "external": len(tables) - queued,
+        "managed_queued": len(queued_tables),
+        "managed_kept": len(plan) - len(queued_tables),
+        "external": len(tables) - len(plan),
         "can_delete": not children,
         "reason": "has_child_namespaces" if children else None,
-        "etag": _iceberg_etag(entries),
+        "etag": _iceberg_etag(entries, queued_tables),
     }
 
 
@@ -380,16 +404,14 @@ def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
             if iceberg_jdbc.has_child_namespaces(conn, schema):
                 raise SchemaError("has_child_namespaces")
             entries = iceberg_jdbc.namespace_entries(conn, schema, has_type)
-            if _iceberg_etag(entries) != etag:
+            plan = _iceberg_plan(conn, schema, entries)
+            if _iceberg_etag(entries, [name for name, _, reason in plan if reason is None]) != etag:
                 raise SchemaError("catalog_changed")
             iceberg_jdbc.drop_namespace_rows(conn, schema)
             tables = [e for e in entries if e[1] != "VIEW"]
-            managed = [
-                (name, prefix)
-                for name, _, loc in tables
-                if iceberg_jdbc.is_managed_s3a(loc, schema, name) and (prefix := iceberg_jdbc.table_prefix(loc))
-            ]
-            queued = _queue_managed(conn, iceberg_jdbc.ICEBERG_CATALOG, schema, managed)
+            queued = _queue_managed(
+                conn, iceberg_jdbc.ICEBERG_CATALOG, schema, [(name, prefix) for name, prefix, reason in plan if reason is None])
+            kept = [{"table": name, "reason": reason} for name, _, reason in plan if reason is not None]
     finally:
         conn.close()
 
@@ -398,7 +420,7 @@ def _delete_iceberg(home: Path, schema: str, etag: str) -> dict[str, Any]:
         "dropped_views": len(entries) - len(tables),
         "files_deleted": [],
         "files_queued": queued,
-        "files_kept": [],
+        "files_kept": kept,
         "folder_kept": False,
     }
 
