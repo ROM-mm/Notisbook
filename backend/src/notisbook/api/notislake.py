@@ -301,12 +301,12 @@ def _check_folder(prefix: str, *, allow_empty: bool) -> str:
 
 
 def _check_key(key: str) -> str:
-    """Chave de um arquivo: sem `/` final, vazia ou segmentos vazios (pasta se exclui por `/folders`)."""
+    """Chave de um arquivo: não vazia e sem `/` final (pasta se exclui por `/folders`); `a//b.csv` é válida."""
     try:
         _check_prefix(key)
     except HTTPException:
         raise _bad_input("query", "key", "key is invalid") from None
-    if not key or any(part == "" for part in key.split("/")):
+    if not key or key.endswith("/"):
         raise _bad_input("query", "key", "key is invalid")
     return key
 

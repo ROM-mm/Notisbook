@@ -349,24 +349,23 @@ def create_bucket_with_folders(connection: Connection, bucket: str) -> None:
         client.create_bucket(Bucket=bucket)
     except _upstream_errors() as exc:
         raise _classify_bucket(exc) from None
-    written: list[str] = []
     try:
         for prefix in PREFIXES:
             client.put_object(Bucket=bucket, Key=prefix, Body=b"")
-            written.append(prefix)
     except _upstream_errors() as exc:
         error = _classify_bucket(exc)
-        _undo_create(client, bucket, written)
+        _undo_create(client, bucket)
         raise error from None
 
 
-def _undo_create(client: Any, bucket: str, written: list[str]) -> None:
+def _undo_create(client: Any, bucket: str) -> None:
     """Desfaz, em melhor esforço, um `create_bucket` cujos marcadores falharam, para o retry não dar 409.
 
-    Falhas aqui são só registradas (sem nome de bucket) e nunca substituem o erro original.
+    Apaga todos os `PREFIXES` (delete de chave ausente é no-op no S3), pois a falha pode ter
+    deixado o PUT incerto. Falhas aqui são só registradas (sem nome de bucket) e nunca substituem o erro original.
     """
     try:
-        for key in written:
+        for key in PREFIXES:
             client.delete_object(Bucket=bucket, Key=key)
         client.delete_bucket(Bucket=bucket)
     except _upstream_errors():
@@ -445,8 +444,8 @@ def delete_bucket(connection: Connection, bucket: str) -> None:
 
 
 def _check_key(key: str) -> None:
-    """Recusa chave vazia, com `/` inicial ou final e segmentos vazios, `.` ou `..` (nunca um prefixo)."""
-    if not key or any(part in ("", ".", "..") for part in key.split("/")):
+    """Recusa chave vazia, com `/` inicial ou final, `.` ou `..`; segmento vazio (`a//b.csv`) é válido."""
+    if not key or key.startswith("/") or key.endswith("/") or any(part in (".", "..") for part in key.split("/")):
         raise ValueError("chave de objeto inválida")
 
 

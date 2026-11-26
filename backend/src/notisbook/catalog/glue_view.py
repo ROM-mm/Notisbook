@@ -225,6 +225,11 @@ def _spark_type(spec: Any) -> str:
     return str(kind or "")
 
 
+def _field_comment(field: dict[str, Any]) -> Any:
+    metadata = field.get("metadata")
+    return metadata.get("comment") if isinstance(metadata, dict) else None
+
+
 def _spark_schema_columns(parameters: dict[str, str]) -> list[dict[str, Any]]:
     """Colunas de `spark.sql.sources.schema.part.N` (como o Hudi as grava); vazio se ausente ou ilegível."""
     parts = []
@@ -240,7 +245,7 @@ def _spark_schema_columns(parameters: dict[str, str]) -> list[dict[str, Any]]:
         return []
     fields = schema.get("fields") if isinstance(schema, dict) else None
     return [
-        {"Name": f["name"], "Type": _spark_type(f.get("type")), "Comment": (f.get("metadata") or {}).get("comment")}
+        {"Name": f["name"], "Type": _spark_type(f.get("type")), "Comment": _field_comment(f)}
         for f in fields or []
         if isinstance(f, dict) and f.get("name")
     ]

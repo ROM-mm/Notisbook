@@ -86,10 +86,14 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
-def _verify_signature(request: Request, body: bytes) -> None:
-    """SigV4 recalculado com o segredo da sessão; levanta `AwsError` (403 malformado, 400 credencial/assinatura).
+async def _check_headers(request: Request) -> glue_sigv4.ParsedAuthorization:
+    """Host e cabeçalhos de assinatura, antes de ler o corpo (requisição inválida não consome o corpo).
 
-    Token de sessão que não é do runtime Glue recebe a mesma resposta de credencial inválida."""
+    Só a conferência do hash do corpo e da assinatura fica para `_verify_signature`."""
+    try:
+        await require_runtime_host(request)
+    except HTTPException:
+        raise AwsError(403, "AccessDeniedException", "Host not allowed.") from None
     try:
         auth = glue_sigv4.parse_authorization(request.headers.get("authorization"))
     except glue_sigv4.MalformedAuthorization:
@@ -97,6 +101,14 @@ def _verify_signature(request: Request, body: bytes) -> None:
     amz_date = request.headers.get("x-amz-date")
     if amz_date is None or not glue_sigv4.valid_amz_date(amz_date, auth):
         raise AwsError(403, "AccessDeniedException", "Missing or malformed authentication.")
+    return auth
+
+
+def _verify_signature(request: Request, body: bytes, auth: glue_sigv4.ParsedAuthorization) -> None:
+    """SigV4 recalculado com o segredo da sessão; levanta `AwsError` (400 credencial/assinatura).
+
+    Token de sessão que não é do runtime Glue recebe a mesma resposta de credencial inválida."""
+    amz_date = request.headers["x-amz-date"]
     body_hash = glue_sigv4.payload_hash(body, request.headers.get("x-amz-content-sha256"))
     raw_path = request.scope.get("raw_path")
     path = raw_path.decode("latin-1") if isinstance(raw_path, bytes) else request.url.path
@@ -114,14 +126,6 @@ def _verify_signature(request: Request, body: bytes) -> None:
     is_glue = entry is not None and entry[1].glue
     if not (matches and is_glue and canonical is not None and body_hash is not None):
         raise AwsError(400, "UnrecognizedClientException", BAD_CREDENTIALS)
-
-
-async def _authenticate(request: Request, body: bytes) -> None:
-    _verify_signature(request, body)
-    try:
-        await require_runtime_host(request)
-    except HTTPException:
-        raise AwsError(403, "AccessDeniedException", "Host not allowed.") from None
 
 
 def _operation(request: Request) -> str:
@@ -179,8 +183,9 @@ async def glue(request: Request) -> Response:
     request_id = str(uuid.uuid4())
     operation = "-"
     try:
+        auth = await _check_headers(request)
         body = await _read_body(request)
-        await _authenticate(request, body)
+        _verify_signature(request, body, auth)
         operation = _operation(request)
         params = _params(request, body)
         result = await asyncio.to_thread(_execute, _home(request), operation, params)
