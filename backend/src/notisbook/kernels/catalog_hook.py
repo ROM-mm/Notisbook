@@ -37,10 +37,11 @@ from ..catalog.registry import (
 )
 from ..notislake import locations as notislake_locations
 from ..notislake.sparkconf import closed_options, scheme_options
+from .sql_cell import MODULE_NAME as DISPLAY_MODULE_NAME
 
 MODULE_NAME = "_notisbook_catalog"
 
-# Plain string (not an f-string); `build_ensure_code` substitutes __CONFIG__, __REGISTRY_HELPERS__ and __LOCATIONS_SOURCE__.
+# Plain string (not an f-string); `_render` substitutes __CONFIG__, __REGISTRY_HELPERS__, __LOCATIONS_SOURCE__ and __DISPLAY_MODULE__.
 _KERNEL_TEMPLATE = r'''
 import functools, importlib.abc, importlib.util, inspect, json, os, re, select, sqlite3, sys, threading, time, types
 import urllib.error, urllib.request
@@ -136,8 +137,8 @@ SHOW_CREATE_RE = re.compile(r"\bSHOW\s+CREATE\s+TABLE\b", re.I)
 # A path ending in `/<table>` inside a batch write chain (`.write` + builder calls + save/parquet/...); `%s` is the escaped table name.
 # Not matched, so the refusal stays (safe side): streaming (`writeStream`/`start`/`toTable`: the write happens after the cell returns, so its source proves nothing);
 # builder arguments with parentheses (`.option("k", f(x))`); a path that is not the first string literal of the save call (`.save(path="...")`, `.option("path", "...").save()`).
-WRITE_PATH_RE = (r"\.write\b(?:[\s\\]*\.\s*\w+\s*\([^()]*\))*[\s\\]*\.\s*(?:save|parquet|orc|json|csv|text)\s*\("
-                 r"\s*[\"'][^\"']*/%s/?[\"']")
+WRITE_PATH_FMT = (r"\.write\b(?:[\s\\]*\.\s*\w+\s*\([^()]*\))*[\s\\]*\.\s*(?:save|parquet|orc|json|csv|text)\s*\("
+                  r"\s*[\"'][^\"']*/%s/?[\"']")
 # warn() categories that `release_written` re-arms when a cell rewrites the table. `view` (`describe_new`) and `leaving` (`LEAVE`, which
 # warns as `rejected`) also fill `ignored`; `view` is not listed, so a rewrite does not repeat its warning.
 REFUSAL_WARNINGS = ("format", "rejected", "conflict")
@@ -1426,7 +1427,7 @@ def written_keys(raw_cell, keys):
         db, table = (re.escape(part) for part in key)
         name = r"(?:(?:`?\w+`?\.)?`?%s`?\.)?`?%s`?(?![\w`])" % (db, table)
         if re.search(WRITE_TARGET_RE.pattern + name, raw_cell, re.I) or re.search(
-                WRITE_PATH_RE % table, raw_cell, re.I):
+                WRITE_PATH_FMT % table, raw_cell, re.I):
             written.add(key)
     return written
 
@@ -1440,9 +1441,10 @@ def release_written(skey, ignored, raw_cell):
     if not raw_cell or not ignored:
         return
     written = written_keys(raw_cell, ignored)
+    warned = STATE.setdefault("warned", set())
     for key in written:
         for category in REFUSAL_WARNINGS:
-            STATE.setdefault("warned", set()).discard((category, skey, key))
+            warned.discard((category, skey, key))
     ignored -= written
 
 
@@ -2738,7 +2740,7 @@ def patch(module):
             if method in vars(target):
                 setattr(target, method, factory(unwrap(vars(target)[method])))
     # `show()` patch of the renderer module: this finder may be the one that sees `awsglue.dynamicframe`.
-    hook = getattr(sys.modules.get("_notisbook_display"), "patch_loaded", None)
+    hook = getattr(sys.modules.get(__DISPLAY_MODULE__), "patch_loaded", None)
     if hook is not None:
         hook(module)
 
@@ -2886,6 +2888,7 @@ def _render(config: dict[str, object]) -> str:
     source = (
         _KERNEL_TEMPLATE.replace("__REGISTRY_HELPERS__", helpers)
         .replace("__LOCATIONS_SOURCE__", repr(locations_source))
+        .replace("__DISPLAY_MODULE__", repr(DISPLAY_MODULE_NAME))
         .replace("__CONFIG__", repr(json.dumps(config)))
     )
     version = hashlib.sha1(source.encode()).hexdigest()[:12]
