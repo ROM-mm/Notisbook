@@ -25,6 +25,7 @@ from ..catalog.registry import (
     enqueue_deletion,
     finish_deletions,
     folder_in_use,
+    folder_overlaps,
     folder_key,
     has_pending_table,
     iceberg_folder,
@@ -1397,7 +1398,7 @@ def own_managed(key, location):
 
     `is_own_managed` canonicalizes `s3://` to `s3a://` like the backend, so both sides decide the same.
     """
-    return LOCATIONS.is_own_managed(key[0], key[1], LOCATIONS.canonical(location))
+    return LOCATIONS.is_own_managed(key[0], key[1], location)
 
 
 def deep_keys(raw_cell, known):
@@ -2874,7 +2875,7 @@ def _render(config: dict[str, object]) -> str:
         [f"MAX_DELETE_ATTEMPTS = {MAX_DELETE_ATTEMPTS}"]
         + [inspect.getsource(fn).rstrip()
            for fn in (read_snapshot, iceberg_folder, has_pending_table, enqueue_deletion, folder_key, used_folders,
-                      folder_in_use, pending_rows,
+                      folder_overlaps, folder_in_use, pending_rows,
                       pending_deletions, purge_reused_deletions, finish_deletions, apply_plan)]
     )
     config = {**config, "s3a_closed": closed_options(), "s3_scheme": scheme_options()}

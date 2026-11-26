@@ -349,11 +349,25 @@ def folder_key(location):
     return location.rstrip("/").lower() + "/"
 
 
+def folder_overlaps(folder, used_folder):
+    """As duas pastas (em `folder_key`) são a mesma, uma dentro da outra ou uma acima da outra."""
+    return used_folder.startswith(folder) or folder.startswith(used_folder)
+
+
 def used_folders(conn, skip=None):
-    """Pastas de tabela em uso (registro, Iceberg e glue), em `folder_key`; `skip`: chave `(schema, tabela)` do registro a ignorar."""
+    """Pastas de tabela em uso (registro, Iceberg e glue), em `folder_key`.
+
+    `skip`: chave `(schema, tabela)` do registro, ou coleção de chaves, cujas linhas não contam como uso.
+    """
+    if skip is None:
+        skipped = set()
+    elif isinstance(skip, tuple) and len(skip) == 2 and isinstance(skip[0], str):
+        skipped = {skip}
+    else:
+        skipped = set(skip)
     used = [loc for ns, name, loc in conn.execute(
         "SELECT namespace, table_name, location FROM nb_tables WHERE catalog_name = 'spark_catalog'")
-        if (ns, name) != skip]
+        if (ns, name) not in skipped]
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone():
         for (meta,) in conn.execute(
                 "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
@@ -364,9 +378,9 @@ def used_folders(conn, skip=None):
 
 
 def folder_in_use(conn, location, skip=None):
-    """Alguma tabela (spark, iceberg ou glue; menos `skip`) usa a pasta: igual, dentro ou acima de `location`."""
+    """Alguma tabela (spark, iceberg ou glue; menos `skip`, ver `used_folders`) usa a pasta: igual, dentro ou acima."""
     folder = folder_key(location)
-    return any(u.startswith(folder) or folder.startswith(u) for u in used_folders(conn, skip))
+    return any(folder_overlaps(folder, u) for u in used_folders(conn, skip))
 
 
 def pending_rows(conn):
@@ -376,7 +390,7 @@ def pending_rows(conn):
     for row_id, namespace, name, location, attempts in conn.execute(
             "SELECT id, namespace, table_name, location, attempts FROM nb_pending_deletions ORDER BY id").fetchall():
         folder = folder_key(location)
-        reused = any(u.startswith(folder) or folder.startswith(u) for u in used)
+        reused = any(folder_overlaps(folder, u) for u in used)
         rows.append((row_id, namespace, name, location, reused, attempts))
     return rows
 
