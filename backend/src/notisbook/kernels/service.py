@@ -26,7 +26,7 @@ from nbformat.v4 import output_from_msg
 from ..catalog.store import catalog_db_path
 from ..config import RUNTIME_HOST, Settings
 from ..notislake import objectstore, settings_store
-from ..notislake.sparkconf import fingerprint, s3a_options
+from ..notislake.sparkconf import fingerprint, s3a_options, s3a_scope
 from ..notislake.supervisor import NotislakeSupervisor
 from ..runtimes.docker import catalog as docker_catalog
 from ..runtimes.docker import cli as docker_cli
@@ -192,6 +192,8 @@ class S3AResolution:
     options: dict[str, str] | None = field(default=None, repr=False)
     fingerprint: str | None = field(default=None, repr=False)
     notice: tuple[str, str] | None = None
+    # `any` (automático, config global) ou `notislake` (manual, por bucket); None sem S3A. Consumido por hook e DuckDB.
+    scope: str | None = None
 
 
 class DockerRuntimeError(Exception):
@@ -299,6 +301,8 @@ class KernelSession:
     # Reavalia a conexão S3A no restart e levanta se ela não servir; None mantém a conexão com que a sessão abriu.
     s3a_resolver: Callable[[], S3AResolution] | None = None
     _s3a_options: dict[str, str] | None = field(default=None, repr=False)
+    # Escopo S3A da conexão corrente; o snippet do hook e o bootstrap DuckDB o repassarão quando passarem a lê-lo.
+    _s3a_scope: str | None = None
     # Aviso da abertura (ex.: endpoint não suportado); o canal o entrega uma vez, como o do restart.
     s3a_notice: tuple[str, str] | None = None
     _restarting: bool = False
@@ -406,6 +410,7 @@ class KernelSession:
             return None
         resolution = self.s3a_resolver()
         self._s3a_options = resolution.options
+        self._s3a_scope = resolution.scope
         if self.runtime_grant is not None:
             self.runtime_grant = replace(self.runtime_grant, s3a_fingerprint=resolution.fingerprint)
         if self.local_catalog_factory is not None:
@@ -932,7 +937,9 @@ class KernelService:
             if parts.scheme == "https" and parts.hostname and settings_store.is_loopback_host(parts.hostname):
                 notice = S3A_LOOPBACK_HTTPS_NOTICE
                 log.warning("manual notislake endpoint is https on loopback: not supported in the Docker runtime")
-        return S3AResolution(dict(s3a_options(conn, docker=docker)), fingerprint(conn), notice)
+        automatic = conn.source == "automatic"
+        options = dict(s3a_options(conn, docker=docker, automatic=automatic))
+        return S3AResolution(options, fingerprint(conn), notice, s3a_scope(automatic=automatic))
 
     def _duckdb_bootstrap_factory(self, spec: Any) -> Callable[[str, Mapping[str, str] | None], str]:
         """Bootstrap do kernel DuckDB; o diretório e a lista de extensões vêm do metadata do kernelspec."""
@@ -1212,6 +1219,7 @@ class KernelService:
                 cell_languages=cell_languages_for(kind, spec_language),
                 s3a_resolver=lambda: self._resolve_s3a(docker=is_docker),
                 _s3a_options=s3a.options,
+                _s3a_scope=s3a.scope,
                 s3a_notice=s3a.notice,
                 docker_runtime=docker_runtime,
                 docker_tag=docker_launch.tag_for(connection_file) if docker_runtime is not None else "",
