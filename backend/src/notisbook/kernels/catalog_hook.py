@@ -24,6 +24,8 @@ from ..catalog.registry import (
     apply_plan,
     enqueue_deletion,
     finish_deletions,
+    folder_in_use,
+    folder_key,
     has_pending_table,
     iceberg_folder,
     pending_deletions,
@@ -1387,7 +1389,7 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
     if result["deletions"]:
         STATE["drain_again"] = True  # the folders are queued; `drain_deletions` removes them after this cell
     for key in result.get("files_kept", ()):
-        warn(("delete", skey, key), "kept the files of dropped table %s.%s (another registered table uses that folder, or the catalog API could not remove them)." % key)
+        warn(("delete", skey, key), "kept the files of dropped table %s.%s (another table (spark, iceberg or glue) uses that folder, or it is not the table's own managed folder)." % key)
 
 
 def own_managed(key, location):
@@ -2868,7 +2870,8 @@ def _render(config: dict[str, object]) -> str:
     helpers = "\n\n\n".join(
         [f"MAX_DELETE_ATTEMPTS = {MAX_DELETE_ATTEMPTS}"]
         + [inspect.getsource(fn).rstrip()
-           for fn in (read_snapshot, iceberg_folder, has_pending_table, enqueue_deletion, used_folders, pending_rows,
+           for fn in (read_snapshot, iceberg_folder, has_pending_table, enqueue_deletion, folder_key, used_folders,
+                      folder_in_use, pending_rows,
                       pending_deletions, purge_reused_deletions, finish_deletions, apply_plan)]
     )
     config = {**config, "s3a_closed": closed_options(), "s3_scheme": scheme_options()}

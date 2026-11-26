@@ -320,16 +320,29 @@ def enqueue_deletion(conn, catalog, key, location, stamp):
     return True
 
 
-def used_folders(conn):
-    """Pastas de tabela em uso (registro, Iceberg e glue), em minúsculas e terminadas em `/`."""
-    used = [r[0] for r in conn.execute("SELECT location FROM nb_tables WHERE catalog_name = 'spark_catalog'")]
+def folder_key(location):
+    """Forma de comparar pastas: sem `/` final, em minúsculas (o MinIO não distingue caixa) e terminada em `/`."""
+    return location.rstrip("/").lower() + "/"
+
+
+def used_folders(conn, skip=None):
+    """Pastas de tabela em uso (registro, Iceberg e glue), em `folder_key`; `skip`: chave `(schema, tabela)` do registro a ignorar."""
+    used = [loc for ns, name, loc in conn.execute(
+        "SELECT namespace, table_name, location FROM nb_tables WHERE catalog_name = 'spark_catalog'")
+        if (ns, name) != skip]
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone():
         for (meta,) in conn.execute(
                 "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
             used.append(iceberg_folder(meta))
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone():
         used += [loc for (loc,) in conn.execute("SELECT location FROM glue_tables WHERE location IS NOT NULL")]
-    return [u.rstrip("/").lower() + "/" for u in used if u]
+    return [folder_key(u) for u in used if u]
+
+
+def folder_in_use(conn, location, skip=None):
+    """Alguma tabela (spark, iceberg ou glue; menos `skip`) usa a pasta: igual, dentro ou acima de `location`."""
+    folder = folder_key(location)
+    return any(u.startswith(folder) or folder.startswith(u) for u in used_folders(conn, skip))
 
 
 def pending_rows(conn):
@@ -338,7 +351,7 @@ def pending_rows(conn):
     rows = []
     for row_id, namespace, name, location, attempts in conn.execute(
             "SELECT id, namespace, table_name, location, attempts FROM nb_pending_deletions ORDER BY id").fetchall():
-        folder = location.rstrip("/").lower() + "/"
+        folder = folder_key(location)
         reused = any(u.startswith(folder) or folder.startswith(u) for u in used)
         rows.append((row_id, namespace, name, location, reused, attempts))
     return rows
@@ -541,15 +554,8 @@ def apply_plan(conn, plan, stamp, own_managed, type_from_row=False, destination=
         changed = True
         if row[1] != "MANAGED":
             continue
-        # Igual ou dentro da pasta, comparado por prefixo (sem LIKE, que trataria `%`/`_` como curinga).
-        shared = conn.execute(
-            "SELECT count(*) FROM nb_tables WHERE location = ?1 OR substr(location, 1, length(?1) + 1) = ?1 || '/'",
-            (row[0].rstrip("/"),)).fetchone()[0]
-        if not shared and has_iceberg:
-            shared = conn.execute(
-                "SELECT count(*) FROM iceberg_tables WHERE substr(metadata_location, 1, length(?1) + 1) = ?1 || '/'",
-                (row[0].rstrip("/"),)).fetchone()[0]
-        if shared or not own_managed(key, row[0]):
+        # Mesma comparação do drain (`folder_in_use`): registro, Iceberg e Glue, sem distinção de caixa.
+        if folder_in_use(conn, row[0]) or not own_managed(key, row[0]):
             out["files_kept"].append(key)
         else:
             enqueue_deletion(conn, "spark_catalog", key, row[0], stamp)
