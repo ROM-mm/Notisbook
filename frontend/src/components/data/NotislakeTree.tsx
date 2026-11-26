@@ -162,15 +162,17 @@ function buildBucketRows(
     }
     return;
   }
-  if (buckets.length === 0) {
-    out.push({ kind: "status", rowKey: "buckets:empty", level: 1, text: "No buckets", error: false });
-    return;
-  }
   buckets.forEach((bucket, i) => {
     const key = `${bucket}/`;
     pushNode(out, { key, name: `s3://${bucket}`, isDir: true, isBucket: true }, 1, "", i + 1, buckets.length);
     if (expanded[key]) buildRows(key, 2, dirs, expanded, manual, actions.refresh, out);
   });
+  // Uma recarga manual que falha mantém a última lista conhecida e avisa ao final dela, com retry.
+  if (error) {
+    out.push({ kind: "status", rowKey: "buckets:error", level: 1, text: error, error: true, onRetry: actions.loadBuckets });
+  } else if (buckets.length === 0) {
+    out.push({ kind: "status", rowKey: "buckets:empty", level: 1, text: "No buckets", error: false });
+  }
 }
 
 /** Caminho `s3://` do nó; o bucket é copiado sem a barra final. */
