@@ -422,7 +422,8 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   min-width: 0;
 }
 
-/* Raiz fixa do Notislake: `s3a://<bucket>` e, abaixo, a árvore ou o diagnóstico. */
+/* Corpo do Notislake: raízes `s3://<bucket>` (árvore) ou o diagnóstico da conexão.
+   Sem rolagem própria: a árvore cresce inteira e só a seção rola. */
 .notislakeRoot {
   display: flex;
   flex-direction: column;
@@ -430,45 +431,8 @@ dialog .confirmDanger:global(.btn):hover:not(:disabled) {
   min-width: 0;
 }
 
-/* Sem rolagem própria: a árvore cresce inteira e só a seção rola. */
-.notislakeBody {
-  padding: 0;
-}
-
-.notislakeBody .treeBody {
+.notislakeRoot .treeBody {
   min-width: 0;
-}
-
-/* Pastas do bucket sob a raiz, com a linha-guia vertical do mock (`.tree ul`). */
-.notislakeChildren {
-  margin-left: 7px;
-  padding-left: 0;
-  border-left: 1px solid var(--color-border);
-}
-
-/* Linha da raiz: ícone S3 + `s3a://<bucket>`; clique esquerdo abre o menu (MinIO UI / credenciais / Settings). */
-.notislakeTrigger {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 2px 0;
-  border: 0;
-  background: none;
-  color: var(--color-text);
-  font: inherit;
-  font-size: var(--font-size-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.notislakeTrigger:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.notislakeTrigger:focus-visible {
-  outline: 2px solid var(--color-focus-ring);
-  outline-offset: -2px;
 }
 
 .notislakeStatus {

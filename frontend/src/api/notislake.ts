@@ -1,4 +1,4 @@
-import { ApiError, request } from "./http";
+import { ApiError, errorMessage, request } from "./http";
 
 /** Espelha `backend/src/notisbook/api/notislake.py` (prefixo `/api/notislake`). */
 const BASE = "/api/notislake";
@@ -194,4 +194,23 @@ export function contentChangedCount(err: unknown): number | null {
   if (!(err instanceof ApiError) || err.status !== 409 || err.code !== "content_changed") return null;
   const count = (err.detail as { object_count?: unknown }).object_count;
   return typeof count === "number" ? count : null;
+}
+
+const MANAGE_MESSAGES: Record<NotislakeManageErrorCode, string> = {
+  bucket_exists: "A bucket with this name already exists.",
+  bucket_missing: "This bucket no longer exists.",
+  bucket_not_empty: "The bucket still has objects (something wrote to it during the delete). Try again.",
+  content_changed: "The content changed since the confirmation. Review and confirm again.",
+  delete_in_progress: "Another delete is in progress. Try again when it finishes.",
+  manual_mode_unsupported: "Creating and deleting is only available with the local MinIO.",
+  notislake_unavailable: "MinIO is not running.",
+};
+
+/** Texto legível dos erros de criação/exclusão (o backend devolve mensagens internas). */
+export function notislakeManageErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const text = err.code ? MANAGE_MESSAGES[err.code as NotislakeManageErrorCode] : undefined;
+    if (text) return text;
+  }
+  return errorMessage(err);
 }
