@@ -6,8 +6,9 @@ o que o notebook gravou. As funções recebem uma conexão e NÃO abrem transaç
 datas saem em segundos desde a época. Nomes de database/tabela são gravados em minúsculas, como o Glue faz.
 Regras: o `default` existe sempre e não se exclui; `<schema>.<tabela>` é único entre `nb_*`, `iceberg_*` e `glue_*`, e a
 location (gravada como veio e checada em forma `s3a` sem `/` final) não se sobrepõe à de outra tabela de nenhum dos
-três nem cai em pasta com exclusão pendente. `MANAGED_TABLE` só em `s3://notisbook-managed/<database>/<tabela>` (o
-DROP do cliente Hive apaga a pasta da tabela); externa em qualquer outro bucket. O `LocationUri` de um database, quando
+três nem cai em pasta com exclusão pendente. O tipo deriva da location, não do cliente: tabela não-Iceberg em
+`s3://notisbook-managed/<database>/<tabela>` (o DROP do cliente Hive apaga a pasta) é `MANAGED_TABLE`, sem
+`Parameters.EXTERNAL`; as demais são externas. O `metadata_location` Iceberg no bucket reservado fica na própria pasta. O `LocationUri` de um database, quando
 informado, é sempre `s3://notisbook-managed/<database>` (`schema_location_not_managed`); sem ele segue NULL. O
 DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).
 Tabelas e partições saem com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags,
@@ -380,9 +381,13 @@ def table_name_exists_in_glue(conn: sqlite3.Connection, database: str, table: st
     return row is not None
 
 
+def _is_iceberg(parameters: dict[str, str]) -> bool:
+    return parameters.get(_ICEBERG_TYPE_PARAM, "").upper() == "ICEBERG"
+
+
 def _check_iceberg(table_type: str, parameters: dict[str, str]) -> None:
     """Tabela Iceberg (`table_type=ICEBERG`): EXTERNAL_TABLE com `metadata_location` numa location s3 válida."""
-    if parameters.get(_ICEBERG_TYPE_PARAM, "").upper() != "ICEBERG":
+    if not _is_iceberg(parameters):
         return
     if table_type != TABLE_TYPE_EXTERNAL:
         raise GlueInvalidInput("iceberg_not_external", f"An Iceberg table must be {TABLE_TYPE_EXTERNAL}.")
@@ -459,6 +464,38 @@ def _canonical_location(
     return canonical
 
 
+def _derived_type(database: str, table: str, location: str | None, parameters: dict[str, str]) -> str:
+    """Tipo gravado: MANAGED_TABLE só para não-Iceberg na própria pasta gerenciada; o resto (Iceberg inclusive) é EXTERNAL_TABLE."""
+    if _is_iceberg(parameters) or location is None:
+        return TABLE_TYPE_EXTERNAL
+    return TABLE_TYPE_MANAGED if locations.is_own_managed(database, table, location) else TABLE_TYPE_EXTERNAL
+
+
+def _parameters_for(table_type: str, parameters: dict[str, str]) -> dict[str, str]:
+    """Parameters a gravar: a tabela MANAGED não leva `EXTERNAL`, que o Hive leria como tabela externa e não apagaria a pasta."""
+    if table_type != TABLE_TYPE_MANAGED:
+        return parameters
+    return {k: v for k, v in parameters.items() if k.upper() != "EXTERNAL"}
+
+
+def _require_metadata_inside(
+    database: str, table: str, location: str | None, parameters: dict[str, str]
+) -> None:
+    """Iceberg com `metadata_location` no bucket reservado: tem de estar na pasta da própria tabela.
+
+    O DROP do Hive apaga a pasta da tabela; um metadata na pasta de outra tabela a levaria junto. Sem Location,
+    vale a pasta gerenciada da própria chave.
+    """
+    if not _is_iceberg(parameters):
+        return
+    metadata = _to_s3a(parameters.get(_ICEBERG_METADATA_PARAM, ""))
+    if not locations.targets_managed(metadata):
+        return
+    own = location if location is not None else locations.managed_location(database, table)
+    if not locations.within(metadata, own):
+        raise GlueInvalidInput("metadata_outside_location", "metadata_location must be inside the table location.")
+
+
 def _iceberg_name_exists(conn: sqlite3.Connection, database: str, table: str) -> bool:
     """Existe tabela ou view Iceberg com esse schema e nome, sem distinção de caixa nas duas partes."""
     row = conn.execute(
@@ -478,8 +515,8 @@ def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
     """Cria a tabela a partir do TableInput (`version_id` = 1) e a devolve.
 
     Levanta `GlueEntityNotFound` (database), `GlueAlreadyExists` (nome no `glue`) e `GlueInvalidInput`
-    (nome em outro catálogo, location recusada, MANAGED fora do local fixo, Iceberg sem `metadata_location`,
-    TableType fora do escopo, payload inválido).
+    (nome em outro catálogo, location recusada, MANAGED fora do local fixo, Iceberg sem `metadata_location` ou com ele
+    na pasta de outra tabela, TableType fora do escopo, payload inválido). O tipo gravado deriva da location.
     """
     db_key = _require_database(conn, database)
     fields = _parse_table_input(table_input)
@@ -488,6 +525,8 @@ def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
         raise GlueAlreadyExists("table_exists", f"Table {name} already exists.")
     _require_free_name(conn, db_key, name)
     location = _canonical_location(conn, db_key, name, fields["descriptor"], fields["table_type"])
+    _require_metadata_inside(db_key, name, location, fields["parameters"])
+    table_type = _derived_type(db_key, name, location, fields["parameters"])
     now = time.time()
     conn.execute(
         "INSERT INTO glue_tables (database_name, name, table_type, description, storage_descriptor, partition_keys, "
@@ -495,11 +534,11 @@ def create_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
         (
             db_key,
             name,
-            fields["table_type"],
+            table_type,
             fields["description"],
             _dump(fields["descriptor"]),
             _dump(fields["keys"]),
-            _dump(fields["parameters"]),
+            _dump(_parameters_for(table_type, fields["parameters"])),
             _dump(fields["extra"]),
             location,
             now,
@@ -525,7 +564,7 @@ def update_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
 
     O `Name` do TableInput identifica a tabela (renomear não existe no Glue). Levanta as mesmas exceções de `create_table`,
     com `GlueEntityNotFound` também para a tabela. Trocar para MANAGED_TABLE fora do local fixo é recusado, bem como
-    remover ou trocar a `Location` deixando partição fora dela.
+    remover ou trocar a `Location` deixando partição fora dela. O tipo gravado deriva da location (ver `_derived_type`).
     """
     db_key = _require_database(conn, database)
     fields = _parse_table_input(table_input)
@@ -533,16 +572,18 @@ def update_table(conn: sqlite3.Connection, database: str, table_input: Any) -> d
     if _table_row(conn, db_key, name) is None:
         raise GlueEntityNotFound("table_not_found", f"Table {name} not found.")
     location = _canonical_location(conn, db_key, name, fields["descriptor"], fields["table_type"])
+    _require_metadata_inside(db_key, name, location, fields["parameters"])
     _require_partitions_inside(conn, db_key, name, location)
+    table_type = _derived_type(db_key, name, location, fields["parameters"])
     conn.execute(
         "UPDATE glue_tables SET table_type = ?, description = ?, storage_descriptor = ?, partition_keys = ?, parameters = ?, extra = ?, "
         "location = ?, update_time = ?, version_id = version_id + 1 WHERE database_name = ? AND name = ?",
         (
-            fields["table_type"],
+            table_type,
             fields["description"],
             _dump(fields["descriptor"]),
             _dump(fields["keys"]),
-            _dump(fields["parameters"]),
+            _dump(_parameters_for(table_type, fields["parameters"])),
             _dump(fields["extra"]),
             location,
             time.time(),
