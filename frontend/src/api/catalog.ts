@@ -197,7 +197,7 @@ export interface SchemaPreview {
   managed: number;
   /** Gerenciadas no bucket reservado cujas pastas entram na fila de exclusão (o kernel as apaga). */
   managed_queued: number;
-  /** Só a MANAGED legada com location local: a pasta permanece após a exclusão do schema. */
+  /** Gerenciadas cujos arquivos permanecem após a exclusão do schema (pasta usada por outra tabela, fora da própria pasta reservada ou location local legada). */
   managed_kept: number;
   external: number;
   can_delete: boolean;

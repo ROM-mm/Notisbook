@@ -210,7 +210,11 @@ function Empty({ title, hint, testId }: { title: string; hint?: string; testId?:
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-const KEPT_REASONS: Record<string, string> = { outside_warehouse: "local folder stays" };
+const KEPT_REASONS: Record<string, string> = {
+  keeps_files_shared: "folder used by another table, files stay",
+  keeps_files_outside_managed: "outside its managed folder, files stay",
+  outside_warehouse: "local folder stays",
+};
 
 const keptLabel = (k: { table: string; reason: string }) => `${k.table} (${KEPT_REASONS[k.reason] ?? k.reason})`;
 
@@ -301,7 +305,7 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
               ? `Files of ${plural(preview.managed_queued, "managed table", "managed tables")} will be queued for deletion; `
               : ""}
             {preview.managed_kept > 0
-              ? `${plural(preview.managed_kept, "legacy local table folder stays", "legacy local table folders stay")}; `
+              ? `${plural(preview.managed_kept, "managed table folder stays", "managed table folders stay")}; `
               : ""}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
