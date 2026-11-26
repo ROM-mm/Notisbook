@@ -1,7 +1,7 @@
 /**
- * Cartão Notislake do Explorer (mock da landing): título recolhível "Notislake", raiz
- * `s3a://<bucket>` com o ícone S3 (clique esquerdo abre o menu) e as pastas do bucket abaixo;
- * se habilitada, a pasta local salva como conexão.
+ * Cartão Notislake do Explorer: título recolhível "Notislake", linha da conexão com o ícone S3
+ * (clique esquerdo abre o menu) e, abaixo, um nó `s3://<bucket>` por bucket; se habilitada, a
+ * pasta local salva como conexão.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
@@ -25,9 +25,6 @@ import styles from "./DataPanel.module.css";
 const COPY_FEEDBACK_MS = 2000;
 const REFRESH_DEBOUNCE_MS = 1500;
 
-/** Bucket exibido na raiz enquanto a primeira listagem não informa o nome real. */
-const DEFAULT_BUCKET = "notislake";
-
 /** Relê a árvore na transição busy → idle do kernel do notebook ativo (célula pode ter criado ou excluído tabelas). */
 function IdleRefresh({ entry }: { entry: NotebookEntry }) {
   const kernelState = useStore(entry.kernel, (s) => s.kernelState);
@@ -48,7 +45,6 @@ function IdleRefresh({ entry }: { entry: NotebookEntry }) {
 function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
   const status = useNotislake((s) => s.status);
   const statusError = useNotislake((s) => s.statusError);
-  const bucket = useNotislake((s) => s.bucket);
   const retrying = useNotislake((s) => s.retrying);
   const retryError = useNotislake((s) => s.retryError);
   const start = useNotislake((s) => s.start);
@@ -166,7 +162,7 @@ function NotislakeRoot({ onConfigure }: { onConfigure: () => void }) {
         onClick={openMenu}
       >
         <BrandIcon icon={S3Icon} />
-        <span className={styles.connectionName}>s3a://{bucket ?? DEFAULT_BUCKET}</span>
+        <span className={styles.connectionName}>{manual ? "S3" : "MinIO"}</span>
       </button>
       <div className={styles.notislakeBody}>{body}</div>
       {menu ? (
