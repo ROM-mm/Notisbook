@@ -1378,8 +1378,8 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
     for old, new, info in result["renamed_ok"]:
         rec = known.pop(old)
         known[new] = {**rec, **{f: info[f] for f in ("fmt", "loc", "cols", "parts", "dv", "hi")}}
-        if is_s3a(info["loc"]):
-            known[new]["type"] = "MANAGED" if own_managed(new, info["loc"]) else "EXTERNAL"  # mirrors apply_plan
+        if LOCATIONS.bucket_of(info["loc"]) is not None:  # same condition as `derived_type` in `apply_plan`
+            known[new]["type"] = "MANAGED" if own_managed(new, info["loc"]) else "EXTERNAL"
         elif rec["type"] == "MANAGED" and info["loc"] != rec["loc"]:
             known[new]["type"] = "EXTERNAL"
     for key in result["dropped_ok"]:
@@ -1393,8 +1393,11 @@ def apply_changes(skey, created, updated, renamed, dropped, new_dbs, gone_dbs, k
 
 
 def own_managed(key, location):
-    """`location` is the reserved-bucket folder of table `key`; no local path is."""
-    return is_s3a(location) and LOCATIONS.is_own_managed(key[0], key[1], location)
+    """`location` is the reserved-bucket folder of table `key`; no local path is.
+
+    `is_own_managed` canonicalizes `s3://` to `s3a://` like the backend, so both sides decide the same.
+    """
+    return LOCATIONS.is_own_managed(key[0], key[1], LOCATIONS.canonical(location))
 
 
 def deep_keys(raw_cell, known):
