@@ -948,8 +948,8 @@ class KernelService:
         extensions = tuple(str(e) for e in meta.get("extensions") or ())
         port = self._port
 
-        def build(token: str, s3a: Mapping[str, str] | None, scope: str | None) -> str:  # `scope`: lido pelo DuckDB só na T5
-            return build_duckdb_bootstrap_code(ext_dir, extensions, s3a, port, token)
+        def build(token: str, s3a: Mapping[str, str] | None, scope: str | None) -> str:
+            return build_duckdb_bootstrap_code(ext_dir, extensions, s3a, port, token, scope or SCOPE_NOTISLAKE)
 
         return build
 

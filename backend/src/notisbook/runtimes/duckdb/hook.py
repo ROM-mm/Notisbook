@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 from ...kernels.sql_cell import MODULE_NAME
 from ...notislake.locations import known_buckets
+from ...notislake.sparkconf import SCOPE_ANY
 
 REST_PATH = "/iceberg"
 SECRET_S3 = "notisbook_s3"
@@ -27,7 +28,8 @@ S3_SCOPES = tuple(f"{scheme}://{bucket}/" for bucket in known_buckets() for sche
 DENY_SCOPES = tuple(f"{scheme}://" for scheme in _S3_SCHEMES)
 DENY_ENDPOINT = "127.0.0.1:1"
 REQUIRED_EXTENSIONS = ("httpfs", "iceberg", "avro")
-_S3A_PREFIX = "fs.s3a.bucket.notislake."
+# Manual: opções por bucket `notislake`; automático: opções globais. Valendo a regra do Hadoop, a do bucket vence.
+_S3A_PREFIXES = ("fs.s3a.bucket.notislake.", "fs.s3a.")
 
 _TEMPLATE = r'''
 import json, re, sys
@@ -70,11 +72,12 @@ try:
         except Exception:
             if name in cfg["required"]:
                 raise
-    con.execute(
-        "CREATE OR REPLACE TEMPORARY SECRET " + cfg["deny_name"] + " (TYPE S3, KEY_ID 'denied', SECRET 'denied', ENDPOINT "
-        + q(cfg["deny_endpoint"]) + ", URL_STYLE 'path', USE_SSL false, REGION 'us-east-1', SCOPE ["
-        + ", ".join(q(s) for s in cfg["deny_scopes"]) + "])"
-    )
+    if cfg["deny_scopes"]:
+        con.execute(
+            "CREATE OR REPLACE TEMPORARY SECRET " + cfg["deny_name"] + " (TYPE S3, KEY_ID 'denied', SECRET 'denied', ENDPOINT "
+            + q(cfg["deny_endpoint"]) + ", URL_STYLE 'path', USE_SSL false, REGION 'us-east-1', SCOPE ["
+            + ", ".join(q(s) for s in cfg["deny_scopes"]) + "])"
+        )
     if cfg.get("s3"):
         s3 = cfg["s3"]
         con.execute(
@@ -101,15 +104,25 @@ except BaseException as exc:
 '''
 
 
+def _option(options: Mapping[str, str] | None, name: str) -> str | None:
+    """Valor da opção S3A `name`, por bucket `notislake` ou global; a do bucket vence."""
+    for prefix in _S3A_PREFIXES:
+        value = (options or {}).get(prefix + name)
+        if value is not None:
+            return value
+    return None
+
+
 def _s3_settings(options: Mapping[str, str] | None) -> dict[str, object] | None:
     """Deriva endpoint host:porta, TLS e região das opções S3A da sessão; sem opções, sem secret S3."""
-    if not options:
+    endpoint = _option(options, "endpoint")
+    if endpoint is None:
         return None
-    parts = urlsplit(options[f"{_S3A_PREFIX}endpoint"])
+    parts = urlsplit(endpoint)
     return {
         "endpoint": parts.netloc,
         "ssl": parts.scheme == "https",
-        "region": options.get(f"{_S3A_PREFIX}endpoint.region", "us-east-1"),
+        "region": _option(options, "endpoint.region") or "us-east-1",
     }
 
 
@@ -119,21 +132,29 @@ def build_bootstrap_code(
     options: Mapping[str, str] | None,
     port: int,
     token: str,
+    s3a_scope: str = "notislake",
 ) -> str:
-    """Snippet que prepara a conexão DuckDB do kernel; `options` são as opções S3A (com segredo) da sessão."""
+    """Snippet que prepara a conexão DuckDB do kernel; `options` são as opções S3A (com segredo) da sessão.
+
+    `any` (automático): o secret real cobre `s3://`, `s3a://` e `s3n://` e não há secret deny, pois todo bucket só
+    alcança o MinIO local; o escopo mais longo vence, então bucket novo funciona sem reiniciar. Outro valor
+    (manual): secret só nos buckets conhecidos e deny nos demais esquemas.
+    """
+    s3 = _s3_settings(options)
+    any_bucket = s3a_scope == SCOPE_ANY and s3 is not None
     payload: dict[str, object] = {
         "ext_dir": ext_dir,
         "extensions": list(extensions),
         "required": list(REQUIRED_EXTENSIONS),
-        "s3": _s3_settings(options),
+        "s3": s3,
         "s3_name": SECRET_S3,
         "ice_name": SECRET_ICEBERG,
-        "scopes": list(S3_SCOPES),
+        "scopes": list(DENY_SCOPES if any_bucket else S3_SCOPES),
         "deny_name": SECRET_S3_DENY,
-        "deny_scopes": list(DENY_SCOPES),
+        "deny_scopes": [] if any_bucket else list(DENY_SCOPES),
         "deny_endpoint": DENY_ENDPOINT,
-        "key_id": (options or {}).get(f"{_S3A_PREFIX}access.key"),
-        "secret": (options or {}).get(f"{_S3A_PREFIX}secret.key"),
+        "key_id": _option(options, "access.key"),
+        "secret": _option(options, "secret.key"),
         "token": token,
         "catalog": CATALOG,
         "rest": f"http://127.0.0.1:{port}{REST_PATH}",

@@ -39,8 +39,9 @@ GLUE_CATALOG_ID = "123456789012"
 GLUE_HIVE_FACTORY = "com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory"
 # Warehouse local de segurança do `spark_catalog`: `file:` absoluto, sem `..`, aspas, vírgula ou controle.
 LOCAL_WAREHOUSE_RE = re.compile(r"file:/[^\x00-\x1f\x7f\"',]{1,500}")
-# Config fechada do bucket vinda do launch (`sparkconf.closed_options()`): chave por bucket e valor simples.
-S3A_KEY_RE = re.compile(r"fs\.s3a\.bucket\.notislake\.[a-z][a-z0-9.]{0,80}")
+# Config fechada vinda do launch (`sparkconf.closed_options()`): chave global `fs.s3a.*` e valor simples. Chave por
+# bucket é recusada: a fechada é global e uma por bucket venceria a global do hook (o launch só envia `closed_options`).
+S3A_KEY_RE = re.compile(r"fs\.s3a\.(?!bucket(?:\.|$))[a-z][a-z0-9.]{0,80}")
 S3A_VALUE_RE = re.compile(r"[A-Za-z0-9:./_-]{1,200}")
 S3A_FORBIDDEN = ("secret", "access.key", "token")
 GLUE_URI_RE = re.compile(r"http://[A-Za-z0-9.-]+:[0-9]{1,5}/glue")
@@ -85,7 +86,7 @@ DELTA_JAR_GLOBS = ("/usr/share/aws/delta/lib/delta-spark_*2.13-*.jar", "/usr/sha
 
 
 def _parse_s3a_closed(raw: str) -> dict[str, str] | None:
-    """Config fechada do bucket do `--s3a-closed`; None se não for JSON de chaves/valores simples sem segredo."""
+    """Config fechada global do `--s3a-closed`; None se não for JSON de chaves/valores simples sem segredo."""
     try:
         data = json.loads(raw)
     except ValueError:
