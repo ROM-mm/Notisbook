@@ -150,7 +150,7 @@ def build_bootstrap_code(
         "s3_name": SECRET_S3,
         "ice_name": SECRET_ICEBERG,
         "scopes": list(DENY_SCOPES if any_bucket else S3_SCOPES),
-        "deny_name": SECRET_S3_DENY,
+        "deny_name": None if any_bucket else SECRET_S3_DENY,
         "deny_scopes": [] if any_bucket else list(DENY_SCOPES),
         "deny_endpoint": DENY_ENDPOINT,
         "key_id": _option(options, "access.key"),
