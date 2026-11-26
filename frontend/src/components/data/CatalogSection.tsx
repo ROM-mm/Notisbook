@@ -214,6 +214,7 @@ const KEPT_REASONS: Record<string, string> = {
   keeps_files_shared: "folder used by another table, files stay",
   keeps_files_outside_managed: "outside its managed folder, files stay",
   outside_warehouse: "local folder stays",
+  no_deletion_queue: "deletion queue unavailable, files stay",
 };
 
 const keptLabel = (k: { table: string; reason: string }) => `${k.table} (${KEPT_REASONS[k.reason] ?? k.reason})`;
