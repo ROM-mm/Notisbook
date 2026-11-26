@@ -600,19 +600,31 @@ def delete_table(conn: sqlite3.Connection, database: str, table: str) -> None:
     delete_table_row(conn, db_key, table_key)
 
 
-def find_table_row(conn: sqlite3.Connection, database: str, table: str) -> tuple[str, str, str, str | None, int, float] | None:
-    """`(database, tabela, table_type, location, version_id, create_time)` sem distinção de caixa; `None` se não existe.
+def owns_folder(database: str, table: str, location: str | None, *, managed: bool, iceberg: bool) -> bool:
+    """A tabela é dona da pasta gerenciada `s3a://notisbook-managed/<database>/<tabela>`.
+
+    Vale para `MANAGED_TABLE` ou Iceberg com `location` exatamente nessa pasta; é o predicado único da prévia de remoção
+    e do `drop_behavior` do Table info.
+    """
+    return location is not None and (managed or iceberg) and locations.is_own_managed(database, table, location)
+
+
+def find_table_row(
+    conn: sqlite3.Connection, database: str, table: str
+) -> tuple[str, str, str, str | None, int, float, bool] | None:
+    """`(database, tabela, table_type, location, version_id, create_time, is_iceberg)` sem distinção de caixa; `None` se não existe.
 
     Só leitura, para a remoção pelo painel: `version_id` e `create_time` identificam a linha (a recriação volta a `version_id` 1).
     """
     if not _has_glue_tables(conn):
         return None
     row = conn.execute(
-        "SELECT database_name, name, table_type, location, version_id, create_time FROM glue_tables "
+        "SELECT database_name, name, table_type, location, version_id, create_time, "
+        "upper(coalesce(json_extract(parameters, '$.table_type'), '')) = 'ICEBERG' FROM glue_tables "
         "WHERE lower(database_name) = lower(?) AND lower(name) = lower(?)",
         (database, table),
     ).fetchone()
-    return None if row is None else (row[0], row[1], row[2], row[3], row[4], row[5])
+    return None if row is None else (row[0], row[1], row[2], row[3], row[4], row[5], bool(row[6]))
 
 
 def delete_table_row(conn: sqlite3.Connection, database: str, table: str) -> bool:

@@ -88,11 +88,12 @@ def _find_glue(conn: sqlite3.Connection, database: str, table: str) -> _Entry | 
     row = glue_repo.find_table_row(conn, database, table)
     if row is None:
         return None
-    namespace, name, glue_type, location, version_id, created = row
-    kind = "MANAGED" if glue_type == glue_repo.TABLE_TYPE_MANAGED else "EXTERNAL"
-    own = location is not None and locations.is_own_managed(namespace, name, location)
+    namespace, name, glue_type, location, version_id, created, iceberg = row
+    managed = glue_type == glue_repo.TABLE_TYPE_MANAGED
+    own = glue_repo.owns_folder(namespace, name, location, managed=managed, iceberg=iceberg)
     return _Entry(
-        glue_repo.GLUE_CATALOG, namespace, name, location or "", kind, (glue_repo.GLUE_CATALOG, version_id, created), location if own else None
+        glue_repo.GLUE_CATALOG, namespace, name, location or "", "MANAGED" if managed else "EXTERNAL",
+        (glue_repo.GLUE_CATALOG, version_id, created), location if own else None,
     )
 
 

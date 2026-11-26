@@ -84,28 +84,19 @@ def _kind(glue_table_type: Any) -> str:
     return TYPE_MANAGED if glue_table_type == "MANAGED_TABLE" else TYPE_EXTERNAL
 
 
-def _managed_folder(location: Any, database: str, table: str) -> bool:
-    """A `Location` é exatamente `s3://notisbook-managed/<database>/<tabela>`: a pasta gerenciada da própria tabela."""
-    if not isinstance(location, str):
-        return False
-    try:
-        return locations.canonical(location).rstrip("/") == locations.managed_location(database, table)
-    except locations.InvalidLocation:
-        return False
-
-
 def _drop_behavior(conn: sqlite3.Connection, fmt: str, kind: str, database: str, table: str, location: Any) -> str:
-    """O que o DROP faz com os arquivos: só a MANAGED_TABLE ou o Iceberg na própria pasta gerenciada, sem outro uso, os apaga.
+    """O que o DROP faz com os arquivos na própria pasta gerenciada (`glue_repo.owns_folder`).
 
-    A MANAGED_TABLE fora da própria pasta é EXTERNAL de fato para o Notisbook (`keeps_files_outside_managed`); a externa
-    só sai do registro.
+    A `MANAGED_TABLE` tem a pasta apagada pelo Hive do kernel mesmo em uso por outra tabela (`deletes_files`). O Iceberg
+    (EXTERNAL) só tem a pasta apagada se nenhuma outra a usa. Fora da própria pasta, a MANAGED é EXTERNAL de fato para o
+    Notisbook (`keeps_files_outside_managed`) e a externa só sai do registro.
     """
-    own = _managed_folder(location, database, table)
-    if kind == TYPE_MANAGED and not own:
-        return DROP_KEEPS_OUTSIDE
-    if not own or (kind != TYPE_MANAGED and fmt != FORMAT_ICEBERG):
-        return DROP_REGISTRY_ONLY
-    if folder_in_use(conn, locations.canonical(location).rstrip("/"), skip_tables=[(GLUE_CATALOG, database, table)]):
+    managed = kind == TYPE_MANAGED
+    iceberg = fmt == FORMAT_ICEBERG
+    own_location = location if isinstance(location, str) else None
+    if not glue_repo.owns_folder(database, table, own_location, managed=managed, iceberg=iceberg):
+        return DROP_KEEPS_OUTSIDE if managed else DROP_REGISTRY_ONLY
+    if not managed and folder_in_use(conn, locations.canonical(location).rstrip("/"), skip_tables=[(GLUE_CATALOG, database, table)]):
         return DROP_KEEPS_SHARED
     return DROP_DELETES_FILES
 
