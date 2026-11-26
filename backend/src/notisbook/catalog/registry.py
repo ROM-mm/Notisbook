@@ -365,9 +365,10 @@ def used_folders(conn, skip=None):
         skipped = {skip}
     else:
         skipped = set(skip)
+    skipped = {(ns.lower(), name) for ns, name in skipped}  # o schema não distingue caixa (`namespace_tables`)
     used = [loc for ns, name, loc in conn.execute(
         "SELECT namespace, table_name, location FROM nb_tables WHERE catalog_name = 'spark_catalog'")
-        if (ns, name) not in skipped]
+        if (ns.lower(), name) not in skipped]
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone():
         for (meta,) in conn.execute(
                 "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):

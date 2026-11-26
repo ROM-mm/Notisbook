@@ -4,7 +4,8 @@ Ordem da exclusão: `BEGIN IMMEDIATE` -> valida e confere o etag -> DELETE das l
 warehouse local: as tabelas MANAGED vivem no bucket reservado (`s3a`) e o backend nunca apaga arquivos, então a
 cascata só remove linhas e enfileira as pastas MANAGED em `nb_pending_deletions` (`files_queued`; o kernel as apaga).
 `files_kept` traz o que fica, com o motivo do DROP de tabela: `keeps_files_shared` (MANAGED própria cuja pasta outra
-tabela usa), `keeps_files_outside_managed` (MANAGED s3 fora da própria pasta) e `outside_warehouse` (location local).
+tabela usa), `keeps_files_outside_managed` (MANAGED s3 fora da própria pasta), `no_deletion_queue` (própria e livre, mas o
+`catalog.db` não tem a fila) e `outside_warehouse` (location local).
 As linhas do próprio schema saem juntas e não seguram a pasta. `folder_kept` é sempre falso: não há pasta de schema a remover. Só o `default` do `spark_catalog` não é excluível (`cannot_drop_default`).
 Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 """
@@ -57,8 +58,9 @@ def _etag(items: list[list[str]]) -> str:
     return hashlib.sha256(json.dumps(items).encode()).hexdigest()[:16]
 
 
-def _spark_etag(rows: list[tuple[str, str, str]]) -> str:
-    return _etag([list(r) for r in rows])
+def _spark_etag(rows: list[tuple[str, str, str]], queued: list[str]) -> str:
+    """Etag das linhas do schema e das tabelas que a exclusão enfileiraria: mudar o uso da pasta invalida a prévia."""
+    return _etag([list(r) for r in rows] + [["queued", *sorted(queued)]])
 
 
 def _iceberg_etag(entries: list[tuple[str, str, str]]) -> str:
@@ -120,16 +122,31 @@ def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
 
 def _own_keys(schema: str, rows: list[tuple[str, str, str]]) -> set[tuple[str, str]]:
     """Chaves das tabelas do schema que saem na mesma operação; não seguram a pasta umas das outras."""
-    return {(schema, table) for table, _, _ in rows}
+    return {(schema.lower(), table) for table, _, _ in rows}
 
 
-def _keep_reason(conn: sqlite3.Connection, schema: str, table: str, location: str, skip: set[tuple[str, str]]) -> str:
-    """Por que a pasta de uma MANAGED não foi enfileirada, com os rótulos de `registry._drop_behavior`."""
+def _keep_reason(schema: str, table: str, location: str, used: list[str], has_queue: bool) -> str | None:
+    """`None` se a pasta da MANAGED vai para a fila; senão o motivo, com os rótulos de `registry._drop_behavior`.
+
+    `used` vem de `registry.used_folders` (uma consulta por operação); `outside_warehouse` é só location local.
+    """
     if not locations.is_own_managed(schema, table, location):
         return "outside_warehouse" if registry.local_path(location) is not None else "keeps_files_outside_managed"
-    if registry.folder_in_use(conn, location, skip=skip):
+    folder = registry.folder_key(location)
+    if any(registry.folder_overlaps(folder, u) for u in used):
         return "keeps_files_shared"
-    return "outside_warehouse"  # fila ausente (`catalog.db` sem a migração): nada a enfileirar
+    return None if has_queue else "no_deletion_queue"  # `catalog.db` sem a migração da fila
+
+
+def _managed_plan(conn: sqlite3.Connection, schema: str, rows: list[tuple[str, str, str]]) -> list[tuple[str, str, str | None]]:
+    """`(tabela, location, motivo | None)` de cada MANAGED do schema; `None` = enfileirada. Prévia e DELETE usam esta."""
+    has_queue = registry.has_pending_table(conn)
+    used = registry.used_folders(conn, _own_keys(schema, rows))
+    return [
+        (table, location, _keep_reason(schema, table, location, used, has_queue))
+        for table, location, kind in rows
+        if kind == "MANAGED"
+    ]
 
 
 def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> dict[str, Any]:
@@ -142,18 +159,14 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         if not registry.namespace_exists(conn, key):
             raise SchemaError("schema_not_found")
         rows = registry.namespace_tables(conn, key)
-    managed = sum(1 for r in rows if r[2] == "MANAGED")
-    queued = 0
-    if conn is not None and registry.has_pending_table(conn):
-        skip = _own_keys(key, rows)
-        queued = sum(
-            1 for table, location, kind in rows
-            if kind == "MANAGED" and locations.is_own_managed(key, table, location)
-            and not registry.folder_in_use(conn, location, skip=skip))
+    plan = _managed_plan(conn, key, rows) if conn is not None else []
+    managed = len(plan)
+    queued_tables = [table for table, _, reason in plan if reason is None]
+    queued = len(queued_tables)
     is_default = key == registry.DEFAULT_DATABASE
     # `tables` conta todos os formatos. O backend não apaga arquivos: `managed` (apagadas por ele) é sempre 0, a pasta
-    # MANAGED própria e livre vai para a fila (`managed_queued`) e o resto das MANAGED fica (`managed_kept`: fora da
-    # própria pasta ou pasta em uso por outro schema); `external` são as linhas que não são MANAGED.
+    # MANAGED própria e livre vai para a fila (`managed_queued`) e o resto das MANAGED fica (`managed_kept`: location
+    # local, fora da própria pasta, pasta em uso por outra tabela ou sem fila); `external` são as não MANAGED.
     return {
         "tables": len(rows),
         "views": 0,
@@ -163,7 +176,7 @@ def _preview_spark(home: Path, schema: str, conn: sqlite3.Connection | None) -> 
         "external": len(rows) - managed,
         "can_delete": not is_default,
         "reason": "cannot_drop_default" if is_default else None,
-        "etag": _spark_etag(rows),
+        "etag": _spark_etag(rows, queued_tables),
     }
 
 
@@ -216,17 +229,13 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
             if not registry.namespace_exists(conn, key):
                 raise SchemaError("schema_not_found")
             rows = registry.namespace_tables(conn, key)
-            if _spark_etag(rows) != etag:
+            plan = _managed_plan(conn, key, rows)
+            if _spark_etag(rows, [t for t, _, reason in plan if reason is None]) != etag:
                 raise SchemaError("catalog_changed")
-            skip = _own_keys(key, rows)
             registry.drop_namespace(conn, key)
             queued = _queue_managed(
-                conn, registry.SPARK_CATALOG, key, [(t, loc) for t, loc, kind in rows if kind == "MANAGED"], skip=skip)
-            kept = [
-                {"table": table, "reason": _keep_reason(conn, key, table, location, skip)}
-                for table, location, kind in rows
-                if kind == "MANAGED" and table not in queued
-            ]
+                conn, registry.SPARK_CATALOG, key, [(t, loc) for t, loc, reason in plan if reason is None])
+            kept = [{"table": table, "reason": reason} for table, _, reason in plan if reason is not None]
     finally:
         conn.close()
 
@@ -240,22 +249,15 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
     }
 
 
-def _queue_managed(
-    conn: sqlite3.Connection, catalog: str, schema: str, tables: list[tuple[str, str]],
-    skip: set[tuple[str, str]] | None = None,
-) -> list[str]:
+def _queue_managed(conn: sqlite3.Connection, catalog: str, schema: str, tables: list[tuple[str, str]]) -> list[str]:
     """Enfileira (na transação da exclusão) a pasta de cada tabela MANAGED do bucket reservado; devolve os nomes.
 
-    Com `skip` (chaves das tabelas do schema que saem junto; caminho do spark_catalog) só entra a MANAGED na própria
-    pasta (`is_own_managed`) e livre (`folder_in_use`), como no DROP de tabela. O backend não apaga arquivos: o kernel
+    Quem decide o que entra é o chamador (`_managed_plan` no spark_catalog). O backend não apaga arquivos: o kernel
     consome a fila, depois de rechecar que nenhuma tabela usa a pasta.
     """
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
     queued = []
     for table, location in tables:
-        if skip is not None and not (
-                locations.is_own_managed(schema, table, location) and not registry.folder_in_use(conn, location, skip=skip)):
-            continue
         if locations.managed_table(location) and registry.enqueue_deletion(conn, catalog, (schema, table), location, stamp):
             queued.append(table)
     return queued
