@@ -1,8 +1,9 @@
 /**
  * Árvore do Notislake (padrão ARIA "tree" plana, como o `FileTree`): cada bucket é
  * uma raiz `s3://<bucket>`; cada prefixo é listado ao expandir (sempre relista);
- * páginas extras vêm pela linha "Load more…". A única ação é copiar o caminho
- * `s3://<bucket>/<chave>`.
+ * páginas extras vêm pela linha "Load more…". O botão direito copia o caminho
+ * `s3://<bucket>/<chave>`, recarrega bucket/pasta e, só no MinIO local, exclui bucket,
+ * pasta ou arquivo (sem proteção; bucket e pasta confirmam com a contagem de objetos).
  */
 import {
   useCallback,
@@ -13,12 +14,15 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
+import { contentChangedCount, notislakeManageErrorMessage } from "../../api/notislake";
 import {
+  isNotislakeManageable,
   isNotislakeTreeAvailable,
   splitNodeKey,
   useNotislake,
   type NotislakeDirState,
 } from "../../state/notislake";
+import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { ChevronRightIcon, FileIcon, FolderIcon } from "../shell/icons";
@@ -174,6 +178,110 @@ function s3Path(node: TreeNode): string {
   return `s3://${node.isBucket ? node.key.slice(0, -1) : node.key}`;
 }
 
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+type DeleteKind = "bucket" | "folder" | "file";
+
+/** testIds literais do item de menu e do diálogo de cada exclusão. */
+const DELETE_TEST_IDS: Record<DeleteKind, { item: string; dialog: string }> = {
+  bucket: { item: "notislake-delete-bucket", dialog: "notislake-delete-bucket-dialog" },
+  folder: { item: "notislake-delete-folder", dialog: "notislake-delete-folder-dialog" },
+  file: { item: "notislake-delete-file", dialog: "notislake-delete-file-dialog" },
+};
+
+function deleteKind(node: TreeNode): DeleteKind {
+  return node.isBucket ? "bucket" : node.isDir ? "folder" : "file";
+}
+
+/** Bucket/pasta: prévia da contagem → confirmação → exclusão com `expected_count`; 409 `content_changed` reconfirma com a contagem nova. */
+function DeleteNodeDialog({
+  node,
+  onDeleted,
+  onClose,
+}: {
+  node: TreeNode;
+  onDeleted: (deleted: number) => void;
+  onClose: () => void;
+}) {
+  const { bucket, prefix } = splitNodeKey(node.key);
+  const kind = deleteKind(node);
+  const counted = kind !== "file";
+  const [count, setCount] = useState<number | null>(null);
+  const [changed, setChanged] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!counted) return;
+    let alive = true;
+    useNotislake
+      .getState()
+      .summary(bucket, prefix)
+      .then((n) => alive && setCount(n))
+      .catch((err: unknown) => alive && setError(notislakeManageErrorMessage(err)));
+    return () => {
+      alive = false;
+    };
+  }, [counted, bucket, prefix]);
+
+  async function confirm() {
+    const store = useNotislake.getState();
+    setBusy(true);
+    setError(null);
+    try {
+      if (kind === "bucket") onDeleted(await store.deleteBucket(bucket, count ?? 0));
+      else if (kind === "folder") onDeleted(await store.deleteFolder(bucket, prefix, count ?? 0));
+      else onDeleted(await store.deleteObject(bucket, prefix));
+    } catch (err) {
+      const fresh = contentChangedCount(err);
+      if (fresh !== null) {
+        setCount(fresh);
+        setChanged(true);
+      } else {
+        setError(notislakeManageErrorMessage(err));
+      }
+      setBusy(false);
+    }
+  }
+
+  const label = node.isBucket ? bucket : node.name;
+  const path = s3Path(node);
+  return (
+    <ConfirmDialog
+      title={`Delete ${kind} '${label}'?`}
+      confirmLabel="Delete"
+      busyLabel="Deleting…"
+      danger
+      busy={busy}
+      confirmDisabled={counted && count === null}
+      error={error}
+      onConfirm={() => void confirm()}
+      onCancel={onClose}
+      testId={DELETE_TEST_IDS[kind].dialog}
+    >
+      {counted ? (
+        <>
+          <p>
+            <code>{path}</code>
+          </p>
+          {count !== null ? (
+            <p>
+              {changed ? "The content changed: " : ""}
+              {plural(count, "object", "objects")} will be permanently deleted.
+            </p>
+          ) : error ? null : (
+            <p>Counting objects…</p>
+          )}
+        </>
+      ) : (
+        <p>
+          <code>{path}</code> will be permanently deleted.
+        </p>
+      )}
+    </ConfirmDialog>
+  );
+}
+
 function NodeIcon({ node }: { node: TreeNode }): ReactNode {
   const ext = extension(node.name);
   if (node.isBucket) return <BrandIcon icon={S3Icon} />;
@@ -192,12 +300,14 @@ export function NotislakeTree() {
   const bucketsError = useNotislake((s) => s.bucketsError);
   const manual = useNotislake((s) => s.status?.mode === "manual");
   const available = useNotislake((s) => isNotislakeTreeAvailable(s.status));
+  const manageable = useNotislake((s) => isNotislakeManageable(s.status));
   const hasBuckets = buckets !== null;
   const { toggle, expand, collapse, loadMore, ensureBuckets, loadBuckets, refresh } = useNotislake.getState();
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const refs = useRef(new Map<string, HTMLDivElement>());
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [deleting, setDeleting] = useState<TreeNode | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
 
   useEffect(() => {
@@ -242,13 +352,40 @@ export function NotislakeTree() {
     }
   }
 
-  const menuItems = (node: TreeNode): MenuItem[] => [
-    {
-      label: "Copy s3:// path",
-      onSelect: () => void copyUri(node),
-      testId: "notislake-copy-s3-path",
-    },
-  ];
+  /** Refresh de bucket/pasta fechado abre o nó (abrir já relista). */
+  function refreshNode(node: TreeNode) {
+    if (expanded[node.key]) refresh(node.key);
+    else expand(node.key);
+  }
+
+  function onDeleted(node: TreeNode, deleted: number) {
+    setDeleting(null);
+    setFeedback({ text: node.isDir ? `Deleted ${plural(deleted, "object", "objects")}` : "File deleted", error: false });
+  }
+
+  const menuItems = (node: TreeNode): MenuItem[] => {
+    const items: MenuItem[] = [
+      {
+        label: "Copy s3:// path",
+        onSelect: () => void copyUri(node),
+        testId: "notislake-copy-s3-path",
+      },
+    ];
+    if (node.isDir) {
+      items.push({ label: "Refresh", onSelect: () => refreshNode(node), testId: "notislake-refresh-node" });
+    }
+    // Criar/excluir só no MinIO local (D3); nenhum bucket, pasta ou arquivo é protegido (D2).
+    if (manageable) {
+      const kind = deleteKind(node);
+      items.push("separator", {
+        label: `Delete ${kind}…`,
+        danger: true,
+        onSelect: () => setDeleting(node),
+        testId: DELETE_TEST_IDS[kind].item,
+      });
+    }
+    return items;
+  };
 
   const rows: Row[] = [];
   buildBucketRows(buckets, bucketsLoading, bucketsError, dirs, expanded, manual, {
@@ -401,6 +538,14 @@ export function NotislakeTree() {
           ariaLabel={`Actions for ${menu.node.name}`}
           onClose={closeMenu}
           returnFocusTo={menu.origin}
+        />
+      ) : null}
+      {deleting ? (
+        <DeleteNodeDialog
+          key={deleting.key}
+          node={deleting}
+          onDeleted={(n) => onDeleted(deleting, n)}
+          onClose={() => setDeleting(null)}
         />
       ) : null}
       <div
