@@ -8,8 +8,9 @@ Regras: o `default` existe sempre e não se exclui; `<schema>.<tabela>` é únic
 location (gravada como veio e checada em forma `s3a` sem `/` final) não se sobrepõe à de outra tabela de nenhum dos
 três nem cai em pasta com exclusão pendente. O tipo deriva da location, não do cliente: tabela não-Iceberg em
 `s3://notisbook-managed/<database>/<tabela>` (o DROP do cliente Hive apaga a pasta) é `MANAGED_TABLE`, sem
-`Parameters.EXTERNAL`; as demais são externas. O `metadata_location` Iceberg no bucket reservado fica na própria pasta. O `LocationUri` de um database, quando
-informado, é sempre `s3://notisbook-managed/<database>` (`schema_location_not_managed`); sem ele segue NULL. O
+`Parameters.EXTERNAL`; as demais são externas. O `metadata_location` Iceberg no bucket reservado fica na própria pasta.
+O `LocationUri` de um database, quando informado, é sempre `s3://notisbook-managed/<database>`
+(`schema_location_not_managed`); sem ele segue NULL. O
 DeleteDatabase é recusado se alguma tabela de qualquer catálogo está na pasta (a JVM apaga o `LocationUri` inteiro).
 Tabelas e partições saem com os campos que os clientes Java do Glue desreferenciam sem checar nulo (flags,
 `Retention`, listas e mapas).
@@ -22,7 +23,7 @@ import time
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from ..notislake import locations
 from . import iceberg_jdbc
@@ -297,10 +298,33 @@ def find_database(conn: sqlite3.Connection, name: str) -> tuple[str, str | None,
     return None if row is None else (row[0], row[1], row[2])
 
 
-def database_tables(conn: sqlite3.Connection, database: str) -> list[tuple[str, str, str | None, int, float, bool]]:
-    """`(tabela, table_type, location, version_id, create_time, is_iceberg)` do database, por nome; sem distinção de caixa.
+class DatabaseTableRow(NamedTuple):
+    """Linha de `database_tables`: uma tabela do database, sem o nome do database."""
 
-    Só leitura e uma consulta, para a prévia e a exclusão pelo painel (a mesma forma de `find_table_row`).
+    name: str
+    table_type: str
+    location: str | None
+    version_id: int
+    create_time: float
+    is_iceberg: bool
+
+
+class TableRow(NamedTuple):
+    """Linha de `find_table_row`: como `DatabaseTableRow`, com o nome do database na frente."""
+
+    database: str
+    name: str
+    table_type: str
+    location: str | None
+    version_id: int
+    create_time: float
+    is_iceberg: bool
+
+
+def database_tables(conn: sqlite3.Connection, database: str) -> list[DatabaseTableRow]:
+    """Tabelas do database (`DatabaseTableRow`), por nome; sem distinção de caixa.
+
+    Só leitura e uma consulta, para a prévia e a exclusão pelo painel.
     """
     if not _has_glue_tables(conn):
         return []
@@ -310,7 +334,7 @@ def database_tables(conn: sqlite3.Connection, database: str) -> list[tuple[str, 
         "WHERE database_name = ? ORDER BY name",
         (database.lower(),),
     ).fetchall()
-    return [(r[0], r[1], r[2], r[3], r[4], bool(r[5])) for r in rows]
+    return [DatabaseTableRow(r[0], r[1], r[2], r[3], r[4], bool(r[5])) for r in rows]
 
 
 def drop_database_rows(conn: sqlite3.Connection, database: str) -> bool:
@@ -649,12 +673,11 @@ def owns_folder(database: str, table: str, location: str | None, *, managed: boo
     return location is not None and (managed or iceberg) and locations.is_own_managed(database, table, location)
 
 
-def find_table_row(
-    conn: sqlite3.Connection, database: str, table: str
-) -> tuple[str, str, str, str | None, int, float, bool] | None:
-    """`(database, tabela, table_type, location, version_id, create_time, is_iceberg)` sem distinção de caixa; `None` se não existe.
+def find_table_row(conn: sqlite3.Connection, database: str, table: str) -> TableRow | None:
+    """A linha da tabela (`TableRow`), sem distinção de caixa; `None` se não existe.
 
-    Só leitura, para a remoção pelo painel: `version_id` e `create_time` identificam a linha (a recriação volta a `version_id` 1).
+    Só leitura, para a remoção pelo painel: `version_id` e `create_time` identificam a linha
+    (a recriação volta a `version_id` 1).
     """
     if not _has_glue_tables(conn):
         return None
@@ -664,7 +687,7 @@ def find_table_row(
         "WHERE lower(database_name) = lower(?) AND lower(name) = lower(?)",
         (database, table),
     ).fetchone()
-    return None if row is None else (row[0], row[1], row[2], row[3], row[4], row[5], bool(row[6]))
+    return None if row is None else TableRow(row[0], row[1], row[2], row[3], row[4], row[5], bool(row[6]))
 
 
 def delete_table_row(conn: sqlite3.Connection, database: str, table: str) -> bool:

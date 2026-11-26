@@ -247,17 +247,14 @@ def _preview_iceberg(schema: str, conn: sqlite3.Connection | None) -> dict[str, 
     }
 
 
-_GlueRow = tuple[str, str, str | None, int, float, bool]
-
-
-def _glue_etag(schema: str, database: tuple[str, str | None, float] | None, rows: list[_GlueRow], queued: list[str]) -> str:
+def _glue_etag(schema: str, database: tuple[str, str | None, float] | None, rows: list[glue_repo.DatabaseTableRow], queued: list[str]) -> str:
     """Etag do database, das tabelas (identidade e versão) e das que a exclusão enfileiraria."""
     head = ["database", schema, *(str(v) for v in database)] if database else ["database", schema]
     items = [[name, kind, location or "", str(version), str(created), str(iceberg)] for name, kind, location, version, created, iceberg in rows]
     return _etag([head, *items, ["queued", *sorted(queued)]])
 
 
-def _glue_plan(conn: sqlite3.Connection, schema: str, rows: list[_GlueRow]) -> list[tuple[str, str, str | None]]:
+def _glue_plan(conn: sqlite3.Connection, schema: str, rows: list[glue_repo.DatabaseTableRow]) -> list[tuple[str, str, str | None]]:
     """`(tabela, location, motivo | None)` de cada tabela com pasta a enfileirar ou a manter; `None` = enfileirada.
 
     Entram a MANAGED_TABLE e o Iceberg na pasta própria (`glue_repo.owns_folder`); os outros formatos são só do catálogo.
