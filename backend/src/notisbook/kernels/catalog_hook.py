@@ -124,6 +124,18 @@ DEEP_RE = re.compile(
     r"\b(?:DROP\s+TABLE|ALTER\s+TABLE|REPLACE\s+TABLE|RENAME\s+TO|RECOVER\s+PARTITIONS|SET\s+LOCATION"
     r"|saveAsTable|insertInto)\b", re.I)
 RENAME_RE = re.compile(r"\bRENAME\b", re.I)
+# A table name in WRITE-TARGET position: after the DDL/DML keywords or inside `saveAsTable(`/`insertInto(`/`writeTo(`.
+WRITE_TARGET_RE = re.compile(
+    r"(?:\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?(?:EXTERNAL\s+)?TABLE(?:\s+IF\s+NOT\s+EXISTS)?|REPLACE\s+TABLE"
+    r"|INSERT\s+(?:INTO|OVERWRITE)(?:\s+TABLE)?|MERGE\s+INTO|DROP\s+TABLE(?:\s+IF\s+EXISTS)?|ALTER\s+TABLE|TRUNCATE\s+TABLE)\s+"
+    r"|\b(?:saveAsTable|insertInto|writeTo)\s*\(\s*[\"']?)", re.I)
+SHOW_CREATE_RE = re.compile(r"\bSHOW\s+CREATE\s+TABLE\b", re.I)
+# A path ending in `/<table>` inside a batch write chain (`.write` + builder calls + save/parquet/...); `%s` is the escaped table name.
+# Streaming writes (`writeStream`/`start`/`toTable`) do NOT release a refused table: out of the current batch scope, so it stays refused (safe side).
+# Builder arguments cannot hold parentheses (`.option("k", f(x))`): such a chain is not matched, so the refusal stays (safe side).
+WRITE_PATH_RE = (r"\.write\b(?:[\s\\]*\.\s*\w+\s*\([^()]*\))*[\s\\]*\.\s*(?:save|parquet|orc|json|csv|text)\s*\("
+                 r"\s*[\"'][^\"']*/%s/?[\"']")
+REFUSAL_WARNINGS = ("format", "rejected", "conflict")  # warn() categories that put a table in `ignored`
 LOG_RE = re.compile(r"^(\d{20})\.json$")
 HUDI_INSTANT_RE = re.compile(r"^(\d+)_(\d+)\.(?:commit|deltacommit|replacecommit)$")
 HUDI_V1_INSTANT_RE = re.compile(r"^(\d+)\.(?:commit|deltacommit|replacecommit)$")
@@ -1378,8 +1390,42 @@ def deep_keys(raw_cell, known):
     """Tables to reread from Spark after a DDL cell: those it names, or all of them when it names none."""
     if not raw_cell or not DEEP_RE.search(raw_cell):
         return set()
-    cited = {key for key in known if re.search(r"\b%s\b" % re.escape(key[1]), raw_cell, re.I)}
-    return cited or set(known)
+    return cited_keys(raw_cell, known) or set(known)
+
+
+def cited_keys(raw_cell, keys):
+    """Keys whose table name appears as a whole word in the cell source (case-insensitive)."""
+    if not raw_cell:
+        return set()
+    return {key for key in keys if re.search(r"\b%s\b" % re.escape(key[1]), raw_cell, re.I)}
+
+
+def written_keys(raw_cell, keys):
+    """Keys a cell writes to: the table name sits in target position (`INSERT INTO db.t`, `saveAsTable("t")`) or ends a path written with `.write...save("<path>/t")`; sources do not count."""
+    raw_cell = SHOW_CREATE_RE.sub("", raw_cell or "")  # `SHOW CREATE TABLE t` only reads
+    written = set()
+    for key in keys:
+        db, table = (re.escape(part) for part in key)
+        name = r"(?:(?:`?\w+`?\.)?`?%s`?\.)?`?%s`?(?![\w`])" % (db, table)
+        if re.search(WRITE_TARGET_RE.pattern + name, raw_cell, re.I) or re.search(
+                WRITE_PATH_RE % table, raw_cell, re.I):
+            written.add(key)
+    return written
+
+
+def release_written(skey, ignored, raw_cell):
+    """Forget the refusal of the ignored tables a cell writes to, so they are judged again and a persisting refusal warns again.
+
+    A cell that only reads a refused table (including as the source of a write to another) keeps the refusal:
+    no new check, no repeated warning, no plan resent.
+    """
+    if not raw_cell or not ignored:
+        return
+    written = written_keys(raw_cell, ignored)
+    for key in written:
+        for category in REFUSAL_WARNINGS:
+            STATE.setdefault("warned", set()).discard((category, skey, key))
+    ignored -= written
 
 
 def confirm_vanished(session, skey, candidates):
@@ -1405,6 +1451,7 @@ def reconcile(session, raw_cell):
     known_dbs = STATE.setdefault("known_dbs", {}).setdefault(skey, set())
     dbs, current, failed = list_catalog(session)
     ignored &= set(current)
+    release_written(skey, ignored, raw_cell)  # a rewritten table may now be acceptable
     deep = deep_keys(raw_cell, known)
     created, updated, leaving = {}, [], []
     for key, table in current.items():
