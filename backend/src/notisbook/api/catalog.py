@@ -2,7 +2,7 @@
 
 import asyncio
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -211,6 +211,25 @@ async def preview_schema(home: Home, catalog: Name, schema: Name) -> dict[str, A
     return result
 
 
+async def _with_idle_kernels(kernels: Kernels, op: Callable[[], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
+    """Roda `op` com os kernels reservados (células novas são abortadas); 409 `kernel_busy` se há célula rodando.
+
+    A tarefa dona da reserva sobrevive ao cancelamento do handler (a thread da operação não é interrompível).
+    """
+
+    async def reserved() -> dict[str, Any]:
+        with kernels.reserve_idle():
+            return await op()
+
+    task = asyncio.create_task(reserved())
+    _delete_tasks.add(task)
+    task.add_done_callback(_delete_done)
+    try:
+        return await asyncio.shield(task)
+    except KernelsBusy as exc:
+        raise HTTPException(409, "kernel_busy") from exc
+
+
 @router.delete("/schemas")
 async def delete_schema(home: Home, kernels: Kernels, catalog: Name, schema: Name, etag: Name) -> dict[str, Any]:
     """Exclui o schema em cascata (linhas no catálogo e pastas MANAGED). 409 `kernel_busy` se há célula rodando.
@@ -225,20 +244,7 @@ async def delete_schema(home: Home, kernels: Kernels, catalog: Name, schema: Nam
     if catalog == registry.SPARK_CATALOG and schema.lower() == registry.DEFAULT_DATABASE:
         raise HTTPException(409, "cannot_drop_default")
 
-    async def reserved_delete() -> dict[str, Any]:
-        with kernels.reserve_idle():
-            result: dict[str, Any] = await _run_schema_op(schemas.delete_schema, home, catalog, schema, etag)
-        return result
-
-    # A tarefa (dona da reserva) sobrevive ao cancelamento do handler; a thread da exclusão não é interrompível.
-    task = asyncio.create_task(reserved_delete())
-    _delete_tasks.add(task)
-    task.add_done_callback(_delete_done)
-    try:
-        result = await asyncio.shield(task)
-    except KernelsBusy as exc:
-        raise HTTPException(409, "kernel_busy") from exc
-    return result
+    return await _with_idle_kernels(kernels, lambda: _run_schema_op(schemas.delete_schema, home, catalog, schema, etag))
 
 
 async def _run_table_op(fn: Any, *args: Any) -> Any:
@@ -276,17 +282,4 @@ async def remove_table(home: Home, kernels: Kernels, catalog: Name, database: Na
         result: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
         return result
 
-    async def reserved_remove() -> dict[str, Any]:
-        with kernels.reserve_idle():
-            removed: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
-        return removed
-
-    # Como na exclusão de schema: a tarefa dona da reserva sobrevive ao cancelamento do handler.
-    task = asyncio.create_task(reserved_remove())
-    _delete_tasks.add(task)
-    task.add_done_callback(_delete_done)
-    try:
-        result = await asyncio.shield(task)
-    except KernelsBusy as exc:
-        raise HTTPException(409, "kernel_busy") from exc
-    return result
+    return await _with_idle_kernels(kernels, lambda: _run_table_op(tables.remove_table, home, catalog, database, table, etag))
