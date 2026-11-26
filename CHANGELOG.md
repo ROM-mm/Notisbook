@@ -7,6 +7,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-26
+
+A local AWS Glue catalog for the Glue runtime, a clear split between managed and external tables, and bucket
+management in the Notislake panel.
+
+### Added
+
+- **Local AWS Glue catalog.** Notebooks on the AWS Glue runtime now read and write tables with the same code as on
+  AWS: `glueContext.create_dynamic_frame.from_catalog`, `getSink` with `enableUpdateCatalog`,
+  `write_dynamic_frame.from_catalog`, `spark.sql` and SQL cells. The backend serves the Glue JSON 1.1 protocol at
+  `/glue`, signed with SigV4 per session and accepted only from the Glue runtime, and keeps the tables in
+  `catalog.db`. Spark uses a Hive + Glue catalog, and Iceberg goes through `glue_catalog`. Delta, Hudi and Iceberg
+  tables are accepted, and a table name or location cannot be reused across the Spark, Iceberg and Glue catalogs.
+  The Glue node of the Catalog panel shows each table as MANAGED or EXTERNAL, with its format and what a `DROP` does
+  with its files.
+- **`s3://notislake` paths.** `s3://notislake/...` works as an alias of `s3a://notislake/...` in local Spark, in the
+  Glue runtime and in DuckDB, so code copied from AWS runs unchanged.
+- **Remove a table from the catalog.** Table info has a "Remove from catalog" button for Spark, Glue and Iceberg
+  tables. A preview shows the location and the effect: the folder of a managed table is queued for deletion, while
+  external tables and folders still used by another table keep their files. If the effect changes before you
+  confirm, the removal is refused with `catalog_changed` and the preview is read again.
+- **Create and delete Glue schemas in the panel.** Deleting a schema removes its tables with the same rules as a
+  table `DROP`; the `default` schema cannot be deleted (`cannot_drop_default`).
+- **Bucket management in Notislake.** The panel header has a refresh button and "Create bucket" (local MinIO only),
+  and buckets, folders and files have a context menu to refresh or delete. A deletion first counts what will be
+  removed and only goes ahead if that count still matches when you confirm.
+- **`show()` renders as a table.** `DataFrame.show()` and the Glue `DynamicFrame.show()` display the same table as
+  `echo(df)`. The original text output is kept for `vertical=True`, `n` outside 1..1000, invalid arguments, streaming
+  and environments without IPython display.
+- **New Glue samples.** `samples/glue/catalog_tables.ipynb` covers managed and external tables in the Glue catalog
+  (it replaces `catalog.ipynb`), and `samples/glue/s3_formats.ipynb` writes and reads files directly on S3 with Spark
+  and `DynamicFrame`, without the catalog.
+
+### Changed
+
+- **Managed and external tables.** A table created without `LOCATION` is managed and lives in
+  `s3a://notisbook-managed/<schema>/<table>`; a `DROP` deletes its files through a durable queue that the kernel
+  drains, including Iceberg tables. A table with `LOCATION` is external, may live in any local MinIO bucket except
+  the reserved one, and keeps its files on `DROP`. The type is derived from the location: MANAGED only in the table's
+  own managed folder. `catalog.db` migrates on startup, recomputing the type of existing tables, and legacy Glue
+  `MANAGED_TABLE` entries outside their own folder become `EXTERNAL_TABLE` so a `DROP` no longer deletes their data.
+  The decision is recorded in ADR-0027.
+- **Free schemas instead of bronze/silver/gold layers.** Schema names are no longer tied to a layer. A new
+  `catalog.db` seeds `default`, `bronze`, `silver` and `gold` as ordinary schemas that can be deleted. `CREATE SCHEMA`
+  without `LOCATION` goes to the reserved bucket, and a schema `LOCATION` outside it is refused. The
+  `notisbook-managed` bucket is created on every boot, hidden and protected in the Notislake panel.
+- **Hudi tables under the Spark node.** The separate Hudi node of the Catalog panel is gone: Hudi tables appear under
+  the Spark node with their format icon, and the catalog API no longer accepts `hudi` as a catalog.
+- **Glue runtime requires the backend.** The Glue runtime no longer falls back to an in-memory catalog: without the
+  backend port, the launch fails before the container starts.
+- **Global S3A configuration for the local MinIO.** With the automatic Notislake connection, the S3A settings of
+  local Spark and the Docker runtimes are global instead of per bucket, so notebooks can read and write files in any
+  local bucket, including one created after the kernel started. A manual connection to an external S3 keeps the
+  per-bucket settings.
+- **Graphite dark theme.** The dark theme background moves from `#121212` to `#2d2d2b`, with lighter elevated
+  surfaces and syntax comments in `#999999` to keep AA contrast. The HTML export and the landing page follow it.
+
+### Fixed
+
+- **Refused tables are evaluated again.** A table refused by the catalog hook (for example, written in ORC) is
+  checked again when a batch cell writes it as a destination, so it enters the catalog once rewritten in a supported
+  format.
+- **Notislake deletions with large buckets.** Bucket and folder summaries and deletions page through the keys with
+  bounded memory, a failed bucket creation is rolled back, and keys with an empty segment (`a//b.csv`) are accepted.
+- **Glue request checks.** `/glue` checks the host and the signature header before reading the request body.
+
 ## [0.14.0] - 2026-11-25
 
 A grayscale look for the app and the HTML export, and a first install that leaves Notisbook ready to use, with the
