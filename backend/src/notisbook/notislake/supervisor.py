@@ -29,7 +29,7 @@ import psutil
 
 from ..config import default_home
 from . import binary
-from .bootstrap import READY_TIMEOUT_S, BootstrapError, ensure_layout, wait_ready
+from .bootstrap import READY_TIMEOUT_S, BootstrapError, ensure_layout, ensure_managed_bucket, wait_ready
 from .credentials import Credentials, CredentialsError, load_or_create
 from .ports import LOOPBACK, is_free, pick_free_ports
 
@@ -42,6 +42,8 @@ LOG_ROTATE_BYTES = 10 * 1024 * 1024
 _POLL_S = 0.5
 _CREATE_TIME_TOLERANCE_S = 1.0
 _DIR_MODE = 0o700
+_LAYOUT_PENDING = "pending"
+_LAYOUT_DONE = "done"
 _FILE_MODE = 0o600
 
 
@@ -142,6 +144,10 @@ class _Paths:
     @property
     def log(self) -> Path:
         return self.logs / "minio.log"
+
+    @property
+    def layout_marker(self) -> Path:
+        return self.run / "layout.state"
 
 
 class LockBusyError(Exception):
@@ -466,6 +472,7 @@ class NotislakeSupervisor:
 
     def _launch(self, preferred: tuple[int, int] | None) -> tuple[subprocess.Popen, tuple[int, int]]:
         """Sobe o processo e espera a prontidão; repete com portas novas se alguém tomou as escolhidas."""
+        first_init = self._needs_first_layout()  # decidido uma vez: o spawn já popula o data/
         for attempt in range(PORT_ATTEMPTS):
             ports = self._choose_ports(preferred if attempt == 0 else None)
             proc = self._spawn(ports)
@@ -473,7 +480,10 @@ class NotislakeSupervisor:
             try:
                 alive = lambda p=proc: p.poll() is None and not self._stop_event.is_set()
                 if wait_ready(ports[0], READY_TIMEOUT_S, is_alive=alive):
-                    self._ensure_layout(ports[0])
+                    if first_init:
+                        self._ensure_layout(ports[0])
+                        self._write_layout_marker(_LAYOUT_DONE)
+                    self._ensure_managed_bucket(ports[0])  # every boot: the reserved bucket must exist even on old installs
                     ok = True
                     return proc, ports
                 self._explain_not_ready(proc, ports)
@@ -491,10 +501,44 @@ class NotislakeSupervisor:
         api, console = pick_free_ports(2)
         return api, console
 
+    def _needs_first_layout(self) -> bool:
+        """True só na primeira inicialização do `data/` (vazio) ou se o bootstrap anterior não concluiu.
+
+        O marcador `pending` é gravado antes do spawn e vira `done` após o layout criado; assim uma
+        falha no meio da primeira subida é refeita, e `data/` já povoado sem marcador (instalação
+        anterior) nunca recebe o bucket de volta depois de excluído pelo operador.
+        """
+        try:
+            state = self._paths.layout_marker.read_text(encoding="utf-8").strip()
+        except OSError:
+            state = ""
+        if state == _LAYOUT_PENDING:
+            return True
+        try:
+            empty = next(self._paths.data.iterdir(), None) is None
+        except OSError:
+            return False
+        if empty:
+            self._write_layout_marker(_LAYOUT_PENDING)
+        return empty
+
+    def _write_layout_marker(self, state: str) -> None:
+        try:
+            self._paths.layout_marker.write_text(state, encoding="utf-8")
+        except OSError as exc:
+            _say(f"não foi possível gravar {self._paths.layout_marker} ({exc.strerror}).")
+
     def _ensure_layout(self, api_port: int) -> None:
         assert self._credentials is not None
         try:
             ensure_layout(api_port, self._credentials)
+        except BootstrapError as exc:
+            raise StartError("layout", str(exc)) from None
+
+    def _ensure_managed_bucket(self, api_port: int) -> None:
+        assert self._credentials is not None
+        try:
+            ensure_managed_bucket(api_port, self._credentials)
         except BootstrapError as exc:
             raise StartError("layout", str(exc)) from None
 

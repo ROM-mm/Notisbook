@@ -189,7 +189,7 @@ _CSS = """
    O código da célula (pre>code) tem cor base --syntax-variable e as classes t-* sobrepõem por papel; pontuação/operador usa --syntax-text.
    O export não porta os papéis módulo, atributo, tabela e alias de tabela do app: módulo (Name.Namespace) vira t-op e sai na cor de texto (--syntax-text); os demais saem na cor de variável. */
 :root{color-scheme:light dark;--syntax-keyword:#5c5c5c;--syntax-text:#000000;--syntax-variable:#000000;--syntax-function:#262626;--syntax-string:#4d4d4d;--syntax-number:#424242;--syntax-comment:#666666;--syntax-type:#333333;--syntax-class:#000000;--color-border-strong:#000000;--bg:#ffffff;--fg:#000000;--muted:#222326;--code-bg:#ffffff;--err:#cf222e;--err-bg:#ffebe9}
-@media (prefers-color-scheme:dark){:root{--syntax-keyword:#a6a6a6;--syntax-text:#ffffff;--syntax-variable:#ffffff;--syntax-function:#b8b8b8;--syntax-string:#c4c4c4;--syntax-number:#cccccc;--syntax-comment:#8c8c8c;--syntax-type:#d4d4d4;--syntax-class:#ffffff;--color-border-strong:#4d4d4d;--bg:#121212;--fg:#ffffff;--muted:#d9d9d9;--code-bg:#121212;--err:#ff7b72;--err-bg:#3d1214}}
+@media (prefers-color-scheme:dark){:root{--syntax-keyword:#a6a6a6;--syntax-text:#ffffff;--syntax-variable:#ffffff;--syntax-function:#b8b8b8;--syntax-string:#c4c4c4;--syntax-number:#cccccc;--syntax-comment:#999999;--syntax-type:#d4d4d4;--syntax-class:#ffffff;--color-border-strong:#5c5c58;--bg:#2d2d2b;--fg:#ffffff;--muted:#d9d9d9;--code-bg:#2d2d2b;--err:#ff7b72;--err-bg:#3d1214}}
 body{margin:0 auto;max-width:960px;padding:24px;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,sans-serif}
 header{border-bottom:1px solid var(--color-border-strong);margin-bottom:16px}
 header p{color:var(--muted);margin:4px 0 12px}

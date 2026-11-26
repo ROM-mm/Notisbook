@@ -1,7 +1,8 @@
 """Token authentication for REST and WebSocket, plus Origin/Host guard for WS.
 
 Two disjoint credentials: the UI token (whole API, `require_token`) and the per-session runtime token of a
-Docker kernel (only `/api/runtime-catalog`, `require_runtime_token`); neither is accepted on the other's routes.
+Docker kernel (the runtime routes, `require_runtime_token`, and the SigV4 secret of the Glue endpoint); the UI token
+is never accepted on those and the runtime token never on the UI routes.
 """
 
 import secrets
@@ -57,6 +58,8 @@ class RuntimeGrant:
     roots: tuple[str, ...]
     # Digest da conexão S3A com que o kernel abriu (None: sem S3A); só comparação interna, nunca em API/log.
     s3a_fingerprint: str | None = field(default=None, repr=False)
+    # Só o runtime Docker Glue fala com o endpoint `/glue`; os demais tokens são recusados lá.
+    glue: bool = False
 
 
 class RuntimeTokens:
@@ -73,6 +76,10 @@ class RuntimeTokens:
 
     def revoke(self, session_id: str) -> None:
         self._by_session.pop(session_id, None)
+
+    def credentials(self, session_id: str) -> tuple[str, RuntimeGrant] | None:
+        """Token e grant vivos da sessão: o endpoint Glue usa o id como access key e o token como secret do SigV4."""
+        return self._by_session.get(session_id)
 
     def find(self, candidate: str | None) -> RuntimeGrant | None:
         """Grant do token, comparando com todos em tempo constante (sem sair no primeiro acerto)."""

@@ -32,7 +32,15 @@ LAKEHOUSE_CLASSES = {
 }
 # Padrão do Spark para `spark.redaction.regex` quando a conf não está definida.
 DEFAULT_REDACTION_REGEX = "(?i)secret|password|token|access.key"
-S3A_SENSITIVE_KEYS = ("fs.s3a.bucket.notislake.secret.key", "fs.s3a.bucket.notislake.access.key")
+S3A_SENSITIVE_KEYS = (
+    "fs.s3a.secret.key",
+    "fs.s3a.access.key",
+    "fs.s3a.session.token",
+    "fs.s3a.bucket.notislake.secret.key",
+    "fs.s3a.bucket.notislake.access.key",
+    "fs.s3a.bucket.notisbook-managed.secret.key",
+    "fs.s3a.bucket.notisbook-managed.access.key",
+)
 REQUIRED_PACKAGES = ("ipykernel", "jupyter_client", "pyspark")
 OPTIONAL_PACKAGES = ("ipython", "pyzmq", "tornado", "traitlets")
 

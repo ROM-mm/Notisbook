@@ -19,7 +19,13 @@ from typing import Any
 from ..fs_safety import is_within
 from ..notislake import locations, objectstore
 from ..notislake.settings_store import ConfigInvalid
-from .registry import MAX_TABLES, all_table_locations, is_available, local_path
+from .registry import (
+    MAX_TABLES,
+    all_table_locations,
+    folder_in_use,
+    is_available,
+    local_path,
+)
 
 ICEBERG_CATALOG = "iceberg"
 ERR_UNSUPPORTED = "unsupported_iceberg_catalog_schema"
@@ -80,31 +86,42 @@ def _table_dir(metadata_location: str) -> Path | None:
 
 
 def is_managed_s3a(metadata_location: str | None, namespace: str, table: str) -> bool:
-    """O metadata está em `s3a://notislake/<camada>/<t>` (`<raiz>/<ns>/<t>` do JdbcCatalog, ns = camada, grafia exata).
+    """O metadata está em `s3a://notisbook-managed/<ns>/<t>` (`<warehouse>/<ns>/<t>` do JdbcCatalog, grafia exata).
 
     Só sintático, sem consultar o bucket.
     """
     prefix = table_prefix(metadata_location)
-    return prefix == "/".join((locations.ROOT_URI, namespace, table)) and locations.managed_table(prefix)
+    try:
+        return prefix is not None and prefix == locations.managed_location(namespace, table)
+    except locations.InvalidLocation:
+        return False
 
 
 def _table_type(metadata_location: str, namespace: str, table: str) -> str:
-    """MANAGED só em `s3a://notislake/<camada>/<t>`; qualquer outro caminho (inclusive local) é EXTERNAL; informativo."""
+    """MANAGED só em `s3a://notisbook-managed/<ns>/<t>`; qualquer outro caminho (inclusive local) é EXTERNAL; informativo."""
     return "MANAGED" if is_managed_s3a(metadata_location, namespace, table) else "EXTERNAL"
 
 
 def table_prefix(location: str | None) -> str | None:
-    """Prefixo `s3a://notislake/...` da tabela (pai de `metadata/`); `None` se não for uma location notislake válida."""
+    """Prefixo `s3a://<bucket>/...` da tabela (pai de `metadata/`); `None` se não for uma location s3 válida."""
     try:
-        segments = locations.parse_notislake(location or "").segments[:-1]
+        parsed = locations.parse_location(location or "")
     except locations.InvalidLocation:
         return None
+    segments = parsed.segments[:-1]
     if segments and segments[-1] == "metadata":
         segments = segments[:-1]
-    try:
-        return locations.parse_notislake(f"{locations.SCHEME}://{locations.BUCKET}/{'/'.join(segments)}").uri
-    except locations.InvalidLocation:
-        return None
+    return locations.Location(parsed.bucket, segments).uri if segments else None
+
+
+def _drop_behavior(conn: sqlite3.Connection, metadata_location: str, namespace: str, table: str) -> str:
+    """A tabela na pasta gerenciada própria entra na fila de exclusão no DROP, a menos que outra tabela use a pasta."""
+    if not is_managed_s3a(metadata_location, namespace, table):
+        return "registry_only"
+    prefix = table_prefix(metadata_location) or ""
+    if folder_in_use(conn, prefix, skip_tables=[(ICEBERG_CATALOG, namespace, table)]):
+        return "keeps_files_shared"
+    return "deletes_files"
 
 
 def _shown_location(metadata_location: str) -> str | None:
@@ -130,6 +147,11 @@ def _node(row: tuple[Any, ...]) -> dict[str, Any]:
     }
 
 
+def all_namespaces(conn: sqlite3.Connection) -> list[str]:
+    """Todos os namespaces do `iceberg` (propriedades e tabelas), ordenados."""
+    return sorted(name for (name,) in _namespace_names(conn))
+
+
 def _namespace_names(conn: sqlite3.Connection) -> sqlite3.Cursor:
     """Namespaces do `iceberg`: união de `iceberg_namespace_properties` e `iceberg_tables` (1 coluna, sem ordem)."""
     return conn.execute(
@@ -149,7 +171,7 @@ def list_databases(conn: sqlite3.Connection, max_total: int) -> tuple[list[dict[
     names = {r[0] for r in _namespace_names(conn)}
     used = 0
     databases: list[dict[str, Any]] = []
-    for db in sorted(names, key=lambda n: (locations.layer_rank(n), n)):
+    for db in sorted(names):
         if used >= max_total:
             databases.append({"name": db, "tables": [], "truncated": True})
             continue
@@ -185,7 +207,7 @@ def catalog_summary(conn: sqlite3.Connection) -> dict[str, Any]:
     ):
         tables[namespace] = int(n_tables or 0)
         views[namespace] = int(n_views or 0)
-    ordered = sorted(names, key=lambda n: (locations.layer_rank(n), n))
+    ordered = sorted(names)
     total_tables = sum(tables.get(ns, 0) for ns in names)
     return {
         "namespaces": [{"name": ns, "tables": tables.get(ns, 0), "views": views.get(ns, 0)} for ns in ordered],
@@ -335,15 +357,15 @@ def _parse_metadata(raw: bytes) -> dict[str, Any]:
 
 
 def _read_remote(location: str, open_store: StoreOpener | None) -> bytes:
-    """Bytes do metadata em `s3a://notislake/...`, lidos com teto; só a conexão do notislake é usada."""
+    """Bytes do metadata em `s3a://<bucket>/...`, lidos com teto, com a conexão do object store do app."""
     try:
-        key = locations.parse_notislake(location).key
+        parsed = locations.parse_location(location)
     except locations.InvalidLocation as exc:
         raise IcebergMetadataError("metadata is not on the local disk") from exc
     if open_store is None:
         raise IcebergMetadataError("object store not provided")
     try:
-        return objectstore.get_bounded(open_store(), key, max_bytes=MAX_METADATA_BYTES)
+        return objectstore.get_bounded(open_store(), parsed.key, max_bytes=MAX_METADATA_BYTES, bucket=parsed.bucket)
     except objectstore.ObjectStoreError as exc:
         if exc.code in (objectstore.TIMEOUT, objectstore.UNREACHABLE):
             raise MetadataStoreUnavailable("object store unavailable") from None
@@ -353,7 +375,7 @@ def _read_remote(location: str, open_store: StoreOpener | None) -> bytes:
 
 
 def read_metadata(location: str, open_store: StoreOpener | None = None) -> dict[str, Any]:
-    """`metadata.json` local ou em `s3a://notislake/...` (lido com teto). Levanta `IcebergMetadataError` ou `MetadataStoreUnavailable`."""
+    """`metadata.json` local ou em `s3a://<bucket>/...` (lido com teto). Levanta `IcebergMetadataError` ou `MetadataStoreUnavailable`."""
     path = local_path(location)
     if path is None:
         return _parse_metadata(_read_remote(location, open_store))
@@ -531,8 +553,7 @@ def read_table_info(
         "table": table,
         "format": "iceberg",
         "table_type": _table_type(metadata_location, database, table),
-        # Iceberg 1.10.1: o DROP TABLE só apaga os arquivos com PURGE, também nas tabelas MANAGED.
-        "drop_behavior": "registry_only_unless_purge",
+        "drop_behavior": _drop_behavior(conn, metadata_location, database, table),
         "location": _shown_location(metadata_location),
         "available": is_available(metadata_location),
         "description": None,

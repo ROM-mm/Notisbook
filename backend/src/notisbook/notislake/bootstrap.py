@@ -12,11 +12,11 @@ import urllib.request
 from collections.abc import Callable
 
 from .credentials import Credentials
-from .locations import BUCKET, LANDING, LAYERS
+from .locations import BUCKET, MANAGED_BUCKET
 from .ports import LOOPBACK
 
-# `landing` é zona externa (não é camada de catálogo); por isso fica fora de `LAYERS`.
-PREFIXES = tuple(f"{zone}/" for zone in (LANDING, *LAYERS))
+# Pastas iniciais do `notislake`: só organização para o dev, sem significado para o catálogo.
+PREFIXES = tuple(f"{zone}/" for zone in ("landing", "bronze", "silver", "gold"))
 READY_TIMEOUT_S = 30.0
 _POLL_INTERVAL_S = 0.25
 _PROBE_TIMEOUT_S = 2.0
@@ -55,14 +55,9 @@ def wait_ready(
         time.sleep(min(_POLL_INTERVAL_S, remaining))
 
 
-def ensure_layout(port: int, credentials: Credentials) -> None:
-    """Cria o bucket `notislake` e os prefixos `landing/ bronze/ silver/ gold/`, de forma idempotente.
-
-    Os prefixos são marcadores de 0 byte; repetir a chamada não altera objetos existentes além deles.
-    """
+def _client(port: int, credentials: Credentials):  # noqa: ANN202 - cliente boto3, importado sob demanda
     import boto3
     from botocore.config import Config
-    from botocore.exceptions import BotoCoreError, ClientError
 
     config = Config(
         s3={"addressing_style": "path"},
@@ -74,7 +69,7 @@ def ensure_layout(port: int, credentials: Credentials) -> None:
         read_timeout=10,
         retries={"max_attempts": 3, "mode": "standard"},
     )
-    client = boto3.session.Session().client(
+    return boto3.session.Session().client(
         "s3",
         endpoint_url=f"http://{LOOPBACK}:{port}",
         aws_access_key_id=credentials.user,
@@ -82,6 +77,16 @@ def ensure_layout(port: int, credentials: Credentials) -> None:
         region_name="us-east-1",
         config=config,
     )
+
+
+def ensure_layout(port: int, credentials: Credentials) -> None:
+    """Cria o bucket `notislake` e os prefixos `landing/ bronze/ silver/ gold/`, de forma idempotente.
+
+    Os prefixos são marcadores de 0 byte; repetir a chamada não altera objetos existentes além deles.
+    """
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    client = _client(port, credentials)
     try:
         try:
             client.create_bucket(Bucket=BUCKET)
@@ -97,4 +102,24 @@ def ensure_layout(port: int, credentials: Credentials) -> None:
     except BotoCoreError as exc:
         raise BootstrapError(
             f"falha ao preparar o bucket '{BUCKET}' no MinIO local ({type(exc).__name__})"
+        ) from None
+
+
+def ensure_managed_bucket(port: int, credentials: Credentials) -> None:
+    """Cria o bucket reservado `notisbook-managed` se faltar, sem prefixos; idempotente e seguro a cada subida.
+
+    Só o `notislake` tem marcador de primeira inicialização: o reservado é do app e precisa existir sempre.
+    """
+    from botocore.exceptions import BotoCoreError, ClientError
+
+    client = _client(port, credentials)
+    try:
+        client.create_bucket(Bucket=MANAGED_BUCKET)
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "unknown")
+        if code not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+            raise BootstrapError(f"falha ao preparar o bucket reservado do app no MinIO local ({code})") from None
+    except BotoCoreError as exc:
+        raise BootstrapError(
+            f"falha ao preparar o bucket reservado do app no MinIO local ({type(exc).__name__})"
         ) from None

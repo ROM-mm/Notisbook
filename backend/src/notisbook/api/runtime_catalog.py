@@ -2,12 +2,12 @@
 
 O backend é o único escritor do `catalog.db` para o lado Docker. Autenticação por token de runtime da
 sessão (nunca o token da UI) e regra de Host própria. O plano do hook é validado antes de tocar o banco:
-formato, nomes, tamanho e `location`: local por realpath dentro das pastas montadas na sessão, ou `s3a` do
-notislake em forma estrita. Não há warehouse local: MANAGED só existe em `s3a`, na forma `<camada>/<t>`. Corpo
-malformado recusa o plano (422); item inválido por regra ou limite sai em `rejected` e os demais são gravados numa
-só transação, onde `apply_plan` ainda aplica camada pelo schema, sobreposição e nome repetido no Iceberg. A exclusão de pastas MANAGED é decidida pela linha do registro, depois do COMMIT: as s3a o backend
-devolve em `deletions` para o kernel apagar; ele nunca apaga arquivos (uma linha MANAGED legada com location
-local volta em `files_kept`). Respostas e logs não carregam segredo.
+formato, nomes, tamanho e `location`: local por realpath dentro das pastas montadas na sessão, ou `s3a` em forma estrita.
+MANAGED só existe em `s3a://notisbook-managed/<schema>/<t>`. Corpo malformado recusa o plano (422); item inválido por
+regra ou limite sai em `rejected` e os demais são gravados numa só transação, onde `apply_plan` ainda aplica bucket
+reservado, sobreposição, exclusão pendente e nome repetido. O backend nunca apaga arquivos: a MANAGED dropada entra na
+fila `nb_pending_deletions` e o kernel a consome (`/pending-deletions`), com o uso rechecado no backend. Respostas e
+logs não carregam segredo.
 """
 
 import asyncio
@@ -15,6 +15,7 @@ import json
 import logging
 import os
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -29,8 +30,8 @@ from pydantic import (
     ValidationError,
 )
 
-from ..catalog import iceberg_jdbc, registry
-from ..catalog.store import catalog_db_path, connect, ensure_catalog_db
+from ..catalog import glue_repo, iceberg_jdbc, registry
+from ..catalog.store import catalog_db_path, connect, ensure_catalog_db, immediate
 from ..fs_safety import is_within
 from ..notislake import locations as notislake_locations
 from ..security import RuntimeGrant, require_runtime_host, require_runtime_token
@@ -131,7 +132,7 @@ def _info(item: TableInfo) -> dict[str, Any]:
 
 
 def _location_error(location: str, grant: RuntimeGrant) -> str | None:
-    """Código do erro se a `location` não é local dentro das pastas montadas nem `s3a` válida do notislake.
+    """Código do erro se a `location` não é local dentro das pastas montadas nem `s3a` válida.
 
     O ramo local só vê caminhos do usuário (montagens); uma URI `s3a` nunca chega ao `os.path`.
     """
@@ -149,11 +150,11 @@ def _location_error(location: str, grant: RuntimeGrant) -> str | None:
 
 
 def _s3a_location_error(location: str) -> str | None:
-    """Só a forma; camada, sobreposição e nome repetido são decididos no `apply_plan` (`rejected` com o código)."""
+    """Só a forma; bucket reservado, sobreposição e nome repetido são decididos no `apply_plan` (`rejected` com o código)."""
     try:
-        notislake_locations.parse_notislake(location)
+        notislake_locations.parse_location(location)
     except notislake_locations.InvalidLocation:
-        return "location_not_notislake"
+        return "location_not_s3"
     return None
 
 
@@ -194,8 +195,40 @@ def _created_error(item: Created, grant: RuntimeGrant) -> str | None:
     return None if notislake_locations.managed_table(item.loc) else "managed_location_rejected"
 
 
+def _glue_refusal(body: PlanBody) -> list[dict[str, Any]]:
+    """Todo item de tabela do plano como `glue_runtime`; só os identificáveis voltam (`key`), sem eco de valores."""
+    keys = [
+        key
+        for section, items in (("created", body.created), ("updated", body.updated), ("renamed", body.renamed))
+        for key in (_raw_key(section, raw) for raw in items)
+        if key is not None
+    ]
+    keys += [(d.db, d.name) for d in (*body.dropped, *body.unregistered)]
+    return [{"key": list(key), "reason": "glue_runtime"} for key in keys]
+
+
+_PLAN_KEYS = ("created", "updated", "renamed", "dropped", "unregistered", "new_dbs", "gone_dbs")
+_RESULT_LISTS = ("adopted", "conflicts", "rejected", "updated_ok", "renamed_ok", "dropped_ok", "files_kept", "deletions")
+
+
+def _empty_plan() -> dict[str, Any]:
+    """Plano do `apply_plan` sem nenhum item, com todas as chaves."""
+    return {key: [] for key in _PLAN_KEYS}
+
+
+def _result(generation_before: int, generation: int, **fields: Any) -> dict[str, Any]:
+    """Resposta do plano com todas as chaves; o que `fields` não informa fica vazio (`changed` falso)."""
+    base: dict[str, Any] = {"changed": False, **{key: [] for key in _RESULT_LISTS}}
+    return {**base, "generation_before": generation_before, "generation": generation, **fields}
+
+
 def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    """Plano do `apply_plan` só com os itens válidos e a lista dos recusados (`key`, `reason`); sem eco de valores."""
+    """Plano do `apply_plan` só com os itens válidos e a lista dos recusados (`key`, `reason`); sem eco de valores.
+
+    O runtime Glue nunca grava em `nb_*`: o plano volta vazio e todo item de tabela em `rejected` (`glue_runtime`).
+    """
+    if grant.glue:
+        return _empty_plan(), _glue_refusal(body)
     rejected: list[dict[str, Any]] = []
     created, updated, renamed = [], [], []
     for item in _parse_items("created", body.created, Created, rejected):
@@ -228,9 +261,9 @@ def _build_plan(body: PlanBody, grant: RuntimeGrant) -> tuple[dict[str, Any], li
     return plan, rejected
 
 
-def _managed_shape(location: str) -> bool:
-    """Só `s3a://notislake/<camada>/<t>` é MANAGED; nenhum caminho local o é."""
-    return notislake_locations.managed_table(location)
+def _own_managed(key: tuple[str, str], location: str) -> bool:
+    """`location` é a pasta gerenciada da tabela `key`; nenhum caminho local o é."""
+    return notislake_locations.is_own_managed(key[0], key[1], location)
 
 
 async def _read_body(request: Request) -> bytes:
@@ -279,8 +312,8 @@ def _generation(home: Path) -> int:
 def _iceberg_tables(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     """Tabelas do catálogo `iceberg` (`db`, `name`, `loc`) para o hook checar nome repetido e sobreposição antes de gravar.
 
-    `loc` é a pasta `s3a://notislake/...` da tabela (pai de `metadata/`), ou `None` se o metadata não está no
-    notislake. Catálogo Iceberg ausente ou em formato desconhecido dá lista vazia.
+    `loc` é a pasta `s3a://...` da tabela (pai de `metadata/`), ou `None` se o metadata não está em um bucket s3.
+    Catálogo Iceberg ausente ou em formato desconhecido dá lista vazia.
     """
     try:
         iceberg_jdbc.check_schema(conn)
@@ -294,30 +327,62 @@ def _iceberg_tables(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     return [{"db": r[0], "name": r[1], "loc": iceberg_jdbc.table_prefix(r[2])} for r in rows]
 
 
+def _iceberg_namespaces(conn: sqlite3.Connection) -> list[str]:
+    try:
+        iceberg_jdbc.check_schema(conn)
+        return iceberg_jdbc.all_namespaces(conn)
+    except (iceberg_jdbc.UnsupportedIcebergSchema, sqlite3.OperationalError):
+        return []
+
+
+def _glue_namespaces(conn: sqlite3.Connection) -> list[str]:
+    try:
+        return sorted(name for (name,) in conn.execute("SELECT name FROM glue_databases"))
+    except sqlite3.OperationalError:
+        return []
+
+
 def _registry(home: Path) -> dict[str, Any]:
     conn = _open_read(home)
     if conn is None:
-        return {"generation": 0, "tables": [], "namespaces": [], "iceberg": []}
+        return {
+            "generation": 0, "tables": [], "namespaces": [], "namespace_locations": {}, "iceberg": [], "glue": [],
+            "iceberg_namespaces": [], "glue_namespaces": [], "pending": [],
+        }
     try:
         generation, rows, namespaces = registry.read_snapshot(conn)
         iceberg = _iceberg_tables(conn)
+        glue = glue_repo.registry_tables(conn)
+        iceberg_names, glue_names, pending = _iceberg_namespaces(conn), _glue_namespaces(conn), registry.pending_locations(conn)
     finally:
         conn.close()
     tables = [{"db": db, "name": name, **row} for (db, name), row in sorted(rows.items())]
-    return {"generation": generation, "tables": tables, "namespaces": sorted(namespaces), "iceberg": iceberg}
+    return {
+        "generation": generation, "tables": tables, "namespaces": sorted(namespaces),
+        "namespace_locations": {ns: loc for ns, loc in namespaces.items() if loc}, "iceberg": iceberg, "glue": glue,
+        "iceberg_namespaces": iceberg_names, "glue_namespaces": glue_names, "pending": pending,
+    }
+
+
+def _apply_or_skip(home: Path, plan: dict[str, Any], grant: RuntimeGrant) -> dict[str, Any]:
+    """`_apply`, exceto para o runtime Glue: nada é gravado (o banco só é lido, para a `generation`)."""
+    if not grant.glue:
+        return _apply(home, plan)
+    generation = _generation(home)
+    return _result(generation, generation)
 
 
 def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
-    """Transação do plano; depois do COMMIT devolve as exclusões MANAGED que a própria linha autoriza.
+    """Transação do plano; as MANAGED dropadas entram na fila `nb_pending_deletions` dentro dela.
 
-    As s3a voltam em `deletions` (`key`, `loc`): quem apaga é o kernel. Uma location local MANAGED (legada) é
-    mantida e vai em `files_kept`: o backend não apaga arquivos.
+    `deletions` (`key`, `loc`) só informa o que foi enfileirado: quem apaga é o kernel, pela fila. Uma location local
+    MANAGED (legada) é mantida e vai em `files_kept`: o backend não apaga arquivos.
     """
     if not catalog_db_path(home).exists():
         ensure_catalog_db(home)
     conn = connect(home)
     try:
-        result = registry.commit_plan(conn, plan, _managed_shape)
+        result = registry.commit_plan(conn, plan, _own_managed)
     finally:
         conn.close()
     kept = list(result["files_kept"])
@@ -327,19 +392,19 @@ def _apply(home: Path, plan: dict[str, Any]) -> dict[str, Any]:
             s3a_deletions.append({"key": key, "loc": location})
             continue
         kept.append(key)
-    return {
-        "changed": result["changed"],
-        "adopted": result["adopted"],
-        "conflicts": result["conflicts"],
-        "rejected": [{"key": list(key), "reason": reason} for key, reason in result["rejected"]],
-        "updated_ok": [{"key": key, "type": change["type"]} for key, change in result["updated_ok"]],
-        "renamed_ok": [{"old": old, "new": new} for old, new, _ in result["renamed_ok"]],
-        "dropped_ok": result["dropped_ok"],
-        "files_kept": kept,
-        "deletions": s3a_deletions,
-        "generation_before": result["generation_before"],
-        "generation": result["generation"],
-    }
+    return _result(
+        result["generation_before"],
+        result["generation"],
+        changed=result["changed"],
+        adopted=result["adopted"],
+        conflicts=result["conflicts"],
+        rejected=[{"key": list(key), "reason": reason} for key, reason in result["rejected"]],
+        updated_ok=[{"key": key, "type": change["type"]} for key, change in result["updated_ok"]],
+        renamed_ok=[{"old": old, "new": new} for old, new, _ in result["renamed_ok"]],
+        dropped_ok=result["dropped_ok"],
+        files_kept=kept,
+        deletions=s3a_deletions,
+    )
 
 
 @router.get("/generation")
@@ -376,7 +441,7 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         raise HTTPException(422, "plan_too_large")
     plan, rejected = _build_plan(body, grant)
     try:
-        result = await asyncio.to_thread(_apply, _home(request), plan)
+        result = await asyncio.to_thread(_apply_or_skip, _home(request), plan, grant)
     except sqlite3.Error as exc:
         raise _sqlite_http(exc) from exc
     log.info(
@@ -385,3 +450,108 @@ async def post_plan(request: Request, grant: Grant) -> dict[str, Any]:
         len(plan["unregistered"]), len(rejected),
     )
     return {**result, "rejected": [*rejected, *result["rejected"]]}
+
+
+class PendingEnqueue(_Model):
+    catalog: Literal["glue_catalog"]
+    db: Name
+    name: Name
+    loc: Location
+
+
+class PendingFailure(_Model):
+    id: StrictInt
+    error: Annotated[str, StringConstraints(max_length=200)]
+
+
+class PendingResult(_Model):
+    done: list[StrictInt] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
+    failed: list[PendingFailure] = Field(default_factory=list, max_length=MAX_PLAN_ITEMS)
+
+
+def _writer(home: Path) -> sqlite3.Connection:
+    if not catalog_db_path(home).exists():
+        ensure_catalog_db(home)
+    return connect(home)
+
+
+def _pending_ready(home: Path) -> list[dict[str, Any]]:
+    """Exclusões que o kernel pode executar agora; só leitura (não cria nem altera o `catalog.db`)."""
+    if not catalog_db_path(home).exists():
+        return []
+    conn = connect(home)
+    try:
+        ready = registry.pending_deletions(conn)
+    finally:
+        conn.close()
+    return [{"id": row_id, "key": list(key), "loc": location} for row_id, key, location in ready]
+
+
+def _pending_enqueue(home: Path, item: PendingEnqueue) -> bool:
+    """Enfileira a pasta gerenciada de uma tabela `glue_catalog` dropada; só a forma `<schema>/<tabela>` do próprio nome."""
+    db, name = item.db.lower(), item.name.lower()  # Glue stores lowercase names
+    try:
+        expected = notislake_locations.managed_location(db, name)
+    except notislake_locations.InvalidLocation:
+        return False
+    if notislake_locations.canonical(item.loc).rstrip("/") != expected:
+        return False
+    conn = _writer(home)
+    try:
+        with immediate(conn):
+            if glue_repo.table_name_exists_in_glue(conn, db, name):
+                return False  # a tabela ainda existe: o DROP não aconteceu
+            stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            queued = registry.enqueue_deletion(conn, item.catalog, (db, name), expected, stamp)
+            registry.purge_reused_deletions(conn)
+            return queued
+    finally:
+        conn.close()
+
+
+def _pending_finish(home: Path, result: PendingResult) -> None:
+    conn = _writer(home)
+    try:
+        with immediate(conn):
+            registry.finish_deletions(conn, result.done, {f.id: f.error for f in result.failed})
+    finally:
+        conn.close()
+
+
+@router.get("/pending-deletions")
+async def get_pending_deletions(request: Request) -> dict[str, Any]:
+    """Pastas gerenciadas que o kernel pode apagar agora (uso rechecado e teto de tentativas; só leitura)."""
+    try:
+        return {"items": await asyncio.to_thread(_pending_ready, _home(request))}
+    except sqlite3.Error as exc:
+        raise _sqlite_http(exc) from exc
+
+
+@router.post("/pending-deletions", status_code=202)
+async def post_pending_deletion(request: Request, grant: Grant) -> dict[str, bool]:
+    """O kernel do runtime Glue pede a exclusão da pasta gerenciada de uma tabela `glue_catalog` que acabou de dropar."""
+    if not grant.glue:
+        raise HTTPException(403, "glue_runtime_only")
+    try:
+        item = PendingEnqueue.model_validate(json.loads(await _read_body(request)))
+    except (ValueError, RecursionError):
+        raise HTTPException(422, "invalid_body") from None
+    try:
+        queued = await asyncio.to_thread(_pending_enqueue, _home(request), item)
+    except sqlite3.Error as exc:
+        raise _sqlite_http(exc) from exc
+    return {"queued": queued}
+
+
+@router.post("/pending-deletions/result")
+async def post_pending_result(request: Request) -> dict[str, bool]:
+    """Resultado das exclusões feitas pelo kernel: as concluídas saem da fila, as falhas contam uma tentativa."""
+    try:
+        result = PendingResult.model_validate(json.loads(await _read_body(request)))
+    except (ValueError, RecursionError):
+        raise HTTPException(422, "invalid_body") from None
+    try:
+        await asyncio.to_thread(_pending_finish, _home(request), result)
+    except sqlite3.Error as exc:
+        raise _sqlite_http(exc) from exc
+    return {"ok": True}

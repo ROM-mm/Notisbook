@@ -1,6 +1,6 @@
 /*
  * Design tokens do Notisbook: tema monocromático (claro: fundo branco com linhas
- * e texto pretos; escuro: grafite; status e sintaxe coloridos; linhas finas de 1px,
+ * e texto pretos; escuro: grafite #2d2d2b; status e sintaxe coloridos; linhas finas de 1px,
  * sem cartão nem raio; sombra só nos dropdowns). Os nomes
  * --color-* são a API principal; --yellow, --blue etc. são aliases legados
  * remapeados para tons neutros. Fontes empacotadas (fonts.css e @fontsource em main.tsx)
@@ -172,7 +172,7 @@
   --sx-dark-code-fn: #b8b8b8;
   --sx-dark-code-str: #c4c4c4;
   --sx-dark-code-num: #cccccc;
-  --sx-dark-code-com: #8c8c8c;
+  --sx-dark-code-com: #999999;
   --sx-dark-code-type: #d4d4d4;
   --sx-dark-code-qual: #ffffff;
   --sx-dark-code-table: #ffffff;
@@ -184,22 +184,22 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --color-bg: #121212;
-    --color-bg-subtle: #121212;
-    --color-bg-muted: #1a1a1a;
-    --color-bg-hover: #222222;
-    --color-bg-active: #2a2a2a;
-    --color-surface: #1a1a1a;
-    --color-surface-raised: #222222;
-    --color-border: #3a3a3a;
-    --color-border-strong: #4d4d4d;
+    --color-bg: #2d2d2b;
+    --color-bg-subtle: #2d2d2b;
+    --color-bg-muted: #333331;
+    --color-bg-hover: #393937;
+    --color-bg-active: #42423f;
+    --color-surface: #333331;
+    --color-surface-raised: #393937;
+    --color-border: #4a4a47;
+    --color-border-strong: #5c5c58;
     --color-text: #ffffff;
     --color-text-muted: #d9d9d9;
     --color-text-subtle: #bdbdbd;
     --color-text-inverse: #121212;
     --color-accent: #ffffff;
     --color-accent-hover: #d9d9d9;
-    --color-accent-subtle: #2a2a2a;
+    --color-accent-subtle: #42423f;
     --color-accent-text: #ffffff;
     --color-focus-ring: #ffffff;
     --color-success: #bbf7d0;
@@ -210,26 +210,26 @@
     --color-danger: #ff7b80;
     --color-danger-text: #ff7b80;
     --color-danger-subtle: #4a1f22;
-    --color-code-bg: #121212;
-    --color-code-inline-bg: #222222;
-    --color-code-border: #3a3a3a;
-    --color-bg-panel: #121212;
+    --color-code-bg: #2d2d2b;
+    --color-code-inline-bg: #393937;
+    --color-code-border: #4a4a47;
+    --color-bg-panel: #2d2d2b;
     --color-overlay: rgba(0, 0, 0, 0.6);
-    --color-cell-bg: #121212;
-    --color-editor-selection: #3a3a3a;
-    --color-bg-side: #121212;
-    --color-selection: #2a2a2a;
+    --color-cell-bg: #2d2d2b;
+    --color-editor-selection: #4a4a47;
+    --color-bg-side: #2d2d2b;
+    --color-selection: #42423f;
     --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
     --on-fill: #ffffff;
     --on-accent: #121212;
-    --hover: #222222;
+    --hover: #393937;
     --placeholder: #bdbdbd;
-    --yellow: #2a2a2a;
-    --blue: #2a2a2a;
+    --yellow: #42423f;
+    --blue: #42423f;
     --peach: rgba(212, 162, 76, 0.14);
     --mint: rgba(187, 247, 208, 0.15);
     --coral: #4a1f22;
-    --creamy: #121212;
+    --creamy: #2d2d2b;
     --brand-mark-shadow: transparent;
     --home-mark-shadow: #e6e6e6;
     /* Sintaxe escura: valores em --sx-dark-* (:root); bloco idêntico nos dois seletores escuros. */
@@ -265,22 +265,22 @@
 /* Escuro forçado pelo toggle. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --color-bg: #121212;
-  --color-bg-subtle: #121212;
-  --color-bg-muted: #1a1a1a;
-  --color-bg-hover: #222222;
-  --color-bg-active: #2a2a2a;
-  --color-surface: #1a1a1a;
-  --color-surface-raised: #222222;
-  --color-border: #3a3a3a;
-  --color-border-strong: #4d4d4d;
+  --color-bg: #2d2d2b;
+  --color-bg-subtle: #2d2d2b;
+  --color-bg-muted: #333331;
+  --color-bg-hover: #393937;
+  --color-bg-active: #42423f;
+  --color-surface: #333331;
+  --color-surface-raised: #393937;
+  --color-border: #4a4a47;
+  --color-border-strong: #5c5c58;
   --color-text: #ffffff;
   --color-text-muted: #d9d9d9;
   --color-text-subtle: #bdbdbd;
   --color-text-inverse: #121212;
   --color-accent: #ffffff;
   --color-accent-hover: #d9d9d9;
-  --color-accent-subtle: #2a2a2a;
+  --color-accent-subtle: #42423f;
   --color-accent-text: #ffffff;
   --color-focus-ring: #ffffff;
   --color-success: #bbf7d0;
@@ -291,26 +291,26 @@
   --color-danger: #ff7b80;
   --color-danger-text: #ff7b80;
   --color-danger-subtle: #4a1f22;
-  --color-code-bg: #121212;
-  --color-code-inline-bg: #222222;
-  --color-code-border: #3a3a3a;
-  --color-bg-panel: #121212;
+  --color-code-bg: #2d2d2b;
+  --color-code-inline-bg: #393937;
+  --color-code-border: #4a4a47;
+  --color-bg-panel: #2d2d2b;
   --color-overlay: rgba(0, 0, 0, 0.6);
-  --color-cell-bg: #121212;
-  --color-editor-selection: #3a3a3a;
-  --color-bg-side: #121212;
-  --color-selection: #2a2a2a;
+  --color-cell-bg: #2d2d2b;
+  --color-editor-selection: #4a4a47;
+  --color-bg-side: #2d2d2b;
+  --color-selection: #42423f;
   --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.45);
   --on-fill: #ffffff;
   --on-accent: #121212;
-  --hover: #222222;
+  --hover: #393937;
   --placeholder: #bdbdbd;
-  --yellow: #2a2a2a;
-  --blue: #2a2a2a;
+  --yellow: #42423f;
+  --blue: #42423f;
   --peach: rgba(212, 162, 76, 0.14);
   --mint: rgba(187, 247, 208, 0.15);
   --coral: #4a1f22;
-  --creamy: #121212;
+  --creamy: #2d2d2b;
   --brand-mark-shadow: transparent;
   --home-mark-shadow: #e6e6e6;
   /* Sintaxe escura: valores em --sx-dark-* (:root); bloco idêntico nos dois seletores escuros. */

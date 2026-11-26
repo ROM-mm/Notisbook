@@ -3,7 +3,8 @@
  * catálogo persistente (`catalog.db`), sem depender de kernel ou notebook.
  * Relê quando uma célula do notebook ativo volta a idle, no foco da janela e
  * pelo botão de refresh. Árvore ARIA plana, como em FileTree. Create Schema: botão
- * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema.
+ * "+" do cabeçalho e menu de contexto do catálogo; Delete Schema no menu do schema, nos três catálogos
+ * (`spark_catalog`, `iceberg` e `glue`). O `default` do `spark_catalog` e do `glue` é protegido.
  * Linha de tabela é folha (sem chevron): clique (ou Enter) abre o painel Table info, que mostra as colunas.
  * Linha de catálogo: clique (ou Enter) abre o painel Catalog info e expande o nó se recolhido (nunca recolhe);
  * o chevron (ou Space/setas) segue expandindo/recolhendo. Um painel lateral por vez.
@@ -47,7 +48,7 @@ import { ConfirmDialog } from "../shell/ConfirmDialog";
 import { ContextMenu } from "../shell/ContextMenu";
 import type { MenuItem } from "../shell/Menu";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, GLUE_CATALOG, ICEBERG_CATALOG, SPARK_CATALOG } from "./catalogLabels";
 import { CardTitle } from "./CardTitle";
 import { CreateSchemaDialog } from "./CreateSchemaDialog";
 import styles from "./DataPanel.module.css";
@@ -58,25 +59,11 @@ import { tableFormatIcon } from "./tableFormat";
 const REFRESH_DEBOUNCE_MS = 1500;
 const NOTICE_MS = 8000;
 const DEFAULT_SCHEMA = "default";
-/** Camadas exibidas primeiro, nesta ordem (sem caixa); os demais schemas seguem na ordem recebida. */
-const LAYER_ORDER = ["bronze", "silver", "gold"];
-
-function layerRank(name: string): number {
-  const i = LAYER_ORDER.indexOf(name.toLowerCase());
-  return i === -1 ? LAYER_ORDER.length : i;
-}
-
-/** Ordenação estável: camadas primeiro, sem alterar a ordem relativa dos demais schemas. */
-function orderSchemas<T extends { name: string }>(databases: T[]): T[] {
-  return databases
-    .map((d, i) => ({ d, i, rank: layerRank(d.name) }))
-    .sort((a, b) => a.rank - b.rank || a.i - b.i)
-    .map((x) => x.d);
-}
 
 const CATALOG_ERRORS: Record<string, string> = {
   unsupported_iceberg_catalog_schema: "Iceberg tables unavailable: unsupported catalog schema.",
   iceberg_catalog_unreadable: "Iceberg tables unavailable: catalog could not be read.",
+  glue_catalog_unreadable: "Glue tables unavailable: catalog could not be read.",
 };
 
 interface Row {
@@ -189,12 +176,11 @@ function buildItems(catalogs: CatalogNode[], s: { expanded: Record<string, true>
     if (c.error) {
       out.push({ status: true, key: `error:${ckey}`, level: 2, text: CATALOG_ERRORS[c.error] ?? "Catalog could not be read.", error: true });
     }
-    const databases = orderSchemas(c.databases);
-    databases.forEach((d, di) => {
+    c.databases.forEach((d, di) => {
       const tables = d.tables;
       const dkey = schemaKey(c.name, d.name);
       const dOpen = Boolean(s.expanded[dkey]);
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: <DatabaseIcon size={14} />, expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
         tableRows(c.name, tables, dkey, 3, d.name, out);
@@ -223,13 +209,20 @@ function Empty({ title, hint, testId }: { title: string; hint?: string; testId?:
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
-const KEPT_REASONS: Record<string, string> = { s3a_kept: "folder stays in the notislake bucket" };
+const KEPT_REASONS: Record<string, string> = {
+  keeps_files_shared: "folder used by another table, files stay",
+  keeps_files_outside_managed: "outside its managed folder, files stay",
+  outside_warehouse: "local folder stays",
+  no_deletion_queue: "deletion queue unavailable, files stay",
+};
 
 const keptLabel = (k: { table: string; reason: string }) => `${k.table} (${KEPT_REASONS[k.reason] ?? k.reason})`;
 
-/** Aviso quando a exclusão deixou arquivos ou a pasta do schema no disco; null se nada ficou. */
+/** Aviso quando a exclusão enfileirou ou deixou arquivos, ou a pasta do schema; null se nada a dizer. */
 function deletionNotice(schema: string, res: SchemaDeletion): string | null {
   const kept: string[] = [];
+  const queued = res.files_queued.length;
+  if (queued > 0) kept.push(`files of ${plural(queued, "managed table", "managed tables")} queued for deletion`);
   if (res.files_kept.length > 0) kept.push(`files kept for ${res.files_kept.map(keptLabel).join(", ")}`);
   if (res.folder_kept) kept.push("schema folder kept");
   return kept.length > 0 ? `Schema ${schema} deleted; ${kept.join("; ")}.` : null;
@@ -305,21 +298,25 @@ function DeleteSchemaDialog({ catalog, schema, onDeleted, onClose }: DeleteSchem
       {preview ? (
         <>
           <p>
-            Delete schema <code>{schema}</code> and its {plural(catalog === HUDI_CATALOG ? preview.hudi : preview.tables, "table", "tables")}?
+            Delete schema <code>{schema}</code> and its {plural(preview.tables, "table", "tables")}?
           </p>
           <p>
+            {preview.managed_queued > 0
+              ? `Files of ${plural(preview.managed_queued, "managed table", "managed tables")} will be queued for deletion; `
+              : ""}
             {preview.managed_kept > 0
-              ? `${plural(preview.managed_kept, "managed table folder", "managed table folders")} will stay in the notislake bucket; `
+              ? `${plural(preview.managed_kept, "managed table folder stays", "managed table folders stay")}; `
               : ""}
             {plural(preview.external, "external table keeps", "external tables keep")} their files.
           </p>
-          {catalog !== HUDI_CATALOG && preview.hudi > 0 ? (
-            <p>{plural(preview.hudi, "Hudi table", "Hudi tables")} will also be removed.</p>
+          {catalog === ICEBERG_CATALOG && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
+          {catalog === GLUE_CATALOG && preview.can_delete ? (
+            <p>
+              Here, a managed table whose folder is used by another table keeps its files. A DROP from a notebook
+              (Glue/Hive) behaves differently: DROP DATABASE refuses a schema with tables, and DROP TABLE deletes a
+              managed table&apos;s folder even when another table uses it.
+            </p>
           ) : null}
-          {catalog === HUDI_CATALOG && preview.tables > 0 ? (
-            <p>{plural(preview.tables, "non-Hudi table", "non-Hudi tables")} (Delta/Parquet) in this schema will also be removed.</p>
-          ) : null}
-          {catalog === "iceberg" && preview.views > 0 ? <p>{plural(preview.views, "view", "views")} will also be dropped.</p> : null}
         </>
       ) : error ? (
         <p>
@@ -371,10 +368,10 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
     }
     if (row.kind === "schema" && row.catalog && row.schema) {
       const { catalog, schema } = row;
-      const sparkNode = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
       const key = schema.toLowerCase();
-      // `default` e as camadas são protegidos no backend (`cannot_drop_default`/`cannot_drop_layer`).
-      const isProtected = sparkNode && (key === DEFAULT_SCHEMA || LAYER_ORDER.includes(key));
+      // Só o `default` do spark_catalog e do glue é protegido no backend (`cannot_drop_default`); os demais schemas,
+      // inclusive bronze/silver/gold, são livres.
+      const isProtected = (catalog === SPARK_CATALOG || catalog === GLUE_CATALOG) && key === DEFAULT_SCHEMA;
       return [{ label: "Delete Schema…", danger: true, disabled: isProtected, onSelect: () => setDeleting({ catalog, schema }), testId: "catalog-delete-schema" }];
     }
     return null;
@@ -397,13 +394,7 @@ function CatalogTree({ items, onCreate }: { items: Item[]; onCreate: (catalog: s
 
   function onDeleted(catalog: string, schema: string, res: SchemaDeletion) {
     const { forgetSchema, refresh } = useCatalog.getState();
-    // Um schema do `spark_catalog` pode estar nos dois nós (misto); a exclusão vale para ambos.
-    if (catalog === SPARK_CATALOG || catalog === HUDI_CATALOG) {
-      forgetSchema(SPARK_CATALOG, schema);
-      forgetSchema(HUDI_CATALOG, schema);
-    } else {
-      forgetSchema(catalog, schema);
-    }
+    forgetSchema(catalog, schema);
     // Única releitura após a exclusão: árvore e o painel lateral aberto.
     refresh();
     setDeleting(null);
@@ -621,22 +612,20 @@ function CatalogBody({ onCreate }: { onCreate: (catalog: string) => void }) {
   );
 }
 
-/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro (o nó `hudi` só pelo menu de contexto). */
+/** Destino do "+": spark_catalog quando legível; senão o primeiro catálogo sem erro. */
 function defaultCreateTarget(catalogs: CatalogNode[] | undefined): string | null {
-  const ok = (catalogs ?? []).filter((c) => !c.error && c.name !== HUDI_CATALOG);
+  const ok = (catalogs ?? []).filter((c) => !c.error);
   return (ok.find((c) => c.name === SPARK_CATALOG) ?? ok[0])?.name ?? null;
 }
 
 /**
- * Schemas do catálogo; `spark_catalog` e `hudi` compartilham os mesmos namespaces, então valem os dois nós.
- * Nesses nós o `default` vazio fica oculto, mas sempre existe no backend: é incluído para o diálogo recusá-lo.
+ * Schemas do catálogo. No `spark_catalog` o `default` vazio fica oculto, mas sempre existe no backend: é incluído
+ * para o diálogo recusá-lo.
  */
 function existingSchemas(catalogs: CatalogNode[] | undefined, catalog: string): string[] {
-  const shared = catalog === SPARK_CATALOG || catalog === HUDI_CATALOG;
-  const names = (catalogs ?? [])
-    .filter((c) => (shared ? c.name === SPARK_CATALOG || c.name === HUDI_CATALOG : c.name === catalog))
-    .flatMap((c) => c.databases.map((d) => d.name));
-  return shared && !names.some((n) => n.toLowerCase() === DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
+  const spark = catalog === SPARK_CATALOG;
+  const names = (catalogs ?? []).filter((c) => c.name === catalog).flatMap((c) => c.databases.map((d) => d.name));
+  return spark && !names.some((n) => n.toLowerCase() === DEFAULT_SCHEMA) ? [...names, DEFAULT_SCHEMA] : names;
 }
 
 export function CatalogSection({ testId, collapsed, onToggle }: { testId?: string; collapsed: boolean; onToggle: () => void }) {

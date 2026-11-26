@@ -1,7 +1,7 @@
 /**
  * Painel Catalog info: aberto pelo nome do catálogo na árvore do Catalog, mostra `/api/catalog/info`
  * (contagens do `catalog.db` e a config do perfil Spark local, já mascarada no backend). Só leitura,
- * sem kernel. O nó `hudi` é um agrupamento de exibição dentro do `spark_catalog`, não um catálogo Spark.
+ * sem kernel.
  * Moldura, abas, Esc e largura medida vêm do InfoPanelShell; ao fechar, o foco volta à linha do catálogo.
  */
 import type { ReactNode } from "react";
@@ -9,7 +9,7 @@ import type { CatalogInfo, CatalogInfoStatus, CatalogKind } from "../../api/cata
 import { CATALOG_INFO_PANEL_ID, useCatalog } from "../../state/catalog";
 import { DatabaseIcon } from "../shell/icons";
 import { BrandIcon } from "./BrandIcon";
-import { catalogIcon, catalogLabel, HUDI_CATALOG, SPARK_CATALOG } from "./catalogLabels";
+import { catalogIcon, catalogLabel, GLUE_CATALOG } from "./catalogLabels";
 import { DASH, Facts, InfoPanelShell } from "./InfoPanelShell";
 import styles from "./InfoPanel.module.css";
 import { tableFormatLabel } from "./tableFormat";
@@ -24,7 +24,6 @@ type TabId = (typeof TABS)[number]["id"];
 const KIND_LABELS: Record<CatalogKind, string> = {
   session: "session catalog",
   named: "named catalog",
-  display_group: "display group",
 };
 
 const STATUS_LABELS: Record<CatalogInfoStatus, string> = {
@@ -43,6 +42,14 @@ const STATUS_ERRORS: Partial<Record<CatalogInfoStatus, string>> = {
 const PROFILE_NOTE =
   "Config shown is the local Spark runtime profile. In Docker/Glue and DuckDB runtimes, iceberg is reached through the app's REST catalog and the token is applied to the session.";
 
+const GLUE_NOTE =
+  "Local AWS Glue Data Catalog served by the app. Glue runtimes reach it through the AWS Glue API endpoint; schemas and tables are created from notebooks, not from this panel.";
+
+/** Nota de rodapé do Overview por catálogo. */
+function profileNote(name: string): string {
+  return name === GLUE_CATALOG ? GLUE_NOTE : PROFILE_NOTE;
+}
+
 const numberFormat = new Intl.NumberFormat("en-US");
 
 function CatalogIcon({ name, size }: { name: string; size: number }) {
@@ -50,9 +57,10 @@ function CatalogIcon({ name, size }: { name: string; size: number }) {
   return icon ? <BrandIcon icon={icon} size={size} /> : <DatabaseIcon size={size} />;
 }
 
-/** Caminho do cabeçalho: chave de config do catálogo, ou o catálogo real por trás do nó `hudi`. */
+/** Caminho do cabeçalho: chave de config do catálogo, ou o Glue local. */
 function catalogPath(name: string): string {
-  return name === HUDI_CATALOG ? `${SPARK_CATALOG} · Hudi tables` : `spark.sql.catalog.${name}`;
+  if (name === GLUE_CATALOG) return `${GLUE_CATALOG} · AWS Glue Data Catalog`;
+  return `spark.sql.catalog.${name}`;
 }
 
 function formatsText(formats: Record<string, number>): string {
@@ -83,63 +91,44 @@ function Overview({ info }: { info: CatalogInfo }) {
   );
   return (
     <>
-      {info.kind === "display_group" ? (
-        <p className={styles.note}>
-          Display group — not a Spark catalog; tables live in <span className={styles.mono}>{info.backing_catalog ?? SPARK_CATALOG}</span>.
-        </p>
-      ) : null}
       <Facts facts={facts} />
-      <p className={styles.note}>{PROFILE_NOTE}</p>
+      <p className={styles.note}>{profileNote(info.name)}</p>
     </>
   );
 }
 
 function Config({ info }: { info: CatalogInfo }) {
-  const inherited = info.kind === "display_group" ? (
-    <p className={styles.note}>
-      Inherited from <span className={styles.mono}>{info.backing_catalog ?? SPARK_CATALOG}</span>.
-    </p>
-  ) : null;
   if (info.config.length === 0) {
-    return (
-      <>
-        {inherited}
-        <p className={styles.note}>No catalog configuration for the {info.profile} profile.</p>
-      </>
-    );
+    return <p className={styles.note}>No catalog configuration for the {info.profile} profile.</p>;
   }
   return (
-    <>
-      {inherited}
-      <table className={styles.grid}>
-        <thead>
-          <tr>
-            <th scope="col">Key</th>
-            <th scope="col">Value</th>
+    <table className={styles.grid}>
+      <thead>
+        <tr>
+          <th scope="col">Key</th>
+          <th scope="col">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {info.config.map((c) => (
+          <tr key={c.key}>
+            <td className={styles.value}>{c.key}</td>
+            <td className={styles.value}>
+              {c.value}
+              {c.redacted ? <span className={styles.flag}>redacted</span> : null}
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          {info.config.map((c) => (
-            <tr key={c.key}>
-              <td className={styles.value}>{c.key}</td>
-              <td className={styles.value}>
-                {c.value}
-                {c.redacted ? <span className={styles.flag}>redacted</span> : null}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
 function Namespaces({ info }: { info: CatalogInfo }) {
-  const scope = info.kind === "display_group" ? "Hudi tables and views in this node." : "Tables and views in this node.";
   if (info.namespaces.length === 0) return <p className={styles.empty}>No namespaces in this node.</p>;
   return (
     <>
-      <p className={styles.note}>{scope}</p>
+      <p className={styles.note}>Tables and views in this node.</p>
       <table className={styles.grid}>
         <thead>
           <tr>
