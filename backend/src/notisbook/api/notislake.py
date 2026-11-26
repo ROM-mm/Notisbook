@@ -429,17 +429,25 @@ def bucket_summary(
     _check_folder(prefix, allow_empty=True)
     connection = _local_connection_for_write(request)
     try:
-        return {"object_count": len(objectstore.list_keys_under(connection, bucket, prefix))}
+        return {"object_count": objectstore.count_keys_under(connection, bucket, prefix)}
     except ObjectStoreError as exc:
         raise _bucket_upstream(exc) from None
 
 
 def _delete_listed(connection: Connection, bucket: str, prefix: str, expected_count: int) -> int:
-    """Lista, confere a contagem confirmada e remove; contagem atual maior ⇒ 409 `content_changed`."""
-    keys = objectstore.list_keys_under(connection, bucket, prefix)
-    if len(keys) > expected_count:
-        raise _content_changed(len(keys))
-    return objectstore.delete_keys(connection, bucket, keys)
+    """Conta por página, confere com a contagem confirmada e só então apaga página por página.
+
+    Contagem atual maior ⇒ 409 `content_changed` sem apagar nada. Há uma janela entre a contagem e a
+    exclusão: objetos criados nela também são apagados (a segunda listagem é a que vale); `_delete_lock`
+    só serializa exclusões deste processo, não escritas externas. Memória limitada a uma página.
+    """
+    current = objectstore.count_keys_under(connection, bucket, prefix)
+    if current > expected_count:
+        raise _content_changed(current)
+    removed = 0
+    for page in objectstore.iter_key_pages(connection, bucket, prefix):
+        removed += objectstore.delete_keys(connection, bucket, page)
+    return removed
 
 
 @router.delete("/buckets/{bucket}")
