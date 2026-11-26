@@ -354,10 +354,11 @@ def folder_overlaps(folder, used_folder):
     return used_folder.startswith(folder) or folder.startswith(used_folder)
 
 
-def used_folders(conn, skip=None):
+def used_folders(conn, skip=None, skip_tables=None):
     """Pastas de tabela em uso (registro, Iceberg e glue), em `folder_key`.
 
     `skip`: chave `(schema, tabela)` do registro, ou coleção de chaves, cujas linhas não contam como uso.
+    `skip_tables`: o mesmo para qualquer catálogo, com chaves `(catalog, schema, tabela)`.
     """
     if skip is None:
         skipped = set()
@@ -365,23 +366,28 @@ def used_folders(conn, skip=None):
         skipped = {skip}
     else:
         skipped = set(skip)
-    skipped = {(ns.lower(), name) for ns, name in skipped}  # o schema não distingue caixa (`namespace_tables`)
+    # o schema não distingue caixa (`namespace_tables`)
+    skipped = {("spark_catalog", ns.lower(), name) for ns, name in skipped}
+    skipped |= {(cat, ns.lower(), name) for cat, ns, name in (skip_tables or ())}
     used = [loc for ns, name, loc in conn.execute(
         "SELECT namespace, table_name, location FROM nb_tables WHERE catalog_name = 'spark_catalog'")
-        if (ns.lower(), name) not in skipped]
+        if ("spark_catalog", ns.lower(), name) not in skipped]
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone():
-        for (meta,) in conn.execute(
-                "SELECT metadata_location FROM iceberg_tables WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
-            used.append(iceberg_folder(meta))
+        for ns, name, meta in conn.execute(
+                "SELECT table_namespace, table_name, metadata_location FROM iceberg_tables "
+                "WHERE catalog_name = 'iceberg' AND metadata_location IS NOT NULL"):
+            if ("iceberg", ns.lower(), name) not in skipped:
+                used.append(iceberg_folder(meta))
     if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone():
-        used += [loc for (loc,) in conn.execute("SELECT location FROM glue_tables WHERE location IS NOT NULL")]
+        used += [loc for db, name, loc in conn.execute("SELECT database_name, name, location FROM glue_tables WHERE location IS NOT NULL")
+                 if ("glue", db.lower(), name) not in skipped]
     return [folder_key(u) for u in used if u]
 
 
-def folder_in_use(conn, location, skip=None):
-    """Alguma tabela (spark, iceberg ou glue; menos `skip`, ver `used_folders`) usa a pasta: igual, dentro ou acima."""
+def folder_in_use(conn, location, skip=None, skip_tables=None):
+    """Alguma tabela (spark, iceberg ou glue; menos `skip`/`skip_tables`, ver `used_folders`) usa a pasta: igual, dentro ou acima."""
     folder = folder_key(location)
-    return any(folder_overlaps(folder, u) for u in used_folders(conn, skip))
+    return any(folder_overlaps(folder, u) for u in used_folders(conn, skip, skip_tables))
 
 
 def pending_rows(conn):
