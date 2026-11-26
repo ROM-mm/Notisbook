@@ -8,8 +8,9 @@ registered; Iceberg lives in its own catalog. Each session creates the four laye
 Before a write the destination rules run in Python and raise `Refused` (pt-BR text, nothing written): the
 layer by schema, no overlap between tables, no repeated `<schema>.<t>`, no drop or move of a layer, path rules. Only a destination proven invalid is refused; a parser or registry failure lets the call go on, and the
 post-write validation (`location_problem`, `apply_plan`) stays the second net. Writes outside Python are not covered.
-`s3://notislake/...` is a synonym of `s3a://` on input (`LOCATIONS.canonical`); a bucket outside `LOCATIONS.KNOWN_BUCKETS`
-is refused before any read or write (`check_bucket`: readers, SparkContext, SQL text, Glue sources).
+`s3://notislake/...` is a synonym of `s3a://` on input (`LOCATIONS.canonical`). Manual S3 (scope `notislake`): a bucket outside
+`LOCATIONS.KNOWN_BUCKETS` is refused before any read or write (`check_bucket`: readers, SparkContext, SQL text, Glue sources).
+Automatic MinIO (scope `any`): any valid bucket name is allowed by path; tables and schemas stay in `notislake` (`check_on_lake`).
 s3a probes use the session's Hadoop FileSystem under a timeout and a 30 s breaker (`s3a_call`); the kernel deletes
 only the `managed_table` folder the registry authorized. With `transport: "http"` (Docker) the registry goes through the backend API.
 Glue runtime (`catalogImplementation=hive`): the catalog is the backend's `/glue`; the hook keeps S3A, the Glue credential and the checks only.
@@ -51,11 +52,15 @@ SUPPORTED = ("delta", "parquet", "hudi")
 ICEBERG_TYPE = "rest" if TRANSPORT == "http" else "jdbc"
 S3A = CONFIG.get("s3a") or {}
 S3A_PREFIX = "fs.s3a.bucket.notislake."
+S3A_BUCKET_PREFIX = "fs.s3a.bucket."  # per-bucket keys: Hadoop lets them win over the global ones
+S3A_BUCKET_PROBE = "fs.s3a.bucket.probe"  # a global key that merely shares the prefix
+# `any` (automatic MinIO): global real options, every bucket reaches the local MinIO; `notislake` (manual): per-bucket options of that bucket only.
+S3A_SCOPE = CONFIG.get("s3a_scope") or "notislake"
 S3A_ROOT = "s3a://notislake/"
 S3_ROOT = "s3://notislake/"
 S3_SCHEME = CONFIG.get("s3_scheme") or {}  # `sparkconf.scheme_options()`: maps `s3://` to S3A (PySpark local has no mapping)
 S3A_CLOSED = CONFIG["s3a_closed"]  # `sparkconf.closed_options()`, the single source of the closed bucket config
-S3A_CLEARED = (S3A_PREFIX + "access.key", S3A_PREFIX + "secret.key")  # a failed setup may leave the real credential behind
+S3A_CLEARED = ("fs.s3a.access.key", "fs.s3a.secret.key", S3A_PREFIX + "access.key", S3A_PREFIX + "secret.key")  # a failed setup may leave the real credential behind
 S3A_SCHEME = "s3a://"
 S3A_PROBE_TIMEOUT = 5.0  # one JVM call; with MinIO down only the first probe waits (the breaker then opens), so the hooks stay under 15 s
 S3A_DELETE_BUDGET = 15.0  # ONE bound for every folder delete of a cell (not per table): N dropped tables never add N waits
@@ -795,13 +800,30 @@ def s3a_status(session=None):
     return STATE.get("s3a_status", {}).get(session_key(session), "pending")
 
 
-def close_s3a_bucket(session):
-    """Point the `notislake` bucket at a dead loopback endpoint without credentials.
+def clear_bucket_options(hadoop_conf):
+    """Unset every `fs.s3a.bucket.<name>.*` key of the Hadoop conf (the global `fs.s3a.bucket.probe` stays).
 
-    A session without a working S3A setup would otherwise resolve the bucket to the public AWS endpoint
-    with the default credential chain; here it fails closed (connection refused).
+    A per-bucket key beats the global one, so a leftover (spark-defaults, a failed setup) would divert its bucket.
+    """
+    entries = hadoop_conf.iterator()
+    stale = []
+    while entries.hasNext():
+        key = str(entries.next().getKey())
+        if key.startswith(S3A_BUCKET_PREFIX) and key != S3A_BUCKET_PROBE:
+            stale.append(key)
+    for key in stale:
+        hadoop_conf.unset(key)
+
+
+def close_s3a_bucket(session):
+    """Point every bucket at a dead loopback endpoint without credentials.
+
+    A session without a working S3A setup would otherwise resolve a bucket to the public AWS endpoint
+    with the default credential chain; here it fails closed (connection refused). Per-bucket keys are
+    unset first: they would win over the closed global ones.
     """
     hadoop_conf = session.sparkContext._jsc.hadoopConfiguration()
+    clear_bucket_options(hadoop_conf)
     for key, value in S3A_CLOSED.items():
         hadoop_conf.set(key, value)
     for key in S3A_CLEARED:
@@ -809,31 +831,60 @@ def close_s3a_bucket(session):
     renew_s3a_fs(session, hadoop_conf)
 
 
+def bucket_roots(buckets):
+    return [scheme + bucket + "/" for bucket in buckets for scheme in (S3A_SCHEME, "s3://")]
+
+
 def renew_s3a_fs(session, hadoop_conf):
-    """Replace the cached FileSystems of the bucket (`s3a` and `s3`) by ones built from `hadoop_conf` and keep a reference to them.
+    """Replace the cached FileSystems of every known bucket (`s3a` and `s3`) by ones built from `hadoop_conf` and keep a reference to them.
 
     `FileSystem.get` returns one cached instance per scheme+authority+user whatever the conf of the caller, so the
     first one created wins: the old one (made before the credential) is closed, the new one is created now and held
     in STATE, and a later clone of the SparkSession without the credential finds it in the cache instead of filling it.
+    Hadoop has no public listing of its cache: the buckets are `notislake` plus those `check_bucket` prepared.
     """
     jvm = session.sparkContext._jvm
+    skey = session_key(session)
     for key, value in S3_SCHEME.items():
         hadoop_conf.set(key, value)
+    buckets = ["notislake", *sorted(STATE.get("s3a_buckets", {}).get(skey, ()))]
     held = []
-    for root in (S3A_ROOT, S3_ROOT):  # Hadoop caches `s3` and `s3a` apart: both need the new credentials
+    for root in bucket_roots(buckets):  # Hadoop caches `s3` and `s3a` apart: both need the new credentials
         uri = jvm.java.net.URI.create(root)
         jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf).close()
         held.append(jvm.org.apache.hadoop.fs.FileSystem.get(uri, hadoop_conf))
-    STATE.setdefault("s3a_fs", {})[session_key(session)] = held
+    STATE.setdefault("s3a_fs", {})[skey] = held
+
+
+def prepare_bucket_fs(session, bucket):
+    """`any` scope: build the FileSystems of `bucket` from the real Hadoop conf before Spark creates them from a session conf.
+
+    Once per session and bucket, only after a working setup. `bucket.probe=0` keeps it local (no request to MinIO), so a
+    missing bucket fails later with MinIO's own error. A failure here is not the user's: the access goes on and reports it.
+    """
+    skey = session_key(session)
+    seen = STATE.setdefault("s3a_buckets", {}).setdefault(skey, set())
+    if bucket in seen or bucket == "notislake" or s3a_status(session) != "ok":
+        return
+    seen.add(bucket)
+    try:
+        jvm = session.sparkContext._jvm
+        hadoop_conf = session.sparkContext._jsc.hadoopConfiguration()
+        held = STATE.setdefault("s3a_fs", {}).setdefault(skey, [])
+        for root in bucket_roots([bucket]):
+            held.append(jvm.org.apache.hadoop.fs.FileSystem.get(jvm.java.net.URI.create(root), hadoop_conf))
+    except Exception:
+        warn(("s3a-prepare", skey, bucket), "The S3A filesystem of a bucket could not be prepared; the access will report the error.")
 
 
 def set_s3a(session):
-    """Write the S3A options of the `notislake` bucket in the Hadoop conf, once per SparkContext.
+    """Write the S3A options in the Hadoop conf, once per SparkContext.
 
-    Runs after the original `getOrCreate`: through the builder `.config()` the secret would become a
-    `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystem of the bucket is renewed
+    Scope `notislake`: `fs.s3a.bucket.notislake.*` only. Scope `any`: global `fs.s3a.*` (plus `fs.s3a.bucket.probe`),
+    after unsetting every per-bucket key. Runs after the original `getOrCreate`: through the builder `.config()` the secret
+    would become a `--conf` of the spark-submit argv (visible in `ps`). The cached FileSystems are renewed
     and kept (`renew_s3a_fs`) so the new credentials apply. The warning is fixed text: Hadoop messages may echo the key.
-    Without `s3a` in the config, or when the setup fails, the bucket is closed (`close_s3a_bucket`).
+    Without `s3a` in the config, or when the setup fails, the buckets are closed (`close_s3a_bucket`).
     """
     skey = session_key(session)
     done = STATE.setdefault("s3a_done", set())
@@ -845,10 +896,12 @@ def set_s3a(session):
         return
     status = "ok"
     try:
-        if not all(key.startswith(S3A_PREFIX) for key in S3A):
+        if not all(s3a_key_allowed(key) for key in S3A):
             raise ValueError("unexpected S3A key")
         sc = session.sparkContext
         hadoop_conf = sc._jsc.hadoopConfiguration()
+        if S3A_SCOPE == "any":
+            clear_bucket_options(hadoop_conf)
         for key, value in S3A.items():
             hadoop_conf.set(key, str(value))
         renew_s3a_fs(session, hadoop_conf)
@@ -856,12 +909,19 @@ def set_s3a(session):
         status = "failed"
         STATE.setdefault("errors", []).append("s3a: %s" % type(exc).__name__)
         del STATE["errors"][:-MAX_ERRORS]
-        warn(("s3a", skey), "S3A setup failed; s3a://notislake/ may be unavailable in this session.")
+        warn(("s3a", skey), "S3A setup failed; S3A access may be unavailable in this session.")
         try:
             close_s3a_bucket(session)
         except Exception:  # the status already blocks every probe of the hook
             pass
     STATE.setdefault("s3a_status", {})[skey] = status
+
+
+def s3a_key_allowed(key):
+    """`any`: global `fs.s3a.*` (never a per-bucket key, but `fs.s3a.bucket.probe`); `notislake`: only `fs.s3a.bucket.notislake.*`."""
+    if S3A_SCOPE == "any":
+        return key == S3A_BUCKET_PROBE or (key.startswith("fs.s3a.") and not key.startswith(S3A_BUCKET_PREFIX))
+    return key.startswith(S3A_PREFIX)
 
 
 def layer_location(session, layer):
@@ -1305,11 +1365,38 @@ def refuse_text(what, code, path=False):
 
 
 def check_bucket(location):
-    """Raise Refused when an s3/s3a/s3n `location` names a bucket outside `LOCATIONS.KNOWN_BUCKETS`; nothing was read or written yet."""
-    bucket = LOCATIONS.unknown_bucket(location)
-    if bucket is not None:
+    """Refuse a bucket before anything is read or written; nothing was touched yet.
+
+    Scope `notislake` (manual): an s3/s3a/s3n bucket outside `LOCATIONS.KNOWN_BUCKETS`. Scope `any`: only a name that
+    breaks `LOCATIONS.valid_bucket_name`; a valid one gets its FileSystem prepared and a missing one fails in MinIO.
+    """
+    if S3A_SCOPE != "any":
+        bucket = LOCATIONS.unknown_bucket(location)
+        if bucket is not None:
+            raise Refused("Notisbook recusou o acesso ao bucket '%s' antes de qualquer leitura ou gravação (nada foi alterado): "
+                          "só os buckets %s estão disponíveis neste runtime." % (bucket[:63], ", ".join(LOCATIONS.known_buckets())))
+        return
+    bucket = LOCATIONS.bucket_of(location)
+    if bucket is None:
+        return
+    if not LOCATIONS.valid_bucket_name(bucket):
         raise Refused("Notisbook recusou o acesso ao bucket '%s' antes de qualquer leitura ou gravação (nada foi alterado): "
-                      "só os buckets %s estão disponíveis neste runtime." % (bucket[:63], ", ".join(LOCATIONS.known_buckets())))
+                      "o nome não segue as regras de nome de bucket do S3." % bucket[:63])
+    session = current_session()
+    if session is not None:
+        prepare_bucket_fs(session, bucket)
+
+
+def check_on_lake(what, location):
+    """Scope `any`: refuse a table or schema `location` in an s3/s3a/s3n bucket other than `notislake`; local paths are left to Spark.
+
+    The manual scope already refuses every other bucket in `check_bucket`.
+    """
+    if S3A_SCOPE != "any":
+        return
+    bucket = LOCATIONS.bucket_of(location)
+    if bucket is not None and bucket != LOCATIONS.BUCKET:
+        raise Refused(refuse_text(what, "not_notislake"))
 
 
 def check_buckets(*values):
@@ -1485,6 +1572,7 @@ def check_table(session, catalog, schema, table, location):
     Without a location, a table already registered keeps its own folder and is not checked as a new destination.
     """
     key, label = (schema.lower(), table.lower()), "criar a tabela %s.%s" % (schema, table)
+    check_on_lake(label, location)  # before `check_bucket`: no FileSystem is prepared for a refused table
     check_bucket(location)
     if glue_mode(session):
         return check_glue_table(session, schema, table, location, label)
@@ -1638,6 +1726,7 @@ def check_namespace(kind, session, parts, location=None, if_not_exists=False):
 
     `CREATE ... IF NOT EXISTS <layer>` without LOCATION is a no-op on an existing layer and is not refused.
     """
+    check_on_lake("criar ou mudar a location do schema", location)
     check_bucket(location)
     target = resolve_namespace(session, parts)
     if target is None:
@@ -1660,6 +1749,7 @@ def check_namespace(kind, session, parts, location=None, if_not_exists=False):
 
 def check_table_location(session, parts, location):
     """ALTER TABLE ... SET LOCATION: a destination in the notislake must pass the same rules as a new table."""
+    check_on_lake("mudar a location da tabela", location)
     check_bucket(location)
     location = LOCATIONS.canonical(location)
     target = resolve_table(session, parts)
@@ -2479,9 +2569,12 @@ def _with_s3a(config: dict[str, object], s3a: Mapping[str, str] | None) -> dict[
     return {**config, "s3a": dict(s3a)} if s3a else config
 
 
-def build_ensure_code(db_path: str, s3a: Mapping[str, str] | None = None) -> str:
-    """Return the idempotent snippet that installs the catalog hook with the given catalog path (SQLite transport)."""
-    return _render(_with_s3a({"db_path": db_path}, s3a))
+def build_ensure_code(db_path: str, s3a: Mapping[str, str] | None = None, s3a_scope: str = "notislake") -> str:
+    """Return the idempotent snippet that installs the catalog hook with the given catalog path (SQLite transport).
+
+    `s3a_scope` (`sparkconf.s3a_scope`): `any` for the global automatic config, `notislake` (default) for the manual one.
+    """
+    return _render({**_with_s3a({"db_path": db_path}, s3a), "s3a_scope": s3a_scope})
 
 
 def build_http_ensure_code(
@@ -2490,6 +2583,7 @@ def build_http_ensure_code(
     roots: tuple[str, ...],
     s3a: Mapping[str, str] | None = None,
     glue_access_key: str | None = None,
+    s3a_scope: str = "notislake",
 ) -> str:
     """Snippet for the Docker runtime: the hook talks to the backend API with the session token, never to SQLite.
 
@@ -2505,4 +2599,4 @@ def build_http_ensure_code(
     }
     if glue_access_key:
         config["glue"] = {"access_key": glue_access_key}
-    return _render(_with_s3a(config, s3a))
+    return _render({**_with_s3a(config, s3a), "s3a_scope": s3a_scope})

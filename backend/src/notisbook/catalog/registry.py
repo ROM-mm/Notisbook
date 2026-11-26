@@ -341,9 +341,9 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
     has_iceberg = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'iceberg_tables'").fetchone()
     has_glue = conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'glue_tables'").fetchone()
 
-    def on_lake(loc):
+    def bucket_of(loc):
         scheme, sep, rest = loc.partition("://")
-        return bool(sep) and scheme.lower() in ("s3", "s3a", "s3n") and rest.partition("/")[0] == "notislake"
+        return rest.partition("/")[0] if sep and scheme.lower() in ("s3", "s3a", "s3n") else None
 
     # Lidas uma vez por chamada (a transação já segura o lock de escrita): `spark_locs` acompanha cada
     # INSERT/UPDATE/DELETE aprovado abaixo; `iceberg_locs` não muda aqui. Roda no kernel só com stdlib:
@@ -386,8 +386,11 @@ def apply_plan(conn, plan, stamp, managed_shape, type_from_row=False, destinatio
             return None
         if new_name and (name_in_iceberg(key) or name_in_glue(key)):
             return "name_in_other_catalog"
-        if not on_lake(loc):
+        bucket = bucket_of(loc)
+        if bucket is None:
             return None
+        if bucket != "notislake":
+            return "not_notislake"  # tabela do catálogo só no bucket notislake
         try:
             destination(key[0], key[1], loc, known_locations(skip_key))
         except ValueError as exc:  # `InvalidLocation`

@@ -3,7 +3,8 @@
 Módulo autocontido (só stdlib) para ser importado por catálogo, REST e hook sem ciclos. Não
 consulta rede nem disco: toda decisão é sintática e a sobreposição recebe as locations já
 conhecidas como argumento. `s3://` é sinônimo de `s3a://` só na entrada (`canonical`); a forma interna é
-sempre `s3a`. Só os buckets de `KNOWN_BUCKETS` são acessíveis. O schema decide a camada: a tabela MANAGED fica em
+sempre `s3a`. Só os buckets de `KNOWN_BUCKETS` são acessíveis no escopo manual (no automático o hook só valida o
+nome, `valid_bucket_name`); tabela e schema do catálogo só existem no `notislake`. O schema decide a camada: a tabela MANAGED fica em
 `s3a://notislake/<camada>/<tabela>`, sem `spark`/`iceberg` nem `.db` no caminho. Os erros são
 `InvalidLocation` com `code` categórico; a mensagem nunca repete a entrada.
 """
@@ -107,6 +108,16 @@ def valid_bucket_name(name: str) -> bool:
         and not name.startswith(_BUCKET_RESERVED_PREFIXES)
         and not name.endswith(_BUCKET_RESERVED_SUFFIXES)
     )
+
+
+def bucket_of(uri: str) -> str | None:
+    """Bucket de uma URI `s3`/`s3a`/`s3n` (qualquer nome, sem validar); `None` para outro esquema ou entrada."""
+    if not isinstance(uri, str):
+        return None
+    scheme, sep, rest = uri.partition("://")
+    if not sep or scheme.lower() not in _ALIAS_SCHEMES:
+        return None
+    return rest.partition("/")[0]
 
 
 def known_buckets() -> tuple[str, ...]:
