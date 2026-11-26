@@ -256,6 +256,8 @@ async def delete_schema(home: Home, kernels: Kernels, catalog: Name, schema: Nam
         raise HTTPException(exc.status, exc.code) from exc
     if catalog == registry.SPARK_CATALOG and schema.lower() == registry.DEFAULT_DATABASE:
         raise HTTPException(409, "cannot_drop_default")
+    if catalog == glue_view.GLUE_CATALOG and schema.lower() == registry.DEFAULT_DATABASE:
+        raise HTTPException(409, "cannot_drop_default")
 
     return await _with_idle_kernels(kernels, lambda: _run_schema_op(schemas.delete_schema, home, catalog, schema, etag))
 
