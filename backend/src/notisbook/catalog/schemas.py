@@ -214,12 +214,7 @@ def _iceberg_plan(conn: sqlite3.Connection, schema: str, entries: list[tuple[str
         prefix = iceberg_jdbc.table_prefix(location)
         if kind == "VIEW" or prefix is None or not iceberg_jdbc.is_managed_s3a(location, schema, name):
             continue
-        folder = registry.folder_key(prefix)
-        if any(registry.folder_overlaps(folder, u) for u in used):
-            reason = "keeps_files_shared"
-        else:
-            reason = None if has_queue else "no_deletion_queue"
-        plan.append((name, prefix, reason))
+        plan.append((name, prefix, _keep_reason(schema, name, prefix, used, has_queue)))
     return plan
 
 
