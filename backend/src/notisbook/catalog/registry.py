@@ -95,6 +95,20 @@ def drop_namespace(conn: sqlite3.Connection, namespace: str) -> None:
     _bump_generation(conn)
 
 
+def delete_table_row(conn: sqlite3.Connection, namespace: str, table: str, location: str) -> bool:
+    """Remove só a linha de `nb_tables` (chave exata e `location` ainda igual) e sobe a generation; `True` se removeu.
+
+    Não enfileira nem toca em arquivos nem no schema. Dentro de transação.
+    """
+    removed = conn.execute(
+        "DELETE FROM nb_tables WHERE catalog_name = ? AND namespace = ? AND table_name = ? AND location = ?",
+        (SPARK_CATALOG, namespace, table, location),
+    ).rowcount
+    if removed:
+        _bump_generation(conn)
+    return removed > 0
+
+
 def local_path(location: str | None) -> Path | None:
     """Caminho local de uma URI `file:` ou caminho absoluto; `None` para outros esquemas (s3a, hdfs...)."""
     if not location:

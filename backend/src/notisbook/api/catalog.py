@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from ..catalog import glue_view, iceberg_jdbc, registry, schemas
+from ..catalog import glue_view, iceberg_jdbc, registry, schemas, tables
 from ..catalog.catalog_info import KNOWN_CATALOGS, build_catalog_info
 from ..catalog.store import catalog_db_path, connect
 from ..kernels.service import KernelsBusy
@@ -238,4 +238,33 @@ async def delete_schema(home: Home, kernels: Kernels, catalog: Name, schema: Nam
         result = await asyncio.shield(task)
     except KernelsBusy as exc:
         raise HTTPException(409, "kernel_busy") from exc
+    return result
+
+
+async def _run_table_op(fn: Any, *args: Any) -> Any:
+    try:
+        return await asyncio.to_thread(fn, *args)
+    except tables.TableError as exc:
+        raise HTTPException(exc.status, exc.code) from exc
+    except sqlite3.Error as exc:
+        raise _sqlite_http(exc) from exc
+
+
+@router.get("/tables/preview")
+async def preview_table(home: Home, catalog: Name, database: Name, table: Name) -> dict[str, Any]:
+    """Efeito da remoção da tabela do registro (`spark_catalog`) e o `etag` que o DELETE exige.
+
+    400 catálogo/nome inválido, 404 inexistente, 503 db ocupado/indisponível.
+    """
+    result: dict[str, Any] = await _run_table_op(tables.preview_table, home, catalog, database, table)
+    return result
+
+
+@router.delete("/tables")
+async def remove_table(home: Home, catalog: Name, database: Name, table: Name, etag: Name) -> dict[str, Any]:
+    """Remove só a linha da tabela do registro; não apaga nem enfileira arquivos (o backend nunca apaga).
+
+    409 `catalog_changed` (etag obsoleto) ou `managed_use_drop` (MANAGED na própria pasta: use DROP TABLE).
+    """
+    result: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
     return result
