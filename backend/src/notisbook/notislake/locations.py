@@ -10,6 +10,7 @@ sempre `s3a`. Só os buckets de `KNOWN_BUCKETS` são acessíveis. O schema decid
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
@@ -25,6 +26,13 @@ KNOWN_BUCKETS = (BUCKET,)
 
 _PREFIX = f"{SCHEME}://{BUCKET}/"
 _ALIAS_SCHEMES = ("s3", "s3a", "s3n")
+
+_BUCKET_MIN_LEN = 3
+_BUCKET_MAX_LEN = 63
+_BUCKET_CHARS = re.compile(r"[a-z0-9][a-z0-9.-]*[a-z0-9]")
+_IPV4_LIKE = re.compile(r"\d{1,3}(\.\d{1,3}){3}")
+_BUCKET_RESERVED_PREFIXES = ("xn--", "sthree-", "amzn-s3-demo-")
+_BUCKET_RESERVED_SUFFIXES = ("-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3")
 
 
 class InvalidLocation(ValueError):
@@ -82,6 +90,23 @@ def targets_notislake(uri: str) -> bool:
         return False
     scheme, sep, rest = uri.partition("://")
     return bool(sep) and scheme.lower() in _ALIAS_SCHEMES and rest.partition("/")[0] == BUCKET
+
+
+def valid_bucket_name(name: str) -> bool:
+    """Nome de bucket pelas regras de nomenclatura do S3 (fonte única; backend e hook usam esta função).
+
+    3 a 63 caracteres `[a-z0-9.-]`, começando e terminando em letra ou dígito, sem `..`, sem formato de
+    endereço IPv4 e sem os prefixos/sufixos que a AWS reserva.
+    """
+    if not isinstance(name, str) or not _BUCKET_MIN_LEN <= len(name) <= _BUCKET_MAX_LEN:
+        return False
+    return (
+        _BUCKET_CHARS.fullmatch(name) is not None
+        and ".." not in name
+        and _IPV4_LIKE.fullmatch(name) is None
+        and not name.startswith(_BUCKET_RESERVED_PREFIXES)
+        and not name.endswith(_BUCKET_RESERVED_SUFFIXES)
+    )
 
 
 def known_buckets() -> tuple[str, ...]:
