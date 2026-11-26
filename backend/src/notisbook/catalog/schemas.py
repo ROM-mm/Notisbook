@@ -8,7 +8,8 @@ tabela usa), `keeps_files_outside_managed` (MANAGED s3 fora da própria pasta), 
 `catalog.db` não tem a fila) e `outside_warehouse` (location local).
 No `glue` a cascata remove database, tabelas e partições; só a pasta própria livre (MANAGED ou Iceberg) é enfileirada, e
 o etag cobre as linhas e o efeito. A criação grava o `LocationUri` `s3://notisbook-managed/<nome>`, como o seed.
-As linhas do próprio schema saem juntas e não seguram a pasta. `folder_kept` é sempre falso: não há pasta de schema a remover. O `default` do `spark_catalog` e do `glue` não é excluível (`cannot_drop_default`).
+As linhas do próprio schema saem juntas e não seguram a pasta. `folder_kept` é sempre falso: não há pasta de schema
+a remover. O `default` do `spark_catalog` e do `glue` não é excluível (`cannot_drop_default`).
 Funções síncronas (rodam em thread); erros de regra levantam `SchemaError`.
 """
 
@@ -96,7 +97,7 @@ def _open_write(home: Path) -> sqlite3.Connection:
 
 
 def create_schema(home: Path, catalog: str, name: str) -> dict[str, str]:
-    """Cria o schema; o `spark_catalog` grava em minúsculas. Levanta `SchemaError`, `sqlite3.Error`."""
+    """Cria o schema; o `spark_catalog` e o `glue` gravam em minúsculas. Levanta `SchemaError`, `sqlite3.Error`."""
     validate(catalog, name)
     if catalog == glue_repo.GLUE_CATALOG:
         return _create_glue(home, name)
@@ -147,9 +148,10 @@ def _own_keys(schema: str, rows: list[tuple[str, str, str]]) -> set[tuple[str, s
 
 
 def _keep_reason(schema: str, table: str, location: str, used: list[str], has_queue: bool) -> str | None:
-    """`None` se a pasta da MANAGED vai para a fila; senão o motivo, com os rótulos de `registry._drop_behavior`.
+    """`None` se a pasta da tabela (MANAGED ou Iceberg na pasta própria) vai para a fila; senão o motivo.
 
-    `used` vem de `registry.used_folders` (uma consulta por operação); `outside_warehouse` é só location local.
+    Os rótulos são os de `registry._drop_behavior`. `used` vem de `registry.used_folders` (uma consulta por
+    operação); `outside_warehouse` é só location local.
     """
     if not locations.is_own_managed(schema, table, location):
         return "outside_warehouse" if registry.local_path(location) is not None else "keeps_files_outside_managed"
@@ -373,9 +375,10 @@ def _delete_spark(home: Path, schema: str, etag: str) -> dict[str, Any]:
 
 
 def _queue_managed(conn: sqlite3.Connection, catalog: str, schema: str, tables: list[tuple[str, str]]) -> list[str]:
-    """Enfileira (na transação da exclusão) a pasta de cada tabela MANAGED do bucket reservado; devolve os nomes.
+    """Enfileira (na transação da exclusão) a pasta de cada tabela do bucket reservado; devolve os nomes.
 
-    Quem decide o que entra é o chamador (`_managed_plan` no spark_catalog). O backend não apaga arquivos: o kernel
+    Quem decide o que entra é o chamador, com o plano do catálogo: `_managed_plan` (spark_catalog), `_iceberg_plan`
+    (iceberg) ou `_glue_plan` (glue). O backend não apaga arquivos: o kernel
     consome a fila, depois de rechecar que nenhuma tabela usa a pasta.
     """
     stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
