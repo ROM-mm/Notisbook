@@ -286,6 +286,46 @@ def delete_database(conn: sqlite3.Connection, name: Any) -> None:
     conn.execute("DELETE FROM glue_databases WHERE name = ?", (key,))
 
 
+def find_database(conn: sqlite3.Connection, name: str) -> tuple[str, str | None, float] | None:
+    """`(nome, LocationUri, create_time)` do database, sem distinção de caixa; `None` se não existe.
+
+    Só leitura, para a exclusão pelo painel: `create_time` identifica a linha (a recriação muda o valor).
+    """
+    if not _has_glue_tables(conn):
+        return None
+    row = conn.execute("SELECT name, location_uri, create_time FROM glue_databases WHERE name = ?", (name.lower(),)).fetchone()
+    return None if row is None else (row[0], row[1], row[2])
+
+
+def database_tables(conn: sqlite3.Connection, database: str) -> list[tuple[str, str, str | None, int, float, bool]]:
+    """`(tabela, table_type, location, version_id, create_time, is_iceberg)` do database, por nome; sem distinção de caixa.
+
+    Só leitura e uma consulta, para a prévia e a exclusão pelo painel (a mesma forma de `find_table_row`).
+    """
+    if not _has_glue_tables(conn):
+        return []
+    rows = conn.execute(
+        "SELECT name, table_type, location, version_id, create_time, "
+        "upper(coalesce(json_extract(parameters, '$.table_type'), '')) = 'ICEBERG' FROM glue_tables "
+        "WHERE database_name = ? ORDER BY name",
+        (database.lower(),),
+    ).fetchall()
+    return [(r[0], r[1], r[2], r[3], r[4], bool(r[5])) for r in rows]
+
+
+def drop_database_rows(conn: sqlite3.Connection, database: str) -> bool:
+    """Remove partições, tabelas e a linha do database pela chave exata; `True` se o database existia.
+
+    Dentro de transação, para a cascata do painel. Só linhas: o backend não apaga no bucket. O `default` não se exclui.
+    """
+    key = database.lower()
+    if key == DEFAULT_DATABASE:
+        raise GlueInvalidInput("protected_database", f"Database {key} cannot be deleted.")
+    conn.execute("DELETE FROM glue_partitions WHERE database_name = ?", (key,))
+    conn.execute("DELETE FROM glue_tables WHERE database_name = ?", (key,))
+    return conn.execute("DELETE FROM glue_databases WHERE name = ?", (key,)).rowcount > 0
+
+
 def _table_dict(row: tuple[Any, ...]) -> dict[str, Any]:
     database, name, table_type, description, descriptor, keys, parameters, extra, created, updated, version = row
     out: dict[str, Any] = json.loads(extra)
