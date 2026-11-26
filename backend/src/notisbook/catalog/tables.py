@@ -1,8 +1,8 @@
 """Pré-visualizar e remover uma tabela do `spark_catalog` só do registro `nb_tables`, sem SparkSession.
 
-Serve às linhas órfãs (sem pasta, que o hook não hidrata nem o DROP alcança). Remove apenas a linha: não enfileira
-em `nb_pending_deletions`, não apaga arquivos (o backend nunca apaga) e não mexe em `nb_namespaces`. A MANAGED na
-própria pasta gerenciada é recusada (`managed_use_drop`): o DROP é quem enfileira a pasta. Sem `reserve_idle`: as
+Serve às linhas órfãs (sem pasta, que o hook não hidrata nem o DROP alcança). Remove a linha e não mexe em
+`nb_namespaces`. A MANAGED na própria pasta, se ninguém mais a usa, tem a pasta enfileirada em `nb_pending_deletions`
+na mesma transação; o backend nunca apaga arquivos (o kernel apaga, rechecando o uso). Sem `reserve_idle`: as
 sessões abertas convergem pela `generation`. Ordem: `BEGIN IMMEDIATE` -> relê -> confere o etag -> DELETE -> COMMIT.
 Funções síncronas (rodam em thread); erros de regra levantam `TableError`.
 """
@@ -10,6 +10,7 @@ Funções síncronas (rodam em thread); erros de regra levantam `TableError`.
 import hashlib
 import json
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,6 @@ _STATUS = {
     "invalid_name": 400,
     "table_not_found": 404,
     "catalog_changed": 409,
-    "managed_use_drop": 409,
 }
 
 
@@ -68,6 +68,15 @@ def _is_own_managed(row: _Row) -> bool:
     return row[3] == "MANAGED" and locations.is_own_managed(row[0], row[1], row[2])
 
 
+def _queues_files(conn: sqlite3.Connection, row: _Row) -> bool:
+    """A remoção enfileira a pasta: MANAGED própria, fila disponível e nenhuma outra tabela usa a pasta."""
+    return (
+        _is_own_managed(row)
+        and registry.has_pending_table(conn)
+        and not registry.folder_in_use(conn, row[2], skip=(row[0], row[1]))
+    )
+
+
 def preview_table(home: Path, catalog: str, database: str, table: str) -> dict[str, Any]:
     """Efeito da remoção e o `etag` que o DELETE exige. Levanta `TableError`, `sqlite3.Error`."""
     validate(catalog, database, table)
@@ -77,20 +86,20 @@ def preview_table(home: Path, catalog: str, database: str, table: str) -> dict[s
     try:
         conn.execute("PRAGMA query_only=ON")
         row = _find(conn, database, table)
+        queues = row is not None and _queues_files(conn, row)
     finally:
         conn.close()
     if row is None:
         raise TableError("table_not_found")
-    refused = _is_own_managed(row)
     return {
         "catalog": registry.SPARK_CATALOG,
         "database": row[0],
         "table": row[1],
         "table_type": row[3],
         "location": row[2],
-        "remove_effect": "registry_only",
-        "can_remove": not refused,
-        "reason": "managed_use_drop" if refused else None,
+        "remove_effect": "queues_files" if queues else "registry_only",
+        "can_remove": True,
+        "reason": None,
         "etag": _etag(row),
     }
 
@@ -108,16 +117,18 @@ def remove_table(home: Path, catalog: str, database: str, table: str, etag: str)
                 raise TableError("table_not_found")
             if _etag(row) != etag:
                 raise TableError("catalog_changed")
-            if _is_own_managed(row):
-                raise TableError("managed_use_drop")
+            queues = _queues_files(conn, row)
             if not registry.delete_table_row(conn, row[0], row[1], row[2]):
                 raise TableError("catalog_changed")
+            if queues:
+                stamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+                registry.enqueue_deletion(conn, registry.SPARK_CATALOG, (row[0], row[1]), row[2], stamp)
             generation = registry.read_generation(conn)
     finally:
         conn.close()
     return {
         "removed": {"catalog": registry.SPARK_CATALOG, "database": row[0], "table": row[1]},
         "files_deleted": [],
-        "files_queued": [],
+        "files_queued": [row[2]] if queues else [],
         "generation": generation,
     }

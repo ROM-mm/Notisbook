@@ -262,9 +262,9 @@ async def preview_table(home: Home, catalog: Name, database: Name, table: Name) 
 
 @router.delete("/tables")
 async def remove_table(home: Home, catalog: Name, database: Name, table: Name, etag: Name) -> dict[str, Any]:
-    """Remove só a linha da tabela do registro; não apaga nem enfileira arquivos (o backend nunca apaga).
+    """Remove a linha da tabela do registro; MANAGED própria com pasta livre enfileira a pasta (o backend nunca apaga).
 
-    409 `catalog_changed` (etag obsoleto) ou `managed_use_drop` (MANAGED na própria pasta: use DROP TABLE).
+    400 catálogo/nome inválido, 404 inexistente, 409 `catalog_changed` (etag obsoleto), 503 db ocupado/indisponível.
     """
     result: dict[str, Any] = await _run_table_op(tables.remove_table, home, catalog, database, table, etag)
     return result
