@@ -3,8 +3,10 @@
  * Exceção: PanelLeft, PanelRight, Focus e o "N" das marcas são desenhos em pixel preenchidos
  * (`shape-rendering: crispEdges`), não paths Tabler com traço. As marcas (`BrandMark`,
  * `HomeBrandMark`) usam cores fixas ou tokens de tema. `FolderIcon` é o desenho liso `s-folder` de
- * `frontend/icons/retro-icons.html` (viewBox 32, traço 2 com pontas redondas); `FileCsvIcon`,
- * `FileJsonIcon` e `FileTextIcon` são os desenhos lisos `s-csv`, `s-json` e `s-txt` do mesmo arquivo.
+ * `frontend/icons/retro-icons.html` (só contorno, viewBox 32, traço 2 com pontas redondas;
+ * monocromático em todos os temas); `FileCsvIcon`, `FileJsonIcon` e `FileTextIcon` são os desenhos
+ * lisos `s-csv`, `s-json` e `s-txt` do mesmo arquivo. `FileCsvIcon` e `NotebookIcon` pintam o traço
+ * com `var(--ico-csv|--ico-notebook, currentColor)`: coloridos só sob `[data-icons="colorized"]`.
  */
 import type { ReactNode, SVGProps } from "react";
 
@@ -32,12 +34,13 @@ function Svg({ size = 16, children, ...rest }: IconProps & { children: ReactNode
 
 export const FolderIcon = (p: IconProps) => (
   <Svg viewBox="0 0 32 32" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" {...p}>
-    <path d="M3 26V8Q3 7 4 7H11.5L14 10H28Q29 10 29 11V26Q29 27 28 27H4Q3 27 3 26ZM3 13.5H29" />
+    <rect x="3.429" y="12.571" width="25.143" height="16" rx="2.6" />
+    <path d="M5.714 12.6V5.4Q5.714 3.429 7.7 3.429H11.2Q11.9 3.429 12.3 4L14.1 7.1Q14.6 8 15.6 8H24.3Q26.286 8 26.286 10V12.6" />
   </Svg>
 );
 
 export const NotebookIcon = (p: IconProps) => (
-  <Svg {...p}>
+  <Svg {...p} style={{ stroke: "var(--ico-notebook, currentColor)", ...p.style }}>
     <path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-11a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1m3 0v18" />
     <path d="M13 8l2 0" />
     <path d="M13 12l2 0" />
@@ -201,11 +204,12 @@ const FileSheetSvg = ({ children, ...p }: IconProps & { children: ReactNode }) =
   </Svg>
 );
 
+// Sem `stroke` próprio nas partes: todas herdam o traço `--ico-csv` do <svg>.
 export const FileCsvIcon = (p: IconProps) => (
-  <FileSheetSvg {...p}>
-    <rect x="10" y="12" width="13" height="14" rx="0.6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    <path d="M10 16H23" stroke="currentColor" strokeWidth="2.4" fill="none" />
-    <path d="M10 21H23M14.3 12V26M18.7 12V26" stroke="currentColor" strokeWidth="1.3" fill="none" />
+  <FileSheetSvg {...p} style={{ stroke: "var(--ico-csv, currentColor)", ...p.style }}>
+    <rect x="10" y="12" width="13" height="14" rx="0.6" fill="none" strokeWidth="1.5" />
+    <path d="M10 16H23" strokeWidth="2.4" fill="none" />
+    <path d="M10 21H23M14.3 12V26M18.7 12V26" strokeWidth="1.3" fill="none" />
   </FileSheetSvg>
 );
 

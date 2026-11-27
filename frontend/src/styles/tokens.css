@@ -325,3 +325,66 @@
   --brand-mark-shadow: transparent;
   --home-mark-shadow: #000;
 }
+
+/*
+ * Temas Light Colorized / Dark Colorized: `data-theme` continua light/dark (mesmos tokens
+ * acima) e `data-icons="colorized"` liga a paleta dos ícones. Cada parte de um ícone pinta
+ * com `var(--ico-<parte>, currentColor)`; fora deste seletor as variáveis não existem e
+ * tudo cai no `currentColor` (mono). `--ico-*-ring` = `none` desliga o contorno extra.
+ */
+:root[data-icons="colorized"] {
+  --ico-spark: #e25a1c;
+  --ico-iceberg: #277abe;
+  --ico-iceberg-water: #3d9bd6;
+  --ico-hudi: #08386b;
+  --ico-hudi-back: #0a8fd0;
+  --ico-s3: #3f8624;
+  --ico-duckdb: #000000;
+  --ico-duckdb-duck: #fff100;
+  --ico-duckdb-eye: #000000;
+  --ico-duckdb-ring: none;
+  --ico-duckdb-stripe: #fff100;
+  --ico-delta: #0089a8;
+  --ico-delta-wave: #0089a8;
+  --ico-parquet: #1f7fc9;
+  --ico-glue: #cc2936;
+  --ico-glue-stripe: #e8505b;
+  --ico-avro: #30638e;
+  --ico-orc: #000000;
+  --ico-orc-mark: #62d04e;
+  --ico-orc-ring: none;
+  --ico-csv: #1d6f42;
+  --ico-notebook: #c2570f;
+  --ico-bronze: #b06a24;
+  --ico-silver: #7d8792;
+  --ico-gold: #a8820a;
+}
+
+/* Dark Colorized: mesma lista, tons ajustados para o fundo grafite. */
+:root[data-icons="colorized"][data-theme="dark"] {
+  --ico-spark: #e25a1c;
+  --ico-iceberg: #4b94cb;
+  --ico-iceberg-water: #90d4f0;
+  --ico-hudi: #5c8fd6;
+  --ico-hudi-back: #0eb1f7;
+  --ico-s3: #7aa116;
+  --ico-duckdb: #000000;
+  --ico-duckdb-duck: #fff100;
+  --ico-duckdb-eye: #000000;
+  --ico-duckdb-ring: #fff100;
+  --ico-duckdb-stripe: #fff100;
+  --ico-delta: #00add4;
+  --ico-delta-wave: #00add4;
+  --ico-parquet: #50abf1;
+  --ico-glue: #ff6b73;
+  --ico-glue-stripe: #ff9aa0;
+  --ico-avro: #7fa8d6;
+  --ico-orc: #000000;
+  --ico-orc-mark: #62d04e;
+  --ico-orc-ring: #62d04e;
+  --ico-csv: #33c481;
+  --ico-notebook: #f37626;
+  --ico-bronze: #cd7f32;
+  --ico-silver: #a8b2bd;
+  --ico-gold: #d4af37;
+}

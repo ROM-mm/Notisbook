@@ -19,6 +19,8 @@ import styles from "./Banner.module.css";
 const THEMES: { pref: ThemePref; label: string }[] = [
   { pref: "light", label: "Light theme" },
   { pref: "dark", label: "Dark theme" },
+  { pref: "light-colorized", label: "Light Colorized theme" },
+  { pref: "dark-colorized", label: "Dark Colorized theme" },
   { pref: "system", label: "System theme" },
 ];
 
