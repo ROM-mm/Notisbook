@@ -355,32 +355,25 @@
   --ico-orc-ring: none;
   --ico-csv: #1d6f42;
   --ico-notebook: #c2570f;
-  --ico-silver: #7d8792;
+  --ico-schema: #7d8792;
 }
 
-/* Dark Colorized: mesma lista, tons ajustados para o fundo grafite. */
+/* Dark Colorized: só as variáveis cujo valor muda no fundo grafite; as demais vêm do bloco acima. */
 :root[data-icons="colorized"][data-theme="dark"] {
-  --ico-spark: #e25a1c;
   --ico-iceberg: #4b94cb;
   --ico-iceberg-water: #90d4f0;
   --ico-hudi: #5c8fd6;
   --ico-hudi-back: #0eb1f7;
   --ico-s3: #7aa116;
-  --ico-duckdb: #000000;
-  --ico-duckdb-duck: #fff100;
-  --ico-duckdb-eye: #000000;
   --ico-duckdb-ring: #fff100;
-  --ico-duckdb-stripe: #fff100;
   --ico-delta: #00add4;
   --ico-delta-wave: #00add4;
   --ico-parquet: #50abf1;
   --ico-glue: #ff6b73;
   --ico-glue-stripe: #ff9aa0;
   --ico-avro: #7fa8d6;
-  --ico-orc: #000000;
-  --ico-orc-mark: #62d04e;
   --ico-orc-ring: #62d04e;
   --ico-csv: #33c481;
   --ico-notebook: #f37626;
-  --ico-silver: #a8b2bd;
+  --ico-schema: #a8b2bd;
 }

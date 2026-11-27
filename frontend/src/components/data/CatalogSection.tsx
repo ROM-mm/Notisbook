@@ -105,12 +105,11 @@ function catalogRowIcon(name: string): ReactNode {
 }
 
 /**
- * Ícone do schema: todo schema (qualquer nome, qualquer catálogo) usa a mesma cor `--ico-silver`,
+ * Ícone do schema: todo schema (qualquer nome, qualquer catálogo) usa a mesma cor `--ico-schema`,
  * que só existe sob `[data-icons="colorized"]`; nos demais temas cai no `currentColor` (mono).
+ * Elemento único, compartilhado por todas as linhas de schema.
  */
-function schemaRowIcon(): ReactNode {
-  return <DatabaseIcon size={14} style={{ stroke: "var(--ico-silver, currentColor)" }} />;
-}
+const SCHEMA_ICON: ReactNode = <DatabaseIcon size={14} style={{ stroke: "var(--ico-schema, currentColor)" }} />;
 
 function tableIcon(t: CatalogTable): ReactNode {
   const icon = tableFormatIcon(t.format);
@@ -188,7 +187,7 @@ function buildItems(catalogs: CatalogNode[], s: { expanded: Record<string, true>
       const tables = d.tables;
       const dkey = schemaKey(c.name, d.name);
       const dOpen = Boolean(s.expanded[dkey]);
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: schemaRowIcon(), expandable: true, open: dOpen });
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: SCHEMA_ICON, expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
         tableRows(c.name, tables, dkey, 3, d.name, out);

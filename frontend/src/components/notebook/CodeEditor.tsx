@@ -19,7 +19,7 @@ import {
   notebookEditorTheme,
   pythonNotebookLanguage,
   pythonRoleHighlight,
-  sqlQualifierHighlight,
+  sqlRoleHighlight,
 } from "./editorTheme";
 
 // Spark SQL usa crase como aspas de identificador; StandardSQL só reconhece `"`.
@@ -54,7 +54,7 @@ function languageExtension(language: EditorLanguage): Extension {
     case "python":
       return [pythonNotebookLanguage(), indentUnit.of("    "), pythonRoleHighlight];
     case "sql":
-      return [sql({ dialect: sparkSqlDialect }), indentUnit.of("  "), sqlQualifierHighlight];
+      return [sql({ dialect: sparkSqlDialect }), indentUnit.of("  "), sqlRoleHighlight];
     case "markdown":
       return [markdown(), EditorView.lineWrapping, markdownEditorTheme];
     case "plain":

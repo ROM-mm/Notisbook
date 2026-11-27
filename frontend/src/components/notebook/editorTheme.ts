@@ -16,7 +16,7 @@ const theme = EditorView.theme({
     color: "var(--color-text)",
     fontSize: "13.5px",
   },
-  // Papéis por decoração (`pythonRoleHighlight`, `sqlQualifierHighlight`). O `*` vence o span da
+  // Papéis por decoração (`pythonRoleHighlight`, `sqlRoleHighlight`). O `*` vence o span da
   // tag do Lezer, aninhado dentro ou fora da marca.
   // Classe/tipo reconhecido, atributo de classe reconhecida (`SparkSession.builder`) e tipo SQL.
   ".cm-py-class, .cm-py-class *, .cm-py-class-attr, .cm-py-class-attr *, .cm-sql-type, .cm-sql-type *": {
@@ -77,19 +77,14 @@ const theme = EditorView.theme({
 });
 
 /*
- * Papéis por tag do Lezer (a regra de uma tag vale para as sub-tags sem regra própria).
- * - keyword: toda palavra reservada — no Python `controlKeyword` (if/for/return…),
- *   `operatorKeyword` (in/not/and/or/is/del), `definitionKeyword` (from/def/class/lambda…),
- *   `moduleKeyword` (import) e `async` (ver `pythonNotebook`); no SQL, `Keyword`. Negrito
- *   sintético (a VT323 só tem o peso 400; `font-synthesis` liberado no editor de código em
- *   global.css).
- * - operator/punctuation (inclui `=`, `==`, `.`, `,`, parênteses): texto base no código.
- * - nome em `def` = function; nome em `class` = type; chamada (`f(`, `.m(`) = function.
- * - `variableName`/`name`/`propertyName` (variável, módulo, atributo, coluna, tabela) = neutro.
- * - `escape` (Python) = escape; `meta` (decorator inteiro, ver `pythonNotebook`) = decorator.
- * Classe/tipo reconhecido, método encadeado e papéis SQL vêm de decoração
- * (`pythonRoleHighlight`, `sqlQualifierHighlight`). Os modificadores do Lezer são
- * normalizados, então a ordem function/definition não importa.
+ * Papéis por tag do Lezer (a regra de uma tag vale para as sub-tags sem regra própria):
+ * keyword = palavra reservada (Python: control/operator/definition/moduleKeyword e `async`, ver
+ * `pythonNotebook`; SQL: `Keyword`), em negrito sintético porque a VT323 só tem o peso 400
+ * (`font-synthesis` liberado no editor em global.css). Operador e pontuação = texto base; nome
+ * em `def` e chamada = function; nome em `class` = type; variável, atributo, coluna e tabela =
+ * neutro; `escape` = escape; `meta` (decorator inteiro) = decorator. Classe/tipo reconhecido,
+ * método encadeado e papéis SQL vêm de decoração (`pythonRoleHighlight`, `sqlRoleHighlight`).
+ * Os modificadores do Lezer são normalizados: a ordem function/definition não importa.
  */
 const highlight = HighlightStyle.define([
   { tag: t.keyword, color: "var(--syntax-keyword)", fontWeight: "700" },
@@ -215,13 +210,14 @@ const sqlIdentMark = Decoration.mark({ class: "cm-sql-ident" });
  * Tipos do Spark que o StandardSQL do lang-sql não lista em `types` (lá eles viriam como
  * `Identifier`, ou `Keyword` no caso de MAP). Definir `types` no dialeto não basta: sem
  * `keywords` o `SQLDialect.define` ignora `types`, e a lista padrão de keywords não é exportada.
+ * São tipo só sem `(` seguinte: `struct(a, b)` e `map(1, 2)` são chamadas (`SQL_CALL_FUNCTIONS`).
  */
 const SPARK_EXTRA_TYPES = new Set(["bigint", "tinyint", "string", "long", "short", "byte", "struct", "map"]);
 /**
  * Palavras do Spark/Delta que o StandardSQL não lista em `keywords` (chegam como `Identifier`) e
  * que não servem de nome de coluna/tabela na prática: sempre keyword.
  */
-const SPARK_EXTRA_KEYWORDS = new Set(["merge", "overwrite", "partitioned", "tblproperties", "zorder"]);
+const SPARK_EXTRA_KEYWORDS = new Set(["merge", "options", "overwrite", "partitioned", "serdeproperties", "tblproperties", "zorder"]);
 /**
  * Palavras de cláusula do Spark que chegam como `Identifier`: sempre keyword, nunca função
  * (`PIVOT (`, `OVER (`, `TABLESAMPLE (`).
@@ -256,10 +252,19 @@ const DELTA_STATEMENT = /^(optimize|vacuum)$/i;
 /** Statements de DDL em que o nome após `USING` é o formato (`CREATE TABLE t USING csv`). */
 const DDL_STATEMENT = /^(create|replace)$/i;
 /**
- * Funções SQL/Spark reconhecidas: cor de função com ou sem `(`, venham como `Identifier` ou como
- * `Keyword` do StandardSQL (COUNT, CAST, CURRENT_TIMESTAMP…).
+ * Funções SQL/Spark invocáveis sem parênteses (`SELECT current_date`): cor de função com ou sem
+ * `(`. No StandardSQL chegam como `Keyword`.
  */
 const SQL_FUNCTIONS = new Set([
+  "current_date",
+  "current_timestamp",
+]);
+/**
+ * Funções SQL/Spark que exigem `(`: cor de função só seguidas de `(`, venham como `Identifier` ou
+ * como `Keyword` do StandardSQL (COUNT, CAST, MAP). Sem `(` o nome é coluna, cláusula, unidade ou
+ * tipo (`SELECT lead`, `LEFT JOIN`, `INTERVAL 1 DAY`, `map<string, int>`) e não recebe esta cor.
+ */
+const SQL_CALL_FUNCTIONS = new Set([
   // agregação
   "count",
   "sum",
@@ -278,16 +283,20 @@ const SQL_FUNCTIONS = new Set([
   "var_samp",
   // janela
   "row_number",
+  "rank",
   "dense_rank",
   "percent_rank",
   "cume_dist",
   "ntile",
   "lag",
   "lead",
+  "first",
+  "last",
   "first_value",
   "last_value",
   "nth_value",
   // condicional e conversão
+  "if",
   "coalesce",
   "nullif",
   "nvl",
@@ -310,13 +319,17 @@ const SQL_FUNCTIONS = new Set([
   "lpad",
   "rpad",
   "initcap",
+  "left",
+  "right",
+  "replace",
+  "position",
+  "length",
+  "split",
   "regexp_replace",
   "regexp_extract",
   "format_string",
   "format_number",
   // data e hora
-  "current_date",
-  "current_timestamp",
   "now",
   "date_add",
   "date_sub",
@@ -330,42 +343,13 @@ const SQL_FUNCTIONS = new Set([
   "months_between",
   "add_months",
   "extract",
-  // coleções, JSON e diversos
-  "explode",
-  "explode_outer",
-  "posexplode",
-  "array_contains",
-  "element_at",
-  "from_json",
-  "to_json",
-  "get_json_object",
-  "md5",
-  "sha2",
-  "monotonically_increasing_id",
-  "input_file_name",
-]);
-/**
- * Funções cujo nome também é palavra de cláusula, unidade ou nome comum de coluna (`LEFT JOIN`,
- * `IF NOT EXISTS`, `INTERVAL 1 DAY`, `SELECT size`): função só seguidas de `(`.
- */
-const SQL_CALL_FUNCTIONS = new Set([
-  "left",
-  "right",
-  "if",
-  "replace",
-  "position",
-  "first",
-  "last",
   "year",
   "month",
   "day",
   "hour",
   "minute",
   "second",
-  "length",
-  "size",
-  "split",
-  "hash",
+  // matemática
   "mod",
   "abs",
   "round",
@@ -378,14 +362,37 @@ const SQL_CALL_FUNCTIONS = new Set([
   "exp",
   "ln",
   "log",
-  "rank",
+  // coleções, JSON e diversos
+  "struct",
+  "map",
+  "size",
+  "explode",
+  "explode_outer",
+  "posexplode",
+  "array_contains",
+  "element_at",
+  "from_json",
+  "to_json",
+  "get_json_object",
+  "hash",
+  "md5",
+  "sha2",
   "uuid",
+  "monotonically_increasing_id",
+  "input_file_name",
 ]);
-/** Palavras após as quais `nome (` abre lista de colunas, não chamada (`INSERT INTO t (`, `WITH c (`). */
-const NAME_BEFORE_COLUMNS = /^(table|into|view|exists|with)$/i;
+/**
+ * Palavras após as quais `nome (` abre lista de colunas, não chamada: `INSERT INTO t (`,
+ * `WITH c (x) AS`, `WITH RECURSIVE r (n) AS`, alias com colunas (`VALUES (1) AS v(a)`).
+ */
+const NAME_BEFORE_COLUMNS = /^(table|into|view|exists|with|recursive|as)$/i;
+/** Keywords que continuam a lista de CTEs (`WITH RECURSIVE a AS (…)`); outra no mesmo nível a encerra. */
+const CTE_LIST_KEYWORDS = /^(as|recursive)$/i;
+/** Keywords após as quais vem o nome de uma CTE (a `,` entre CTEs também). */
+const CTE_NAME_AFTER = /^(with|recursive)$/i;
 
-function isSqlFunction(word: string, callNext: boolean): boolean {
-  return SQL_FUNCTIONS.has(word) || (callNext && SQL_CALL_FUNCTIONS.has(word));
+function isSqlFunction(word: string, call: boolean): boolean {
+  return SQL_FUNCTIONS.has(word) || (call && SQL_CALL_FUNCTIONS.has(word));
 }
 
 /** Tokens do statement em ordem, achatando parênteses; comentários ficam de fora. */
@@ -434,12 +441,44 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
 }
 
 /**
+ * Índices dos nomes seguidos de lista de colunas, não de chamada: após `NAME_BEFORE_COLUMNS` e
+ * após a `,` que separa CTEs (`WITH a AS (…), b (x) AS (…)`). A lista de CTEs vale no nível de
+ * parênteses do WITH até a primeira keyword que não a continua (o SELECT principal) ou até o
+ * `)` que fecha esse nível; um WITH aninhado abre a própria lista. Keyword em posição de nome de
+ * CTE (após `WITH`, `RECURSIVE` ou a `,` do nível) é o nome, não encerra a lista
+ * (`WITH a AS (…), result AS (…), b (x) AS (…)`).
+ */
+function columnListNames(doc: Text, tokens: SyntaxNode[]): Set<number> {
+  const names = new Set<number>();
+  const cteLevels: number[] = [];
+  let depth = 0;
+  tokens.forEach((tok, i) => {
+    const prev = tokens[i - 1];
+    const comma = prev?.name === "Punctuation" && doc.sliceString(prev.from, prev.to) === ",";
+    const cteName = cteLevels.at(-1) === depth && (comma || isKeyword(doc, prev, CTE_NAME_AFTER));
+    if (tok.name === "(") depth++;
+    else if (tok.name === ")") {
+      depth--;
+      while ((cteLevels.at(-1) ?? -1) > depth) cteLevels.pop();
+    } else if (isKeyword(doc, tok, /^with$/i)) cteLevels.push(depth);
+    else if (tok.name === "Keyword" && !cteName && cteLevels.at(-1) === depth && !CTE_LIST_KEYWORDS.test(bareName(doc, tok))) {
+      cteLevels.pop();
+    }
+    if (tokens[i + 1]?.name !== "(") return;
+    if (cteName || isKeyword(doc, prev, NAME_BEFORE_COLUMNS)) names.add(i);
+  });
+  return names;
+}
+
+/**
  * Papéis SQL por statement. Tabela, alias, coluna e qualificador ficam neutros (tag `name`).
- * - `Keyword` que é função reconhecida (COUNT, CAST…) = função; MAP = tipo.
+ * "Chamada" = nome seguido de `(` fora de posição de lista de colunas (ver `columnListNames`).
+ * - `Keyword`: MAP sem `(` = tipo; função reconhecida (COUNT, CAST, MAP…) = função se chamada,
+ *   e as invocáveis sem parênteses (CURRENT_DATE) sempre.
  * - `Identifier`: palavra do Spark/Delta fora da lista do lang-sql = keyword (as ambíguas só no
  *   contexto, ver `contextKeyword`), assim como o formato após `USING` no DDL (`USING csv`);
- *   tipo do Spark fora da lista = tipo; função reconhecida, ou nome seguido de `(` fora de lista
- *   de colunas (`INSERT INTO t (`), = função.
+ *   tipo do Spark fora da lista sem `(` = tipo (`struct<…>`); chamada ou função invocável sem
+ *   parênteses = função.
  * - `QuotedIdentifier` (`` `col` ``, solto ou segmento de `a.b`), cuja tag é `special(string)`,
  *   recebe a marca neutra para não sair com a cor de string.
  * NULL/TRUE/FALSE já chegam como `Null`/`Bool` (cor de constante pela tag).
@@ -447,14 +486,16 @@ function contextKeyword(doc: Text, tokens: SyntaxNode[], i: number): boolean {
 function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: MarkSink): void {
   const tokens = statementTokens(statement, []);
   const isDdl = tokens[0] !== undefined && DDL_STATEMENT.test(bareName(doc, tokens[0]));
+  const columnNames = columnListNames(doc, tokens);
   tokens.forEach((tok, i) => {
     const prev = tokens[i - 1];
     const callNext = tokens[i + 1]?.name === "(";
+    const call = callNext && !columnNames.has(i);
     switch (tok.name) {
       case "Keyword": {
         const word = bareName(doc, tok);
-        if (SPARK_EXTRA_TYPES.has(word)) add(tok.from, tok.to, sqlTypeMark);
-        else if (isSqlFunction(word, callNext)) add(tok.from, tok.to, sqlFunctionMark);
+        if (SPARK_EXTRA_TYPES.has(word) && !callNext) add(tok.from, tok.to, sqlTypeMark);
+        else if (isSqlFunction(word, call)) add(tok.from, tok.to, sqlFunctionMark);
         return;
       }
       case "QuotedIdentifier":
@@ -469,9 +510,9 @@ function sqlStatementRoles(statement: SyntaxNode, doc: Text, add: MarkSink): voi
         const word = bareName(doc, tok);
         if ((isDdl && isKeyword(doc, prev, /^using$/i)) || contextKeyword(doc, tokens, i)) {
           add(tok.from, tok.to, sqlKeywordMark);
-        } else if (SPARK_EXTRA_TYPES.has(word)) {
+        } else if (SPARK_EXTRA_TYPES.has(word) && !callNext) {
           add(tok.from, tok.to, sqlTypeMark);
-        } else if (isSqlFunction(word, callNext) || (callNext && !isKeyword(doc, prev, NAME_BEFORE_COLUMNS))) {
+        } else if (call || SQL_FUNCTIONS.has(word)) {
           add(tok.from, tok.to, sqlFunctionMark);
         }
       }
@@ -498,7 +539,7 @@ function sqlRoles(state: EditorState, ranges: VisibleRanges, add: MarkSink): voi
  * Papéis SQL que o lang-sql não distingue (função, tipo e palavra do Spark, identificador entre
  * aspas). Registrar somente na linguagem SQL (ver `CodeEditor.languageExtension`).
  */
-export const sqlQualifierHighlight: Extension = rolePlugin(sqlRoles);
+export const sqlRoleHighlight: Extension = rolePlugin(sqlRoles);
 
 const pyClassMark = Decoration.mark({ class: "cm-py-class" });
 const pyClassAttrMark = Decoration.mark({ class: "cm-py-class-attr" });

@@ -50,6 +50,8 @@ const stroke2 = {
 
 const LINES_13_31 = "M0 13H32M0 16H32M0 19H32M0 22H32M0 25H32M0 28H32M0 31H32";
 
+const SPARK_STROKE = { stroke: "var(--ico-spark, currentColor)" };
+
 /** Forma do logo do Apache Spark: estrela assimétrica e inclinada, oca, com traço grosso e pontas arredondadas. */
 export const SparkIcon = (p: IconProps) => (
   <TechSvg {...p}>
@@ -59,7 +61,7 @@ export const SparkIcon = (p: IconProps) => (
       strokeWidth="3"
       strokeLinejoin="round"
       strokeLinecap="round"
-      style={{ stroke: "var(--ico-spark, currentColor)" }}
+      style={SPARK_STROKE}
     />
   </TechSvg>
 );
@@ -68,6 +70,8 @@ const ICEBERG_BODY =
   "6.00,10.00 26.50,10.00 27.00,13.00 23.00,17.00 23.00,21.50 20.00,24.00 16.00,30.00 11.00,24.50 11.00,21.00 6.00,13.00";
 
 const ICEBERG_STROKE = { stroke: "var(--ico-iceberg, currentColor)" };
+const ICEBERG_FILL = { fill: "var(--ico-iceberg, currentColor)" };
+const ICEBERG_WATER_STROKE = { stroke: "var(--ico-iceberg-water, currentColor)" };
 
 export const IcebergIcon = (p: IconProps) => {
   const id = useSvgId();
@@ -84,10 +88,10 @@ export const IcebergIcon = (p: IconProps) => {
       </defs>
       <circle cx="16" cy="16" r="14.5" {...stroke2} style={ICEBERG_STROKE} />
       <g clipPath={`url(#${id}-c-ice)`} mask={`url(#${id}-m-ice)`}>
-        <path d={LINES_13_31} strokeWidth="1.6" fill="none" style={{ stroke: "var(--ico-iceberg-water, currentColor)" }} />
+        <path d={LINES_13_31} strokeWidth="1.6" fill="none" style={ICEBERG_WATER_STROKE} />
       </g>
       <line x1="1.5" y1="10" x2="30.5" y2="10" {...stroke2} style={ICEBERG_STROKE} />
-      <polygon points="9,9.5 11,6.5 21,6 24,8 24.5,9.5" stroke="none" style={{ fill: "var(--ico-iceberg, currentColor)" }} />
+      <polygon points="9,9.5 11,6.5 21,6 24,8 24.5,9.5" stroke="none" style={ICEBERG_FILL} />
       <polygon points={ICEBERG_BODY} {...stroke2} style={ICEBERG_STROKE} />
       <path d="M16 10V18L23 17M16 18L20 24" {...stroke2} style={ICEBERG_STROKE} />
     </TechSvg>
@@ -96,7 +100,9 @@ export const IcebergIcon = (p: IconProps) => {
 
 const HUDI_FRONT = "19.00,10.00 29.50,30.00 8.50,30.00";
 const HUDI_STROKE = { stroke: "var(--ico-hudi, currentColor)" };
+const HUDI_FILL = { fill: "var(--ico-hudi, currentColor)" };
 const HUDI_BACK_STROKE = { stroke: "var(--ico-hudi-back, currentColor)" };
+const HUDI_BACK_FILL = { fill: "var(--ico-hudi-back, currentColor)" };
 
 // O HudiIcon reaproveita `LINES_13_31` (compartilhado com o IcebergIcon): a última linha,
 // em y=31, fica fora do clip `HUDI_FRONT` (triângulo com y ≤ 30) e por isso não aparece.
@@ -119,23 +125,37 @@ export const HudiIcon = (p: IconProps) => {
       </g>
       <polygon points={HUDI_FRONT} {...stroke2} style={HUDI_STROKE} />
       <path d="M3.5 21A11 11 0 0 1 8 7.5" {...stroke2} style={HUDI_BACK_STROKE} />
-      <polygon points="6,3.5 12.5,6.8 6.8,11" stroke="none" style={{ fill: "var(--ico-hudi-back, currentColor)" }} />
+      <polygon points="6,3.5 12.5,6.8 6.8,11" stroke="none" style={HUDI_BACK_FILL} />
       <path d="M21.5 3.5A11 11 0 0 1 29.5 16" {...stroke2} style={HUDI_STROKE} />
-      <polygon points="25.5,15.5 32,15 29.3,21.5" stroke="none" style={{ fill: "var(--ico-hudi, currentColor)" }} />
+      <polygon points="25.5,15.5 32,15 29.3,21.5" stroke="none" style={HUDI_FILL} />
     </TechSvg>
   );
 };
 
 const S3_STROKE = { stroke: "var(--ico-s3, currentColor)" };
+const S3_FILL = { fill: "var(--ico-s3, currentColor)" };
 
 export const S3Icon = (p: IconProps) => (
   <TechSvg {...p}>
     <ellipse cx="16" cy="7" rx="13" ry="4" {...stroke2} style={S3_STROKE} />
     <path d="M3 7L6.5 27Q16 31.5 25.5 27L29 7" {...stroke2} style={S3_STROKE} />
-    <circle cx="12" cy="17" r="1.9" stroke="none" style={{ fill: "var(--ico-s3, currentColor)" }} />
+    <circle cx="12" cy="17" r="1.9" stroke="none" style={S3_FILL} />
     <path d="M12 17L28.5 20.8Q31.2 21.6 30.2 23.8L26.3 25.6" {...stroke2} style={S3_STROKE} />
   </TechSvg>
 );
+
+/**
+ * Recortes do disco do DuckDB (cabeça, bico e listras d'água): furos no `<mask>` e, com as mesmas
+ * medidas, preenchimento/traço da camada extra do colorized.
+ */
+const DUCKDB_HEAD = { cx: 13, cy: 14, r: 7 } as const;
+const DUCKDB_BEAK = { x: 17, y: 12.4, width: 11, height: 4.6, rx: 2.3 } as const;
+const DUCKDB_STRIPES = "M0 23.5H32M0 26.7H32M0 29.9H32";
+const DUCKDB_FILL = { fill: "var(--ico-duckdb, currentColor)" };
+const DUCKDB_DUCK_FILL = { fill: "var(--ico-duckdb-duck, transparent)" };
+const DUCKDB_EYE_FILL = { fill: "var(--ico-duckdb-eye, currentColor)" };
+const DUCKDB_STRIPE_STROKE = { stroke: "var(--ico-duckdb-stripe, transparent)" };
+const DUCKDB_RING_STROKE = { stroke: "var(--ico-duckdb-ring, none)" };
 
 export const DuckdbIcon = (p: IconProps) => {
   const id = useSvgId();
@@ -144,9 +164,9 @@ export const DuckdbIcon = (p: IconProps) => {
       <defs>
         <mask id={`${id}-m-duck`}>
           <rect width="32" height="32" fill="#fff" />
-          <circle cx="13" cy="14" r="7" fill="#000" />
-          <rect x="17" y="12.4" width="11" height="4.6" rx="2.3" fill="#000" />
-          <path d="M0 23.5H32M0 26.7H32M0 29.9H32" stroke="#000" strokeWidth="1.4" />
+          <circle {...DUCKDB_HEAD} fill="#000" />
+          <rect {...DUCKDB_BEAK} fill="#000" />
+          <path d={DUCKDB_STRIPES} stroke="#000" strokeWidth="1.4" />
         </mask>
         <clipPath id={`${id}-c-duck`}>
           <circle cx="16" cy="16" r="15" />
@@ -154,31 +174,36 @@ export const DuckdbIcon = (p: IconProps) => {
       </defs>
       {/* Camada extra (só colorized): listras d'água sob os recortes do disco, recortadas ao disco. */}
       <g clipPath={`url(#${id}-c-duck)`}>
-        <path d="M0 23.5H32M0 26.7H32M0 29.9H32" fill="none" strokeWidth="2" style={{ stroke: "var(--ico-duckdb-stripe, transparent)" }} />
+        <path d={DUCKDB_STRIPES} fill="none" strokeWidth="2" style={DUCKDB_STRIPE_STROKE} />
       </g>
       {/* Camada extra (só colorized): preenche os recortes da cabeça e do bico. */}
-      <g stroke="none" style={{ fill: "var(--ico-duckdb-duck, transparent)" }}>
-        <circle cx="13" cy="14" r="7" />
-        <rect x="17" y="12.4" width="11" height="4.6" rx="2.3" />
+      <g stroke="none" style={DUCKDB_DUCK_FILL}>
+        <circle {...DUCKDB_HEAD} />
+        <rect {...DUCKDB_BEAK} />
       </g>
-      <circle cx="16" cy="16" r="15" stroke="none" mask={`url(#${id}-m-duck)`} style={{ fill: "var(--ico-duckdb, currentColor)" }} />
-      <circle cx="15" cy="11" r="1.4" stroke="none" style={{ fill: "var(--ico-duckdb-eye, currentColor)" }} />
+      <circle cx="16" cy="16" r="15" stroke="none" mask={`url(#${id}-m-duck)`} style={DUCKDB_FILL} />
+      <circle cx="15" cy="11" r="1.4" stroke="none" style={DUCKDB_EYE_FILL} />
       {/* Camada extra (só colorized): contorno por dentro da silhueta. */}
-      <circle cx="16" cy="16" r="14.4" fill="none" strokeWidth="1.2" style={{ stroke: "var(--ico-duckdb-ring, none)" }} />
+      <circle cx="16" cy="16" r="14.4" fill="none" strokeWidth="1.2" style={DUCKDB_RING_STROKE} />
     </TechSvg>
   );
 };
 
+const DELTA_FILL = { fill: "var(--ico-delta, currentColor)" };
+const DELTA_WAVE_STROKE = { stroke: "var(--ico-delta-wave, currentColor)" };
+
 export const DeltaIcon = (p: IconProps) => (
   <TechSvg {...p}>
-    <path d="M16 2L28.5 21H3.5ZM16 9.5L9.3 18.5H22.7Z" stroke="none" fillRule="evenodd" style={{ fill: "var(--ico-delta, currentColor)" }} />
-    <path d="M3 24.5H29M6.5 27.6H25.5M10.5 30.6H21.5" {...stroke2} style={{ stroke: "var(--ico-delta-wave, currentColor)" }} />
+    <path d="M16 2L28.5 21H3.5ZM16 9.5L9.3 18.5H22.7Z" stroke="none" fillRule="evenodd" style={DELTA_FILL} />
+    <path d="M3 24.5H29M6.5 27.6H25.5M10.5 30.6H21.5" {...stroke2} style={DELTA_WAVE_STROKE} />
   </TechSvg>
 );
 
+const PARQUET_FILL = { fill: "var(--ico-parquet, currentColor)" };
+
 export const ParquetIcon = (p: IconProps) => (
   <TechSvg {...p}>
-    <g transform="rotate(-45 16 16)" stroke="none" style={{ fill: "var(--ico-parquet, currentColor)" }}>
+    <g transform="rotate(-45 16 16)" stroke="none" style={PARQUET_FILL}>
       <rect x="5.40" y="5.40" width="21.20" height="3" rx="0.6" />
       <rect x="5.40" y="9.95" width="7.60" height="3" rx="0.6" />
       <rect x="14.60" y="9.95" width="12.00" height="3" rx="0.6" />
@@ -210,6 +235,7 @@ const GLUE_STRIPE_YS = ["0.0", "2.5", "5.0", "7.5", "10.0", "12.5", "15.0", "17.
 const glueStripes = (x: number) => GLUE_STRIPE_YS.map((y) => `M${x} ${y}H32`).join("");
 
 const GLUE_STROKE = { stroke: "var(--ico-glue, currentColor)" };
+const GLUE_STRIPE_STROKE = { stroke: "var(--ico-glue-stripe, currentColor)" };
 
 export const GlueIcon = (p: IconProps) => {
   const id = useSvgId();
@@ -223,7 +249,7 @@ export const GlueIcon = (p: IconProps) => {
             </clipPath>
           </defs>
           <g clipPath={`url(#${id}-c-glue-${key})`}>
-            <path d={glueStripes(stripeX)} strokeWidth="1.2" style={{ stroke: "var(--ico-glue-stripe, currentColor)" }} />
+            <path d={glueStripes(stripeX)} strokeWidth="1.2" style={GLUE_STRIPE_STROKE} />
           </g>
           <polygon points={points} fill="none" strokeWidth="1.6" strokeLinejoin="round" style={GLUE_STROKE} />
           <line {...line} strokeWidth="1.6" style={GLUE_STROKE} />
@@ -257,6 +283,9 @@ export const AvroIcon = (p: IconProps) => (
 const ORC_BODY =
   "M5 18.2Q6.6 13.6 9.4 11.2V8.9L12.8 8.6L16 6.4L19.2 8.6L22.6 8.9V11.2Q25.4 13.6 27 18.2L22.2 20.6Q20.2 15.6 16 13.4Q11.8 15.6 9.8 20.6Z";
 const ORC_BELLY = "M16 16.8Q18.4 18.6 19.2 20.6Q18 23.6 16 26.6Q14 23.6 12.8 20.6Q13.6 18.6 16 16.8Z";
+const ORC_FILL = { fill: "var(--ico-orc, currentColor)" };
+const ORC_MARK_FILL = { fill: "var(--ico-orc-mark, transparent)" };
+const ORC_RING_STROKE = { stroke: "var(--ico-orc-ring, none)" };
 
 export const OrcIcon = (p: IconProps) => {
   const id = useSvgId();
@@ -270,13 +299,13 @@ export const OrcIcon = (p: IconProps) => {
         </mask>
       </defs>
       {/* Camada extra (só colorized): preenche os recortes da orca. */}
-      <g stroke="none" style={{ fill: "var(--ico-orc-mark, transparent)" }}>
+      <g stroke="none" style={ORC_MARK_FILL}>
         <path d={ORC_BODY} />
         <path d={ORC_BELLY} />
       </g>
-      <circle cx="16" cy="16" r="15" stroke="none" mask={`url(#${id}-m-orc)`} style={{ fill: "var(--ico-orc, currentColor)" }} />
+      <circle cx="16" cy="16" r="15" stroke="none" mask={`url(#${id}-m-orc)`} style={ORC_FILL} />
       {/* Camada extra (só colorized): contorno por dentro da silhueta. */}
-      <circle cx="16" cy="16" r="14.4" fill="none" strokeWidth="1.2" style={{ stroke: "var(--ico-orc-ring, none)" }} />
+      <circle cx="16" cy="16" r="14.4" fill="none" strokeWidth="1.2" style={ORC_RING_STROKE} />
     </TechSvg>
   );
 };

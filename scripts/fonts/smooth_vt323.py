@@ -11,7 +11,8 @@ Uso (a partir de qualquer diretório):
 
 Entrada: frontend/src/styles/fonts/VT323-Regular.ttf
 Saída:   frontend/src/styles/fonts/VT323Smooth-Regular.ttf
-Determinístico e idempotente: a saída depende só da entrada.
+Determinístico e idempotente apenas com as mesmas versões das bibliotecas
+(versões não fixadas): a saída depende da entrada e dessas versões.
 """
 import sys
 from pathlib import Path
@@ -29,7 +30,8 @@ FONTS_DIR = Path(__file__).resolve().parents[2] / "frontend" / "src" / "styles" 
 SOURCE = FONTS_DIR / "VT323-Regular.ttf"
 TARGET = FONTS_DIR / "VT323Smooth-Regular.ttf"
 
-# Parâmetros aprovados no protótipo; unidades da fonte (UPM 1000), exceto SCALE.
+# Unidades da fonte (UPM 1000), exceto SCALE. Os sigmas definem o quanto os degraus
+# são arredondados; THRESHOLD (isolinha) acima de 0.5 afina levemente o traço.
 SIGMA_X = 24.0
 SIGMA_Y = 32.0
 THRESHOLD = 0.52
