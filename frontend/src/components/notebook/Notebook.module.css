@@ -6,29 +6,20 @@
 
 /* Cores de sintaxe do CodeMirror. Os --sx-* variam por tema em tokens.css;
  * este mapeamento vale para claro e escuro.
- * O export HTML recolore só as classes t-* com a mesma escala de cinzas
- * (_CSS de backend/src/notisbook/export/html_report.py); os dois andam juntos. */
+ * O export HTML (_CSS de backend/src/notisbook/export/html_report.py) ainda usa a
+ * escala de cinzas anterior das células de código e diverge daqui até ser atualizado. */
 .notebook {
   --syntax-text: var(--sx-text, var(--color-text));
   --syntax-keyword: var(--sx-kw);
-  --syntax-control: var(--sx-kw);
-  --syntax-compare: var(--sx-op);
-  --syntax-assign: var(--sx-op);
   --syntax-constant: var(--sx-kw);
   --syntax-string: var(--sx-str);
   --syntax-number: var(--sx-num);
   --syntax-comment: var(--sx-com);
   --syntax-function: var(--sx-fn);
-  --syntax-definition: var(--sx-fn);
   --syntax-punctuation: var(--sx-op);
   --syntax-meta: var(--sx-dec);
-  /* Fora de Python/SQL os papéis de identificador mantêm o mapeamento genérico. */
   --syntax-variable: var(--sx-text, var(--color-text));
   --syntax-class: var(--sx-type);
-  --syntax-module: var(--sx-qual);
-  --syntax-attribute: var(--sx-text, var(--color-text));
-  --syntax-class-call: var(--sx-fn);
-  --syntax-alias: var(--sx-text, var(--color-text));
   --syntax-heading: var(--sx-op);
   --syntax-link: var(--sx-fn);
 
@@ -43,45 +34,24 @@
 
 /* Paleta por linguagem da célula (`data-cell-language`, Cell.tsx); markdown e
  * células sem linguagem ficam no mapeamento padrão de `.notebook`.
- * Python e SQL/DuckDB usam a mesma paleta (--sx-code-*, tokens.css): os papéis
- * comuns ficam no seletor compartilhado; os blocos por linguagem só trazem os
- * papéis de identificador que diferem. Diferenciação só por cor (VT323). */
+ * Python e SQL/DuckDB usam a mesma paleta semântica (--sx-code-*, tokens.css).
+ * Operador, pontuação e identificador (variável, módulo, atributo, tabela, alias,
+ * coluna) ficam no texto base; `--syntax-escape` só existe aqui. */
 .notebook [data-cell-language="python"],
 .notebook [data-cell-language="sql"],
 .notebook [data-cell-language="duckdb"] {
   --syntax-text: var(--sx-code-text);
   --syntax-keyword: var(--sx-code-kw);
-  --syntax-control: var(--sx-code-kw);
-  --syntax-meta: var(--sx-code-kw);
-  --syntax-comment: var(--sx-code-com);
-  --syntax-compare: var(--sx-code-text);
-  --syntax-assign: var(--sx-code-text);
-  --syntax-punctuation: var(--sx-code-text);
-  --syntax-function: var(--sx-code-fn);
+  --syntax-constant: var(--sx-code-const);
   --syntax-string: var(--sx-code-str);
+  --syntax-escape: var(--sx-code-esc);
   --syntax-number: var(--sx-code-num);
-  --syntax-constant: var(--sx-code-num);
-}
-
-.notebook [data-cell-language="python"] {
-  /* Nome em def/class com a cor de chamada; decorator inteiro com a de keyword. */
-  --syntax-definition: var(--sx-code-fn);
-  --syntax-variable: var(--sx-code-var);
-  --syntax-attribute: var(--sx-code-attr);
-  --syntax-module: var(--sx-code-mod);
-  --syntax-class: var(--sx-code-class);
-  --syntax-class-call: var(--sx-code-class-call);
-}
-
-.notebook [data-cell-language="sql"],
-.notebook [data-cell-language="duckdb"] {
-  --syntax-definition: var(--sx-code-text);
-  /* Papéis de identificador no SQL: coluna→variável, tipo→classe, qualificador→módulo, tabela→atributo. */
-  --syntax-variable: var(--sx-code-col);
+  --syntax-comment: var(--sx-code-com);
+  --syntax-function: var(--sx-code-fn);
   --syntax-class: var(--sx-code-type);
-  --syntax-module: var(--sx-code-qual);
-  --syntax-attribute: var(--sx-code-table);
-  --syntax-alias: var(--sx-code-alias);
+  --syntax-meta: var(--sx-code-deco);
+  --syntax-punctuation: var(--sx-code-text);
+  --syntax-variable: var(--sx-code-text);
 }
 
 .notebook::-webkit-scrollbar {

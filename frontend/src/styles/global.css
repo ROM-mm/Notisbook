@@ -194,3 +194,8 @@ kbd {
   --font-sans: var(--font-content);
   font-synthesis: none;
 }
+
+/* Editor das células de código (Python/SQL): libera só o negrito sintético, usado em keyword e método encadeado (editorTheme.ts); itálico segue sem síntese. Markdown, saídas e marca não mudam. */
+[data-cell-language] .cm-editor {
+  font-synthesis: weight;
+}
