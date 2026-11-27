@@ -104,17 +104,12 @@ function catalogRowIcon(name: string): ReactNode {
   return icon ? <BrandIcon icon={icon} /> : <FolderIcon size={14} />;
 }
 
-/** Cor do medalhão por nome de schema (qualquer catálogo); só pinta sob `[data-icons="colorized"]`. */
-const MEDALLION_STROKE = new Map<string, string>([
-  ["bronze", "var(--ico-bronze, currentColor)"],
-  ["silver", "var(--ico-silver, currentColor)"],
-  ["gold", "var(--ico-gold, currentColor)"],
-]);
-
-/** Ícone do schema: `bronze`/`silver`/`gold` (sem diferenciar maiúsculas) levam a cor do medalhão; demais, mono. */
-function schemaRowIcon(name: string): ReactNode {
-  const stroke = MEDALLION_STROKE.get(name.toLowerCase());
-  return stroke ? <DatabaseIcon size={14} style={{ stroke }} /> : <DatabaseIcon size={14} />;
+/**
+ * Ícone do schema: todo schema (qualquer nome, qualquer catálogo) usa a mesma cor `--ico-silver`,
+ * que só existe sob `[data-icons="colorized"]`; nos demais temas cai no `currentColor` (mono).
+ */
+function schemaRowIcon(): ReactNode {
+  return <DatabaseIcon size={14} style={{ stroke: "var(--ico-silver, currentColor)" }} />;
 }
 
 function tableIcon(t: CatalogTable): ReactNode {
@@ -193,7 +188,7 @@ function buildItems(catalogs: CatalogNode[], s: { expanded: Record<string, true>
       const tables = d.tables;
       const dkey = schemaKey(c.name, d.name);
       const dOpen = Boolean(s.expanded[dkey]);
-      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: schemaRowIcon(d.name), expandable: true, open: dOpen });
+      out.push({ key: dkey, kind: "schema", catalog: c.name, schema: d.name, parent: ckey, level: 2, pos: di + 1, size: c.databases.length, label: d.name, icon: schemaRowIcon(), expandable: true, open: dOpen });
       if (dOpen) {
         if (tables.length === 0) out.push({ status: true, key: `empty:${dkey}`, level: 3, text: "No tables", error: false });
         tableRows(c.name, tables, dkey, 3, d.name, out);

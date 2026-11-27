@@ -355,9 +355,7 @@
   --ico-orc-ring: none;
   --ico-csv: #1d6f42;
   --ico-notebook: #c2570f;
-  --ico-bronze: #b06a24;
   --ico-silver: #7d8792;
-  --ico-gold: #a8820a;
 }
 
 /* Dark Colorized: mesma lista, tons ajustados para o fundo grafite. */
@@ -384,7 +382,5 @@
   --ico-orc-ring: #62d04e;
   --ico-csv: #33c481;
   --ico-notebook: #f37626;
-  --ico-bronze: #cd7f32;
   --ico-silver: #a8b2bd;
-  --ico-gold: #d4af37;
 }
